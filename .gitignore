@@ -14,8 +14,6 @@
 *.out
 
 # Ignore specific directories
-/data/
-/Output/
 /save/
 /.ipynb_checkpoints/
 /_pycache_/

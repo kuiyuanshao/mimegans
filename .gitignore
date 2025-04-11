@@ -16,7 +16,7 @@
 # Ignore specific directories
 /save/
 /.ipynb_checkpoints/
-/_pycache_/
+/__pycache__/
 /.Rproj.user/
 
 # Ignore temporary files

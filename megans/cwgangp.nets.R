@@ -90,17 +90,18 @@ Encoder <- torch::nn_module(
     self$norm1 <- nn_layer_norm(embed_dim)
     self$norm2 <- nn_layer_norm(embed_dim)
     
-    self$linear1 <- nn_linear(embed_dim, embed_dim)
-    self$linear2 <- nn_linear(embed_dim, embed_dim)
-    
-    self$gelu <- nnf_gelu
+    self$ff <- torch::nn_sequential(
+      nn_linear(embed_dim, embed_dim*4),
+      nnf_gelu(),
+      nn_linear(embed_dim*4, embed_dim)
+    )
   },
   forward = function(input){
     input <- input$unsqueeze(2)
-    attn_out <- self$dropout1(self$attn(input, input, input)[[1]])
-    attn_out <- self$norm1(input + attn_out)
-    out <- self$dropout2(self$linear2(self$gelu(self$linear1(attn_out))))
-    out <- self$norm2(attn_out + out)
+    attn_out <- self$attn(input, input, input)[[1]]
+    attn_out <- self$norm1(input + self$dropout1(attn_out))
+    out <- self$ff(attn_out)
+    out <- self$norm2(attn_out + self$dropout2(out))
     out <- out$squeeze(2)
     return (out)
   }
@@ -142,13 +143,25 @@ generator <- function(n_g_layers, g_dim, ncols, nphase2, cat_inds, type = "mlp")
       
       self$noise_dim <- g_dim[1]
       dim1 <- g_dim[1] + (ncols - nphase2 + 1) * self$tokenizer$d_token
-      #dim2 <- g_dim[2]
+      dim2 <- g_dim[2]
+      
+      self$proj_layer <- torch::nn_sequential(
+        nn_linear(dim1, dim2),
+        nn_layer_norm(dim2),
+        nn_relu()
+      )
       
       self$seq <- torch::nn_sequential()
       for (i in 1:n_g_layers){
-        self$seq$add_module(paste0("Encoder_", i), Encoder(dim1, self$tokenizer$d_token))
+        self$seq$add_module(paste0("Encoder_", i), Encoder(dim2, 8))
       }
-      self$seq$add_module("Linear", nn_linear(dim1, nphase2))
+      
+      self$output_layer <- torch::nn_sequential(
+        nn_layer_norm(dim2),
+        nn_relu(),
+        nn_linear(dim2, nphase2)
+      )
+      #self$seq$add_module("Linear", nn_linear(g_dim[2], nphase2))
     },
     forward = function(input){
       conditions <- input[, (self$noise_dim + 1):(input$size(2))]
@@ -157,7 +170,10 @@ generator <- function(n_g_layers, g_dim, ncols, nphase2, cat_inds, type = "mlp")
       conditions <- conditions$reshape(c(conditions$size(1), 
                                          conditions$size(2) * conditions$size(3)))
       input <- torch_cat(list(input[, 1:self$noise_dim], conditions), dim = 2)
-      out <- self$seq(input)
+      out <- input %>% 
+        self$proj_layer() %>% 
+        self$seq() %>%
+        self$output_layer()
       return (out)
     }
   )

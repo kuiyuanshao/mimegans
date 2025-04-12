@@ -6,13 +6,14 @@ cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10,
                             g_dim = c(256, 256), pac = 5, 
                             n_g_layers = 5, n_d_layers = 3, 
                             at_least_p = 0.2, discriminator_steps = 1, scaling = 1,
-                            type_d = "mlp"){
+                            type_g = "mlp", type_d = "mlp"){
   list(
     batch_size = batch_size, gamma = gamma, lambda = lambda,
     lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 
     g_weight_decay = g_weight_decay, d_weight_decay = d_weight_decay, 
     g_dim = g_dim, pac = pac, n_g_layers = n_g_layers, n_d_layers = n_d_layers, 
-    at_least_p = at_least_p, discriminator_steps = discriminator_steps, scaling = scaling, type_d = type_d
+    at_least_p = at_least_p, discriminator_steps = discriminator_steps, scaling = scaling, 
+    type_g = type_g, type_d = type_d
   )
 }
 
@@ -76,8 +77,10 @@ mmer.impute.cwgangp <- function(data, m = 5, num.normalizing = "mode", cat.encod
   phase2_t[is.na(phase2_t)] <- 0 
   phase2_t <- torch_tensor(as.matrix(phase2_t), device = device)
   
-  gnet <- generator(n_g_layers, g_dim, ncols, length(phase2_vars))$to(device = device)
-  dnet <- discriminator(n_d_layers, ncols, pac = pac, type_d)$to(device = device)
+  gnet <- generator(n_g_layers, g_dim, ncols, 
+                    length(phase2_vars), unlist(binary_indices_reordered), type_g)$to(device = device)
+  dnet <- discriminator(n_d_layers, ncols, 
+                        pac, unlist(binary_indices_reordered), type_d)$to(device = device)
   
   
   g_solver <- torch::optim_adam(gnet$parameters, lr = lr_g, betas = g_betas, weight_decay = g_weight_decay)

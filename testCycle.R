@@ -11,12 +11,9 @@ source("./megans/generate.impute.R")
 if(!dir.exists('./simulations')){system('mkdir ./simulations')}
 if(!dir.exists('./simulations/megans')){system('mkdir ./simulations/megans')}
 
-if(!dir.exists('./simulations/megans/attn_3_1')){system('mkdir ./simulations/megans/attn_3_1')}
-if(!dir.exists('./simulations/megans/attn_5_3')){system('mkdir ./simulations/megans/attn_5_3')}
-if(!dir.exists('./simulations/megans/mlp_with_pac')){system('mkdir ./simulations/megans/mlp_with_pac')}
-if(!dir.exists('./simulations/megans/mlp_without_pac')){system('mkdir ./simulations/megans/mlp_without_pac')}
+if(!dir.exists('./simulations/megans/attn_g_1_3')){system('mkdir ./simulations/megans/attn_g_1_3')}
 
-for (i in 4:20){
+for (i in 1:20){
   cat("Iteration:", i, "\n")
   digit <- str_pad(i, nchar(4444), pad=0)
   data_nut <- read.csv(paste0("./data/SRS_", digit, ".csv"))
@@ -33,18 +30,12 @@ for (i in 4:20){
                                                                       "high_chol", "usborn", "idx")])
   
   megans_imp.attn <- mmer.impute.cwgangp(data_nut, m = 5, num.normalizing = "mode", cat.encoding = "onehot", 
-                                         device = "cuda", epochs = 10000, 
-                                         params = list(gamma = 1, scaling = 1, n_g_layers = 3, 
-                                                       n_d_layers = 1, pac = 5, type_d = "attn"), 
+                                         device = "cpu", epochs = 10000, 
+                                         params = list(gamma = 1, scaling = 1, n_g_layers = 1, 
+                                                       n_d_layers = 3, pac = 5, 
+                                                       type_g = "attn", type_d = "mlp"), 
                                          data_info = data_info, save.step = 1000)
-  save(megans_imp.attn, file = paste0("./simulations/megans/attn_3_1/", digit, ".RData"))
-  
-  megans_imp.attn <- mmer.impute.cwgangp(data_nut, m = 5, num.normalizing = "mode", cat.encoding = "onehot", 
-                                         device = "cuda", epochs = 10000, 
-                                         params = list(gamma = 1, scaling = 1, n_g_layers = 5, 
-                                                       n_d_layers = 3, pac = 5, type_d = "attn"), 
-                                         data_info = data_info, save.step = 1000)
-  save(megans_imp.attn, file = paste0("./simulations/megans/attn_5_3/", digit, ".RData"))
+  save(megans_imp.attn, file = paste0("./simulations/megans/attn_g_1_3/", digit, ".RData"))
 }
 
 find_coef_var <- function(imp){

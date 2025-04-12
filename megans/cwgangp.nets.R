@@ -13,6 +13,71 @@ Residual <- torch::nn_module(
   }
 )
 
+
+Tokenizer <- nn_module(
+  "Tokenizer",
+  initialize = function(ncols, inds, bias = F, d_token = 8) {
+    self$inds <- inds
+    d_bias <- ncols
+    binary_offsets <- cumsum(c(1, rep(2, length(inds) - 1)))
+    
+    self$register_buffer("binary_offsets", torch_tensor(binary_offsets, dtype = torch_long()))
+    self$binary_embeddings <- nn_embedding(length(inds) * 2, d_token)
+    self$binary_embeddings$weight$requires_grad <- F
+    nn_init_kaiming_uniform_(self$binary_embeddings$weight, a = sqrt(5))
+    
+    self$weight <- nn_parameter(torch_empty(ncols - length(inds) + 1, d_token))
+    self$weight$requires_grad <- False
+    if (bias){
+      self$bias <- nn_parameter(torch_empty(d_bias, d_token))
+    }else{
+      self$bias <- NULL
+    }
+    
+    nn_init_kaiming_uniform_(self$weight, a = sqrt(5))
+    if (!is.null(self$bias)){
+      nn_init_kaiming_uniform_(self$bias, a = sqrt(5))
+      self$bias$requires_grad <- F
+    }
+  },
+  
+  n_tokens = function() {
+    if (length(self$inds) <= 1){
+      return (self$weight$size(1))
+    }else{
+      return (self$binary_offsets$size(1) + self$weight$size(1))
+    }
+  },
+  
+  forward = function(xnum, xcat) {
+    if (length(self$inds) > 0){
+      x_some <- xcat
+    }else{
+      x_some <- xnum
+    }
+    
+    if (is.null(xnum)){
+      x_num <- torch_ones(c(x_some$size(1), 1), device = x_some$device)
+    }else{
+      x_num <- torch_cat(list(torch_ones(c(x_some$size(1), 1), device = x_some$device),
+                              xnum), dim = 2)
+    }
+    
+    x <- self$weight$unsqueeze(1) * x_num$unsqueeze(3)
+    
+    if (length(self$inds) > 0){
+      x <- torch_cat(list(x, self$binary_embeddings(x_some$to(dtype = torch_long()) + self$binary_offsets$unsqueeze(1))), dim = 2)
+    }
+    
+    if (!is.null(self$bias)){
+      bias <- torch_cat(list(torch_zeros(c(1, self$bias$shape(2)), device = x$device)))
+      x <- x + bias$unsqueeze(1)
+    }
+    
+    return (x)
+  }
+)
+
 Encoder <- torch::nn_module(
   "Encoder",
   initialize = function(embed_dim, num_heads){
@@ -39,69 +104,6 @@ Encoder <- torch::nn_module(
     return (out)
   }
 )
-
-Tokenizer <- nn_module(
-  "Tokenizer",
-  initialize = function(ncols, inds, bias = F, d_token = 8) {
-    self$inds <- inds
-    d_bias <- ncols
-    binary_offsets <- cumsum(c(1, rep(2, length(inds) - 1)))
-    
-    self$register_buffer("binary_offsets", torch_tensor(binary_offsets, dtype = torch_long()))
-    self$binary_embeddings <- nn_embedding(length(inds) * 2, d_token)
-    nn_init_kaiming_uniform_(self$binary_embeddings$weight, a = sqrt(5))
-    
-    self$weight <- nn_parameter(torch_empty(ncols - length(inds) + 1, d_token))
-    
-    if (bias){
-      self$bias <- nn_parameter(torch_empty(d_bias, d_token))
-    }else{
-      self$bias <- NULL
-    }
-    
-    nn_init_kaiming_uniform_(self$weight, a = sqrt(5))
-    if (!is.null(self$bias)){
-      nn_init_kaiming_uniform_(self$bias, a = sqrt(5))
-    }
-  },
-  
-  n_tokens = function() {
-    if (length(self$inds) <= 1){
-      return (self$weight$size(1))
-    }else{
-      return (self$binary_offsets$size(1) + self$weight$size(1))
-    }
-  },
-  
-  forward = function(xnum, xcat) {
-    if (length(self$inds) > 0){
-      x_some <- xcat
-    }else{
-      x_some <- xnum
-    }
-    
-    if (is.null(xnum)){
-      x_num <- torch_ones(c(x_some$size(1), 1), device = x_some$device)
-    }else{
-      x_num <- torch_cat(list(torch_ones(c(x_some$size(1), 1), device = x_some$device), 
-                              xnum), dim = 2)
-    }
-    
-    x <- self$weight$unsqueeze(1) * x_num$unsqueeze(3)
-    
-    if (length(self$inds) > 0){
-      x <- torch_cat(list(x, self$binary_embeddings(x_some + self$binary_offsets$unsqueeze(1))), dim = 2)
-    }
-    
-    if (!is.null(self$bias)){
-      bias <- torch_cat(list(torch_zeros(c(1, self$bias$shape(2)), device = x$device)))
-      x <- x + bias$unsqueeze(1)
-    }
-    
-    return (x)
-  }
-)
-
 
 
 generator <- function(n_g_layers, g_dim, ncols, nphase2){
@@ -206,66 +208,3 @@ gradient_penalty <- function(D, real_samples, fake_samples, pac, device) {
   
   return (gradient_penalty)
 }
-
-# 
-# Tokenizer <- nn_module(
-#   "Tokenizer",
-#   initialize = function(ncols, inds, bias = F, d_token = 8) {
-#     self$inds <- inds
-#     d_bias <- ncols
-#     binary_offsets <- cumsum(c(1, rep(2, length(inds) - 1)))
-#     
-#     self$register_buffer("binary_offsets", torch_tensor(binary_offsets, dtype = torch_long()))
-#     self$binary_embeddings <- nn_embedding(length(inds) * 2, d_token)
-#     nn_init_kaiming_uniform_(self$binary_embeddings$weight, a = sqrt(5))
-#     
-#     self$weight <- nn_parameter(torch_empty(ncols - length(inds) + 1, d_token))
-#     
-#     if (bias){
-#       self$bias <- nn_parameter(torch_empty(d_bias, d_token))
-#     }else{
-#       self$bias <- NULL
-#     }
-#     
-#     nn_init_kaiming_uniform_(self$weight, a = sqrt(5))
-#     if (!is.null(self$bias)){
-#       nn_init_kaiming_uniform_(self$bias, a = sqrt(5))
-#     }
-#   },
-#   
-#   n_tokens = function() {
-#     if (length(self$inds) <= 1){
-#       return (self$weight$size(1))
-#     }else{
-#       return (self$binary_offsets$size(1) + self$weight$size(1))
-#     }
-#   },
-#   
-#   forward = function(xnum, xcat) {
-#     if (length(self$inds) > 0){
-#       x_some <- xcat
-#     }else{
-#       x_some <- xnum
-#     }
-#     
-#     if (is.null(xnum)){
-#       x_num <- torch_ones(c(x_some$size(1), 1), device = x_some$device)
-#     }else{
-#       x_num <- torch_cat(list(torch_ones(c(x_some$size(1), 1), device = x_some$device), 
-#                               xnum), dim = 2)
-#     }
-#     
-#     x <- self$weight$unsqueeze(1) * x_num$unsqueeze(3)
-#     
-#     if (length(self$inds) > 0){
-#       x <- torch_cat(list(x, self$binary_embeddings(x_some$to(dtype = torch_long()) + self$binary_offsets$unsqueeze(1))), dim = 2)
-#     }
-#     
-#     if (!is.null(self$bias)){
-#       bias <- torch_cat(list(torch_zeros(c(1, self$bias$shape(2)), device = x$device)))
-#       x <- x + bias$unsqueeze(1)
-#     }
-#     
-#     return (x)
-#   }
-# )

@@ -83,8 +83,8 @@ for (i in 1:n){
     next
   }
   
-  load(paste0("./data/TRUE/NutritionalData_", digit, ".RData"))
-  curr_sample <- read.csv(paste0("./data/SRS_", digit, ".csv"))
+  load(paste0("/nesi/project/uoa03789/PhD/SamplingDesigns/NutritionalData/Output/NutritionalData_", digit, ".RData"))
+  curr_sample <- read.csv(paste0("/nesi/project/uoa03789/PhD/SamplingDesigns/NutritionalData/NutritionalSample/SRS/SRS_", digit, ".csv"))
   
   
   true.1 <- glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + usborn +
@@ -97,20 +97,28 @@ for (i in 1:n){
                       female + bkg_o + bkg_pr, family = gaussian(), data = curr_sample)
   
   load(paste0("./simulations/megans/mlp_with_pac/", digit, ".RData"))
-  imp_coefs_vars.gans.pac <- find_coef_var(imp = megans_imp.mlp$imputation)
+  imp_coefs_vars.gans.pac <- find_coef_var(imp = megans_imp.mlp$step_result[[1]])
   load(paste0("./simulations/megans/mlp_without_pac/", digit, ".RData"))
-  imp_coefs_vars.gans.unpac <- find_coef_var(imp = megans_imp.mlp$imputation)
+  imp_coefs_vars.gans.unpac <- find_coef_var(imp = megans_imp.mlp$step_result[[1]])
   
+  load(paste0("./simulations/megans/attn_3_1/", digit, ".RData"))
+  imp_coefs_vars.gans.attn_31 <- find_coef_var(imp = megans_imp.attn$step_result[[1]])
+  load(paste0("./simulations/megans/attn_5_3/", digit, ".RData"))
+  imp_coefs_vars.gans.attn_53 <- find_coef_var(imp = megans_imp.attn$step_result[[1]])
   
   curr_res.1 <- data.frame(TRUE.Est = coef(true.1),
                            COMPL.Est = coef(complete.1),
                            GANS_PAC.imp.Est = imp_coefs_vars.gans.pac$coef[[1]],
                            GANS_UNPAC.imp.Est = imp_coefs_vars.gans.unpac$coef[[1]],
+                           GANS_ATTN31.imp.Est = imp_coefs_vars.gans.attn_31$coef[[1]],
+                           GANS_ATTN53.imp.Est = imp_coefs_vars.gans.attn_53$coef[[1]],
                            
                            TRUE.Var = diag(vcov(true.1)),
                            COMPL.Var = diag(vcov(complete.1)),
                            GANS_PAC.imp.Var = imp_coefs_vars.gans.pac$var[[1]],
                            GANS_UNPAC.imp.Var = imp_coefs_vars.gans.unpac$var[[1]],
+                           GANS_ATTN31.imp.Var = imp_coefs_vars.gans.attn_31$var[[1]],
+                           GANS_ATTN53.imp.Var = imp_coefs_vars.gans.attn_53$var[[1]],
                            
                            DIGIT = digit)
   
@@ -118,11 +126,15 @@ for (i in 1:n){
                            COMPL.Est = coef(complete.2),
                            GANS_PAC.imp.Est = imp_coefs_vars.gans.pac$coef[[2]],
                            GANS_UNPAC.imp.Est = imp_coefs_vars.gans.unpac$coef[[2]],
+                           GANS_ATTN31.imp.Est = imp_coefs_vars.gans.attn_31$coef[[2]],
+                           GANS_ATTN53.imp.Est = imp_coefs_vars.gans.attn_53$coef[[2]],
                            
                            TRUE.Var = diag(vcov(true.2)),
                            COMPL.Var = diag(vcov(complete.2)),
                            GANS_PAC.imp.Var = imp_coefs_vars.gans.pac$var[[2]],
                            GANS_UNPAC.imp.Var = imp_coefs_vars.gans.unpac$var[[2]],
+                           GANS_ATTN31.imp.Var = imp_coefs_vars.gans.attn_31$var[[2]],
+                           GANS_ATTN53.imp.Var = imp_coefs_vars.gans.attn_53$var[[2]],
                            
                            DIGIT = digit)
   result_df.1[[m]] <- curr_res.1
@@ -135,7 +147,7 @@ pacman::p_load("ggplot2", "tidyr", "dplyr", "RColorBrewer", "ggh4x")
 combined_df.1 <- bind_rows(result_df.1) %>%
   filter(grepl("^c_ln_na_true", rownames(.))) %>%
   pivot_longer(
-    cols = 1:8,
+    cols = 1:12,
     names_to = c("METHOD", "TYPE"),
     names_pattern = "^(.*)\\.(Est|Var)$"
   )
@@ -143,7 +155,7 @@ combined_df.1 <- bind_rows(result_df.1) %>%
 combined_df.2 <- bind_rows(result_df.2) %>%
   filter(grepl("^c_ln_na_true", rownames(.))) %>%
   pivot_longer(
-    cols = 1:8,
+    cols = 1:12,
     names_to = c("METHOD", "TYPE"),
     names_pattern = "^(.*)\\.(Est|Var)$"
   )
@@ -160,8 +172,7 @@ means.2 <- combined_df.2 %>%
 
 
 ggplot(combined_df.1) +
-  geom_boxplot(aes(x = factor(METHOD, levels = c("TRUE", "COMPL",
-                                                 "GANS_PAC.imp", "GANS_UNPAC.imp")),
+  geom_boxplot(aes(x = factor(METHOD, levels = c("TRUE", "COMPL", "GANS_PAC.imp", "GANS_UNPAC.imp", "GANS_ATTN31.imp", "GANS_ATTN53.imp")),
                    y = value)) +
   geom_hline(data = means.1, aes(yintercept = value), linetype = "dashed", color = "black") +
   facet_wrap(~TYPE, scales = "free", ncol = 1,
@@ -181,8 +192,7 @@ ggplot(combined_df.1) +
 ggsave("Imputation_logistic_boxplot.png", width = 10, height = 10, limitsize = F)
 
 ggplot(combined_df.2) +
-  geom_boxplot(aes(x = factor(METHOD, levels = c("TRUE", "COMPL",
-                                                 "GANS_PAC.imp", "GANS_UNPAC.imp")),
+  geom_boxplot(aes(x = factor(METHOD, levels = c("TRUE", "COMPL", "GANS_PAC.imp", "GANS_UNPAC.imp", "GANS_ATTN31.imp", "GANS_ATTN53.imp")),
                    y = value)) +
   geom_hline(data = means.2, aes(yintercept = value), linetype = "dashed", color = "black") +
   facet_wrap(~TYPE, scales = "free", ncol = 1,

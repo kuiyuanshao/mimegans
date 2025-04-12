@@ -14,11 +14,8 @@
 *.out
 
 # Ignore specific directories
-/data/
-/Output/
-/save/
 /.ipynb_checkpoints/
-/_pycache_/
+/__pycache__/
 /.Rproj.user/
 
 # Ignore temporary files

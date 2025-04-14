@@ -15,21 +15,21 @@ Residual <- torch::nn_module(
 
 Tokenizer <- nn_module(
   "Tokenizer",
-  initialize = function(ncols, cat_inds, bias = F, d_token = 8) {
+  initialize = function(ncols, cat_inds, bias = F, token_dim = 8, train) {
     self$cat_inds <- cat_inds
-    self$d_token <- d_token
+    self$token_dim <- token_dim
     d_bias <- ncols
     binary_offsets <- cumsum(c(1, rep(2, length(cat_inds) - 1)))
     
     self$register_buffer("binary_offsets", torch_tensor(binary_offsets, dtype = torch_long()))
-    self$binary_embeddings <- nn_embedding(length(cat_inds) * 2, d_token)
-    self$binary_embeddings$weight$requires_grad <- F
+    self$binary_embeddings <- nn_embedding(length(cat_inds) * 2, token_dim)
+    self$binary_embeddings$weight$requires_grad <- train
     nn_init_kaiming_uniform_(self$binary_embeddings$weight, a = sqrt(5))
     
-    self$weight <- nn_parameter(torch_empty(ncols - length(cat_inds) + 1, d_token))
-    self$weight$requires_grad <- F
+    self$weight <- nn_parameter(torch_empty(ncols - length(cat_inds) + 1, token_dim))
+    self$weight$requires_grad <- train
     if (bias){
-      self$bias <- nn_parameter(torch_empty(d_bias, d_token))
+      self$bias <- nn_parameter(torch_empty(d_bias, token_dim))
     }else{
       self$bias <- NULL
     }
@@ -37,7 +37,7 @@ Tokenizer <- nn_module(
     nn_init_kaiming_uniform_(self$weight, a = sqrt(5))
     if (!is.null(self$bias)){
       nn_init_kaiming_uniform_(self$bias, a = sqrt(5))
-      self$bias$requires_grad <- F
+      self$bias$requires_grad <- train
     }
   },
   
@@ -70,7 +70,7 @@ Tokenizer <- nn_module(
     }
     
     if (!is.null(self$bias)){
-      bias <- torch_cat(list(torch_zeros(c(1, self$bias$shape(2)), device = x$device)))
+      bias <- torch_cat(list(torch_zeros(c(1, self$bias$size(2)), device = x$device)))
       x <- x + bias$unsqueeze(1)
     }
     

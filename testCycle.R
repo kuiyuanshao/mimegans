@@ -12,10 +12,10 @@ source("./megans/discriminators.R")
 
 if(!dir.exists('./simulations')){system('mkdir ./simulations')}
 if(!dir.exists('./simulations/megans')){system('mkdir ./simulations/megans')}
-
+if(!dir.exists('./simulations/megans/attn_g_d_1_1')){system('mkdir ./simulations/megans/attn_g_d_1_1')}
 if(!dir.exists('./simulations/megans/attn_g_1_3')){system('mkdir ./simulations/megans/attn_g_1_3')}
 
-for (i in 1:20){
+for (i in 2:20){
   cat("Iteration:", i, "\n")
   digit <- str_pad(i, nchar(4444), pad=0)
   data_nut <- read.csv(paste0("./data/SRS_", digit, ".csv"))
@@ -32,13 +32,17 @@ for (i in 1:20){
                                                                       "high_chol", "usborn", "idx")])
   
   megans_imp.attn <- mmer.impute.cwgangp(data_nut, m = 5, num.normalizing = "mode", cat.encoding = "onehot", 
-                                         device = "cpu", epochs = 10000, 
+                                         device = "cpu", epochs = 5000, 
                                          params = list(gamma = 1, scaling = 1, n_g_layers = 1, 
                                                        n_d_layers = 1, pac = 5, 
-                                                       type_g = "attn", type_d = "attn"), 
+                                                       token_bias = F, token_learn = T,
+                                                       type_g = "attn", type_d = "attn",
+                                                       g_loss = "gan"), 
                                          data_info = data_info, save.step = 1000)
-  save(megans_imp.attn, file = paste0("./simulations/megans/attn_g_1_3/", digit, ".RData"))
+  save(megans_imp.attn, file = paste0("./simulations/megans/attn_g_d_1_1/", digit, ".RData"))
 }
+
+find_coef_var(megans_imp.attn$imputation)
 
 find_coef_var <- function(imp){
   m_coefs.1 <- NULL

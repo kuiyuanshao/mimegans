@@ -1,8 +1,8 @@
 generator.mlp <- torch::nn_module(
   "Generator",
   initialize = function(n_g_layers, params, ncols, nphase2, cat_inds){
-    dim1 <- params$g_dim[1] + ncols - nphase2
-    dim2 <- params$g_dim[2]
+    dim1 <- params$g_dim + ncols - nphase2
+    dim2 <- params$g_dim
     self$seq <- torch::nn_sequential()
     for (i in 1:n_g_layers){
       self$seq$add_module(paste0("Residual_", i), Residual(dim1, dim2))
@@ -21,11 +21,11 @@ generator.attn <- torch::nn_module(
   initialize = function(n_g_layers, params, ncols, nphase2, cat_inds){
     self$cat_inds <- (cat_inds - nphase2)[(cat_inds - nphase2) > 0]
     self$num_inds <- which(!(1:(ncols - nphase2) %in% self$cat_inds))
-    self$tokenizer <- Tokenizer((ncols - nphase2), self$cat_inds, params$bias_token, params$d_token)
+    self$tokenizer <- Tokenizer((ncols - nphase2), self$cat_inds, params$token_bias, params$token_dim, params$token_learn)
     
-    self$noise_dim <- params$g_dim[1]
-    dim1 <- params$g_dim[1] + (ncols - nphase2 + 1) * self$tokenizer$d_token
-    dim2 <- params$g_dim[2]
+    self$noise_dim <- params$g_dim
+    dim1 <- params$g_dim + (ncols - nphase2 + 1) * self$tokenizer$token_dim
+    dim2 <- params$g_dim
     
     self$proj_layer <- torch::nn_sequential(
       nn_linear(dim1, dim2),

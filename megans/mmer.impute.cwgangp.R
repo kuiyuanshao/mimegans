@@ -3,10 +3,10 @@ pacman::p_load(progress, torch)
 cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10, alpha = 1, beta = 1,
                             lr_g = 1e-4, lr_d = 1e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
                             g_weight_decay = 1e-6, d_weight_decay = 1e-6, 
-                            g_dim = c(256, 256), d_dim = c(256, 256), pac = 5, 
+                            g_dim = 256, d_dim = 256, pac = 5, 
                             n_g_layers = 3, n_d_layers = 1, 
                             at_least_p = 0.2, discriminator_steps = 1, scaling = 1,
-                            bias_token = F, d_token = 8,
+                            token_bias = F, token_dim = 8, token_learn = F,
                             type_g = "mlp", type_d = "mlp", 
                             g_loss = "gan", d_loss = "pacwgan_gp"){
   list(
@@ -16,8 +16,8 @@ cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10, alpha = 1,
     g_dim = g_dim, d_dim = d_dim, 
     pac = pac, n_g_layers = n_g_layers, n_d_layers = n_d_layers, 
     at_least_p = at_least_p, discriminator_steps = discriminator_steps, scaling = scaling, 
-    bias_token = bias_token, d_token = d_token, type_g = type_g, type_d = type_d, 
-    g_loss = g_loss, d_loss = d_loss
+    token_bias = token_bias, token_dim = token_dim, token_learn = token_learn, 
+    type_g = type_g, type_d = type_d, g_loss = g_loss, d_loss = d_loss
   )
 }
 
@@ -92,7 +92,7 @@ mmer.impute.cwgangp <- function(data, m = 5, num.normalizing = "mode", cat.encod
   training_loss <- matrix(0, nrow = epochs, ncol = 2)
   pb <- progress_bar$new(
     format = paste0("Running :what [:bar] :percent eta: :eta | G Loss: :g_loss | D Loss: :d_loss"),
-    clear = FALSE, total = epochs, width = 200)
+    clear = FALSE, total = epochs, width = 100)
   
   if (save.step > 0){
     step_result <- list()
@@ -100,8 +100,6 @@ mmer.impute.cwgangp <- function(data, m = 5, num.normalizing = "mode", cat.encod
   } 
   
   for (i in 1:epochs){
-    d_loss_t <- 0
-    
     for (d in 1:discriminator_steps){
       batch <- samplebatches(data, data_training, list(data_mask, phase1_t, phase2_t), 
                              phase1_rows, phase2_rows, 
@@ -113,7 +111,7 @@ mmer.impute.cwgangp <- function(data, m = 5, num.normalizing = "mode", cat.encod
       M <- batch[[1]]
       I <- M[, 1] == 1
       
-      fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), g_dim[1]))$to(device = device)
+      fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), g_dim))$to(device = device)
       
       fakez_C <- torch_cat(list(fakez, C), dim = 2)
       fake <- gnet(fakez_C)
@@ -145,7 +143,7 @@ mmer.impute.cwgangp <- function(data, m = 5, num.normalizing = "mode", cat.encod
     M <- batch[[1]]
     I <- M[, 1] == 1
     
-    fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), g_dim[1]))$to(device = device)
+    fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), g_dim))$to(device = device)
     fakez_C <- torch_cat(list(fakez, C), dim = 2)
     fake <- gnet(fakez_C)
     

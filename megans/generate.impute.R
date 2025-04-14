@@ -34,7 +34,7 @@ generateImpute <- function(gnet, m = 5,
       C <- batch$C
       M <- batch$M
 
-      fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), g_dim[1]))$to(device = device)
+      fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), g_dim))$to(device = device)
       fakez_C <- torch_cat(list(fakez, C), dim = 2)
       gsample <- gnet(fakez_C)
       gsample <- activation_fun(gsample, data_encode, phase2_vars)

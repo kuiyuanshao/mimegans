@@ -6,9 +6,10 @@ discriminator.mlp <- torch::nn_module(
     
     dim <- self$pacdim
     for (i in 1:n_d_layers) {
-      self$seq$add_module(paste0("Linear", i), nn_linear(dim, dim))
+      self$seq$add_module(paste0("Linear", i), nn_linear(dim, params$d_dim))
       self$seq$add_module(paste0("LeakyReLU", i), nn_leaky_relu(0.2))
-      self$seq$add_module(paste0("Dropout", i), nn_dropout(0.25))
+      self$seq$add_module(paste0("Dropout", i), nn_dropout(0.5))
+      dim <- params$d_dim
     }
     self$seq$add_module("Linear", nn_linear(dim, 1))
   },
@@ -25,25 +26,26 @@ discriminator.attn <- torch::nn_module(
     self$ncols <- ncols
     self$cat_inds <- cat_inds
     self$num_inds <- which(!(1:ncols %in% cat_inds))
-    self$tokenizer <- Tokenizer(ncols, cat_inds, params$bias_token, params$d_token)
+    self$tokenizer <- Tokenizer(ncols, cat_inds, params$token_bias, params$token_dim, params$token_learn)
     
-    self$pacdim <- self$tokenizer$d_token * (ncols + 1) * params$pac
+    self$pacdim <- self$tokenizer$token_dim * (ncols + 1) * params$pac
     
     self$proj_layer <- torch::nn_sequential(
-      nn_linear(self$pacdim, params$d_dim[2]),
-      nn_layer_norm(params$d_dim[2]),
-      nn_relu()
+      nn_linear(self$pacdim, params$d_dim),
+      nn_layer_norm(params$d_dim),
+      nn_relu(),
     )
     
     self$seq <- torch::nn_sequential()
     for (i in 1:n_d_layers) {
-      self$seq$add_module(paste0("Encoder_", i), Encoder(params$d_dim[2], 8))
+      self$seq$add_module(paste0("Encoder_", i), Encoder(params$d_dim, 8))
     }
 
     self$output_layer <- torch::nn_sequential(
-      nn_layer_norm(params$d_dim[2]),
+      nn_layer_norm(params$d_dim),
       nn_relu(),
-      nn_linear(params$d_dim[2], 1)
+      nn_dropout(0.5),
+      nn_linear(params$d_dim, 1)
     )
   },
   forward = function(input) {

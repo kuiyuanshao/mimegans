@@ -1,12 +1,14 @@
 pacman::p_load("survey", "readxl", "stringr", "dplyr", "purrr", "ggplot2", "mice", "progress")
 
 source("./megans/mmer.impute.cwgangp.R")
-source("./megans/cwgangp.nets.R")
 source("./megans/normalizing.R")
 source("./megans/encoding.R")
+source("./megans/utils.R")
 source("./megans/sample.batches.R")
-source("./megans/loss.funs.R")
 source("./megans/generate.impute.R")
+source("./megans/networks.R")
+source("./megans/generators.R")
+source("./megans/discriminators.R")
 
 if(!dir.exists('./simulations')){system('mkdir ./simulations')}
 if(!dir.exists('./simulations/megans')){system('mkdir ./simulations/megans')}
@@ -32,8 +34,8 @@ for (i in 1:20){
   megans_imp.attn <- mmer.impute.cwgangp(data_nut, m = 5, num.normalizing = "mode", cat.encoding = "onehot", 
                                          device = "cpu", epochs = 10000, 
                                          params = list(gamma = 1, scaling = 1, n_g_layers = 1, 
-                                                       n_d_layers = 3, pac = 5, 
-                                                       type_g = "attn", type_d = "mlp"), 
+                                                       n_d_layers = 1, pac = 5, 
+                                                       type_g = "attn", type_d = "attn"), 
                                          data_info = data_info, save.step = 1000)
   save(megans_imp.attn, file = paste0("./simulations/megans/attn_g_1_3/", digit, ".RData"))
 }

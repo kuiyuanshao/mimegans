@@ -1,19 +1,23 @@
 pacman::p_load(progress, torch)
 
-cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10, 
+cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10, alpha = 1, beta = 1,
                             lr_g = 1e-4, lr_d = 1e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
                             g_weight_decay = 1e-6, d_weight_decay = 1e-6, 
-                            g_dim = c(256, 256), pac = 5, 
-                            n_g_layers = 5, n_d_layers = 3, 
+                            g_dim = c(256, 256), d_dim = c(256, 256), pac = 5, 
+                            n_g_layers = 3, n_d_layers = 1, 
                             at_least_p = 0.2, discriminator_steps = 1, scaling = 1,
-                            type_g = "mlp", type_d = "mlp"){
+                            bias_token = F, d_token = 8,
+                            type_g = "mlp", type_d = "mlp", 
+                            g_loss = "gan", d_loss = "pacwgan_gp"){
   list(
-    batch_size = batch_size, gamma = gamma, lambda = lambda,
+    batch_size = batch_size, gamma = gamma, lambda = lambda, alpha = alpha, beta = beta, 
     lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 
     g_weight_decay = g_weight_decay, d_weight_decay = d_weight_decay, 
-    g_dim = g_dim, pac = pac, n_g_layers = n_g_layers, n_d_layers = n_d_layers, 
+    g_dim = g_dim, d_dim = d_dim, 
+    pac = pac, n_g_layers = n_g_layers, n_d_layers = n_d_layers, 
     at_least_p = at_least_p, discriminator_steps = discriminator_steps, scaling = scaling, 
-    type_g = type_g, type_d = type_d
+    bias_token = bias_token, d_token = d_token, type_g = type_g, type_d = type_d, 
+    g_loss = g_loss, d_loss = d_loss
   )
 }
 
@@ -77,11 +81,10 @@ mmer.impute.cwgangp <- function(data, m = 5, num.normalizing = "mode", cat.encod
   phase2_t[is.na(phase2_t)] <- 0 
   phase2_t <- torch_tensor(as.matrix(phase2_t), device = device)
   
-  gnet <- generator(n_g_layers, g_dim, ncols, 
-                    length(phase2_vars), unlist(binary_indices_reordered), type_g)$to(device = device)
-  dnet <- discriminator(n_d_layers, ncols, 
-                        pac, unlist(binary_indices_reordered), type_d)$to(device = device)
-  
+  gnet <- do.call(paste("generator", type_g, sep = "."), 
+                  args = list(n_g_layers, params, ncols, length(phase2_vars), unlist(binary_indices_reordered)))$to(device = device)
+  dnet <- do.call(paste("discriminator", type_d, sep = "."), 
+                  args = list(n_d_layers, params, ncols, unlist(binary_indices_reordered)))$to(device = device)
   
   g_solver <- torch::optim_adam(gnet$parameters, lr = lr_g, betas = g_betas, weight_decay = g_weight_decay)
   d_solver <- torch::optim_adam(dnet$parameters, lr = lr_d, betas = d_betas, weight_decay = d_weight_decay)
@@ -124,15 +127,11 @@ mmer.impute.cwgangp <- function(data, m = 5, num.normalizing = "mode", cat.encod
       fake_C_I <- torch_cat(list(fake_I, C_I), dim = 2)
       true_C_I <- torch_cat(list(true_I, C_I), dim = 2)
       
-      y_fake <- dnet(fake_C_I)
-      y_true <- dnet(true_C_I)
-      gradient_penalty<- gradient_penalty(dnet, true_C_I, fake_C_I, pac = pac, device = device)
-      
-      d_loss <- -(torch_mean(y_true) - torch_mean(y_fake)) 
-      d_loss_gp <- d_loss + lambda * gradient_penalty
+      d_loss <- do.call(paste("d_loss", params$d_loss, sep = "."), 
+                        list(dnet, true_C_I, fake_C_I, params, device))
       
       d_solver$zero_grad()
-      d_loss_gp$backward()
+      d_loss$backward()
       d_solver$step()
     }
     
@@ -158,17 +157,19 @@ mmer.impute.cwgangp <- function(data, m = 5, num.normalizing = "mode", cat.encod
     fake_act_C_I <- torch_cat(list(fake_I_act, C_I), dim = 2)
     
     y_fake <- dnet(fake_act_C_I)
-    g_loss <- gamma * -torch_mean(y_fake) 
+    g_loss <- do.call(paste("g_loss", params$g_loss, sep = "."), 
+                      list(y_fake, params, true_I, fake_I_act, 
+                           num_inds, cat_inds, data_encode, phase2_vars))
     
     g_solver$zero_grad()
     g_loss$backward()
     g_solver$step()
     
-    training_loss[i, ] <- c(g_loss$item(), d_loss_gp$item())
+    training_loss[i, ] <- c(g_loss$item(), d_loss$item())
     pb$tick(tokens = list(
       what = "cWGAN-GP",
       g_loss = sprintf("%.4f", g_loss$item()),
-      d_loss = sprintf("%.4f", d_loss_gp$item())
+      d_loss = sprintf("%.4f", d_loss$item())
     ))
     Sys.sleep(1 / 10000)
     
@@ -200,7 +201,8 @@ mmer.impute.cwgangp <- function(data, m = 5, num.normalizing = "mode", cat.encod
          batch_size, g_dim, device, phase1_t, phase2_t, file = paste0("mmer.impute.cwgangp_", formatted_time, ".RData"))
   }
   
-  return (list(imputation = result$imputation, gsample = result$gsample, 
+  return (list(imputation = result$imputation, 
+               gsample = result$gsample, 
                loss = training_loss,
                step_result = step_result))
 }

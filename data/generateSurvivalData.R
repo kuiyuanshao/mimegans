@@ -1,152 +1,76 @@
-####### generate Survival Population #######
-pacman::p_load('data.table', 'mvtnorm', 'magrittr', 'dplyr', 'MASS')
+#################################### Generate Survival Population ####################################
+pacman::p_load('data.table', 'bindata', 'magrittr', 'dplyr', 'MASS', 'sim1000G')
 
-#Demographics: Variables such as sex, race, ethnicity, and insurance type.
-#Diagnostic Codes: ICD codes, which are often stored categorically.
-#Medications and Procedures: Often represented as binary indicators (yes/no) or categorical groupings.
-#Other Indicators: Variables like smoking status or comorbidity flags, which are usually binary or categorical.
-
-#Categorical Variables: Sex, Hypertension, Diabetes, Race, BMI category, 
-####################### Insurance Status, Smoking Status, ICU Admission Before, Emergency Department Present Before
-####################### 
-#Numeric Variables: BMI, Weight, Height, SBP, Pulse, ICU Admission Counts, EDP Counts, 
-
-generateErrorFreeCatVars <- function(ncat = 40, range = 6, seed = 1234){
-  set.seed(seed)
-  cats <- lapply(1:ncat, function(i){1:sample(2:range, 1)})
-  probs <- lapply(1:ncat, function(i){0.1 + (x <- runif(length(cats[[i]])))/sum(x) * (1 - 0.1*length(cats[[i]]))})
-  
-  n3 <- sample(1:5, 1)
-  n2 <- sample(2:10, 1)
-  n1 <- ncat - n3 * 3 - n2 * 2
-  pairsVars <- list(1:n1, (n1 + 1):(n1 + n2 * 2), (n1 + n2 * 2 + 1):(n1 + n2 * 2 + n3 * 3))
-  
-  return (list(cats = cats, probs = probs, pairsVars = pairsVars))
-  #save(cats, probs, file = "./ErrorFreeCatVars.RData")
-}
-simErrorFreeCatVars = function(data, p, cat1 = 1:2, cat2 = 1:3, names){
-  tb <- expand.grid(cat1, cat2)
-  colnames(tb) <- c(names[1], names[2])
-  tb$idx <- 1:nrow(tb)
-  tb$prob <- p
-  
-  data$idx <- apply(rmultinom(nrow(data), size = 1, prob = tb$prob), 2, which.max)
-  data <- merge(data, subset(tb, select = -prob), by = 'idx', all.x = T)
-  data$idx <- NULL
-  data <- data[order(data$id),]
-  return (data)
-}
-
-
-generateSurvivalData <- function(digit, n = 100, 
-                                 p_total = 120, prop_epv = 0.4, prop_cat = 0.6, 
-                                 seed = 1234) {
+generateSurvivalData <- function(digit, seed){
   set.seed(seed)
   
-  pop <- data.table(id = 1:n)
-  expit <- function(x) {exp(x)/(1+exp(x))}
+  n <- 2e4
+  data <- data.table(ID = 1:n)
+  data$AGE <- runif(n, 35, 85)
+  # 0 For 45% Female, 1 For 55% Male
+  data$SEX <- rbinom(n, 1, 0.55)
+  # 50% Euro, 20% Black, 20% Asian, 10% Other
+  data$RACE <- sample(1:4, size = n, replace = T, c(0.5, 0.2, 0.2, 0.1)) 
+  # SMOKE ~ AGE + SEX
+  design_SMOKE <- model.matrix(~ I(AGE - 40) + SEX, data)
+  betas_SMOKE <- rbind(c(-1, 0.01, 0.4),
+                       c(-1, 0.02, -0.3))
+  lp_SMOKE <- exp(cbind(rep(0, n), design_SMOKE %*% t(betas_SMOKE)))
+  probmat_SMOKE <- lp_SMOKE / rowSums(lp_SMOKE)
+  cummat_SMOKE <- t(apply(probmat_SMOKE, 1, cumsum))
+  data$SMOKE <- max.col(cummat_SMOKE >= runif(n), ties.method = "first")
+  # EXER ~ AGE + SEX
+  design_EXER <- model.matrix(~ I(AGE - 40) + SEX, data)
+  betas_EXER <- rbind(c(-1, -0.01, 0),
+                       c(-3, 0, 0.8))
+  lp_EXER <- exp(cbind(rep(0, n), design_EXER %*% t(betas_EXER)))
+  probmat_EXER <- lp_EXER / rowSums(lp_EXER)
+  cummat_EXER <- t(apply(probmat_EXER, 1, cumsum))
+  data$EXER <- max.col(cummat_EXER >= runif(n), ties.method = "first")
+  # ALC ~ AGE + SEX + SMOKE
+  design_ALC <- model.matrix(~ I(AGE - 20) + SEX + I(SMOKE == 1) + I(SMOKE == 2), data)
+  betas_ALC <- rbind(c(-1, -0.02, 0.15, 0.5, 0.3),
+                     c(-2, -0.03, 0.5, 1.0, 0.7))
+  lp_ALC <- exp(cbind(rep(0, n), design_ALC %*% t(betas_ALC)))
+  probmat_ALC <- lp_ALC / rowSums(lp_ALC)
+  cummat_ALC <- t(apply(probmat_ALC, 1, cumsum))
+  data$ALC <- max.col(cummat_ALC >= runif(n), ties.method = "first")
+  # SUBS ~ AGE + SEX + SMOKE * ALC
+  design_SUBS <- model.matrix(~ AGE + SEX + I(SMOKE == 2) + I(SMOKE == 3) +
+                                I(ALC == 2) + I(ALC == 3) + I(SMOKE == 2) * I(ALC == 3), data)
+  betas_SUBS <- rbind(c(-2, 0.05, 0.1, 0.5, 0.3, 0.4, 0.6, 0),
+                      c(-4, 0.01, 0.2, 0.8, 0.5, 0.5, 1.0, 0.7), 
+                      c(-5, 0.02, 0.3, 1.5, 0.8, 0.8, 1.5, 1.0))
+  lp_SUBS <- exp(cbind(rep(0, n), design_SUBS %*% t(betas_SUBS)))
+  probmat_SUBS <- lp_SUBS / rowSums(lp_SUBS)
+  cummat_SUBS <- t(apply(probmat_SUBS, 1, cumsum))
+  data$SUBS <- max.col(cummat_SUBS >= runif(n), ties.method = "first")
+  # BMI ~ AGE + SEX + EXER + EXER * AGE + G_07
+  design_BMI <- model.matrix(~ I(AGE - 30) + SEX + I(EXER == 1) + I(EXER == 2) +
+                               I(EXER == 3) + I(EXER == 3) * I(AGE - 30) + G_07, data)
+  betas_BMI <- c(18, 0.3, 0.1, 0.6, 0.1, -0.2, -0.1, 0.2)
+  data$BMI <- design_BMI %*% betas_BMI + rnorm(n, 0, 0.05)
+  # MARRIAGE ~ AGE + BMI + SMOKE * ALC
+  design_MARRIAGE <- model.matrix(~ I(AGE - 30) + BMI + I(SMOKE == 2) * I(ALC == 3), data)
+  betas_MARRIAGE <- rbind(c(-2, 0.10, -0.002, 0, 0, 0.2), 
+                          c(-5, 0.15, 0.003, 0.001, 0.1, 0.1))
+  lp_MARRIAGE <- exp(cbind(rep(0, n), design_MARRIAGE %*% t(betas_MARRIAGE)))
+  probmat_MARRIAGE <- lp_MARRIAGE / rowSums(lp_MARRIAGE)
+  cummat_MARRIAGE <- t(apply(probmat_MARRIAGE, 1, cumsum))
+  data$MARRIAGE <- max.col(cummat_MARRIAGE >= runif(n), ties.method = "first")
+  # Simple Measurements
+  # SBP ~ AGE + SEX + RACE + EXER + SMOKE + ALC + SUBS + BMI 
+  design_SBP <- model.matrix(~ I(AGE - 60) + SEX + I(RACE == 1) + I(RACE == 2) +
+                               I(EXER == 2) + I(EXER == 3) + I(SMOKE == 2) + I(ALC == 3) + I(SUBS == 4) + I(BMI - 25), data)
+  betas_SBP <- c(130, 0.6, 4, 5, -2, -2, -4, 1, 0.5, 2, 1.2)
+  data$SBP <- round(design_SBP %*% betas_SBP + rnorm(n, 0, 0.1))
+  # DBP ~ AGE + SEX + RACE + EXER + SMKE + ALC + SUBS + BMI
+  design_DBP <- model.matrix(~ I(AGE - 60) + SEX + I(RACE == 1) + I(RACE == 2) +
+                               I(EXER == 2) + I(EXER == 3) + I(SMOKE == 2) + I(ALC == 3) + I(SUBS == 4) + I(BMI - 25), data)
+  betas_DBP <- c(80, 0.3, 2, 3, -1.5, -1, -2, 0.5, 0.2, 1, 0.7)
+  data$DBP <- round(design_DBP %*% betas_DBP + rnorm(n, 0, 0.1))
+  # HYPERTENSION
+  data$HYPERTENSION <- with(data, SBP >= 140 | DBP >= 90)
   
-  ### Simulate Multivariate Normal Covariates ###
   
-  nepv <- round(p_total * prop_epv)
-  nefv <- p_total - nepv
-  
-  nefv_cat <- round(nefv * prop_cat)
-  nefv_cont <- nefv - nefv_cat
-  
-  for (i in 1:nefv_cat){
-    cat1 <- 1:sample(2:6, 1)
-    cat2 <- 1:sample(2:6, 1)
-    pop <- sim_catvars(pop, p = diff(sort(c(0, runif(length(cat1) * length(cat2) - 1), 1))), 
-                       cat1 = cat1, cat2 = cat2,
-                       names = )
-  }
-  
-  X <- rmvnorm(n, mean = rep(0, p_total), sigma = diag(p_total))
-  X <- as.data.table(X)
-  setnames(X, paste0("X", 1:p_total))
-  
-  ### Split Covariates into Groups ###
-  p_epv  <- round(p_total * prop_epv)
-  p_vepv <- round(p_total * prop_vepv)
-  p_efv  <- p_total - p_epv - p_vepv
-  
-  # EPV: Error-Prone Variables (simulate measurement error)
-  EPV_true <- X[, 1:p_epv, with = FALSE]
-  EPV_obs  <- copy(EPV_true)
-  EPV_obs  <- EPV_obs + data.table(matrix(rnorm(n * p_epv, mean = 0, sd = 0.5), nrow = n))
-  setnames(EPV_obs, paste0("EPV", 1:p_epv))
-  
-  # VEPV: Validated Error-Prone Variables (simulate with error, but true values are saved separately)
-  VEPV_true <- X[, (p_epv + 1):(p_epv + p_vepv), with = FALSE]
-  VEPV_obs  <- copy(VEPV_true)
-  VEPV_obs  <- VEPV_obs + data.table(matrix(rnorm(n * p_vepv, mean = 0, sd = 0.5), nrow = n))
-  setnames(VEPV_obs, paste0("VEPV", 1:p_vepv))
-  
-  # EFV: Error-Free Variables (observed exactly)
-  EFV <- X[, (p_epv + p_vepv + 1):p_total, with = FALSE]
-  setnames(EFV, paste0("EFV", 1:p_efv))
-  
-  ### Convert a Percentage of EPV and EFV to Categorical ###
-  # For EPV: randomly select cat_percent columns and discretize them
-  num_cat_epv <- round(ncol(EPV_obs) * cat_percent)
-  if (num_cat_epv > 0) {
-    cat_epv_cols <- sample(colnames(EPV_obs), size = num_cat_epv, replace = FALSE)
-    for (col in cat_epv_cols) {
-      EPV_obs[[col]] <- cut(EPV_obs[[col]],
-                            breaks = quantile(EPV_obs[[col]], probs = seq(0, 1, length.out = 4), na.rm = TRUE),
-                            include.lowest = TRUE,
-                            labels = c("Low", "Medium", "High"))
-    }
-  }
-  
-  # For EFV: randomly select cat_percent columns and discretize them
-  num_cat_efv <- round(ncol(EFV) * cat_percent)
-  if (num_cat_efv > 0) {
-    cat_efv_cols <- sample(colnames(EFV), size = num_cat_efv, replace = FALSE)
-    for (col in cat_efv_cols) {
-      EFV[[col]] <- cut(EFV[[col]],
-                        breaks = quantile(EFV[[col]], probs = seq(0, 1, length.out = 4), na.rm = TRUE),
-                        include.lowest = TRUE,
-                        labels = c("Low", "Medium", "High"))
-    }
-  }
-  
-  ### Combine All Observed Covariates ###
-  covariates_obs <- cbind(EPV_obs, VEPV_obs, EFV)
-  pop <- cbind(pop, covariates_obs)
-  
-  ### Simulate Survival Outcome ###
-  # For the survival model, we use the true (error-free) covariate matrix X.
-  # Here, we assume a Cox proportional hazards model:
-  #   hazard(t) = h0 * exp(lp), where lp = X * beta
-  beta <- rnorm(p_total, mean = 0, sd = 0.2)  # Random coefficients for illustration
-  lp <- as.matrix(X) %*% beta
-  baseline_hazard <- 0.01
-  
-  # Generate survival times
-  survival_time <- -log(runif(n)) / (baseline_hazard * exp(lp))
-  # Simulate independent censoring times
-  censoring_time <- rexp(n, rate = 0.001)
-  time <- pmin(survival_time, censoring_time)
-  event <- as.numeric(survival_time <= censoring_time)
-  
-  # Append survival outcome to the population data.table
-  pop[, time := time]
-  pop[, event := event]
-  
-  ### Save the Data ###
-  output_dir <- '../SurvivalData/Output'
-  if (!dir.exists(output_dir)) {
-    dir.create(output_dir, recursive = TRUE)
-  }
-  save(pop, file = paste0(output_dir, "/SurvivalData_", digit, ".RData"), compress = "xz")
-  
-  return(pop)
 }
-
-# Example usage:
-# This will simulate a survival population with 4000 individuals and 120 covariates,
-# then save the data to "../SurvivalData/Output/SurvivalData_digit.RData".
-simulated_pop <- generateSurvivalData(digit = "001", n = 4000, p_total = 120)
-head(simulated_pop)

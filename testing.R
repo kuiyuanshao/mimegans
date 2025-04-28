@@ -43,7 +43,7 @@ for (i in 2:20){
                                          data_info = data_info, save.step = 1000)
   save(megans_imp.attn, file = paste0("./simulations/megans/attn_projd_3_1/", digit, ".RData"))
 }
-find_coef_var(megans_imp.attn$imputation)
+
 find_coef_var <- function(imp){
   m_coefs.1 <- NULL
   m_coefs.2 <- NULL
@@ -60,23 +60,48 @@ find_coef_var <- function(imp){
     m_vars.1 <- rbind(m_vars.1, diag(vcov(imp_mod.1)))
     m_vars.2 <- rbind(m_vars.2, diag(vcov(imp_mod.2)))
   }
+  var_between.1 <- apply(m_coefs.1, 2, var)
+  var_between.2 <- apply(m_coefs.2, 2, var)
+  var.1 <- 1/length(imp) * colSums(m_vars.1) + (length(imp) + 1) / length(imp) * var_between.1
+  var.2 <- 1/length(imp) * colSums(m_vars.2) + (length(imp) + 1) / length(imp) * var_between.2
   
-  var.1 <- 1/length(imp) * colSums(m_vars.1) +  (length(imp) + 1) * apply(m_coefs.1, 2, var) / length(imp)
-  #var.1.2 <- (length(imp) + 1) * apply(m_coefs.1, 2, var) / length(imp)
-  var.2 <- 1/length(imp) * colSums(m_vars.2) + (length(imp) + 1) * apply(m_coefs.2, 2, var) / length(imp)
-  #var.2.2 <- (length(imp) + 1) * apply(m_coefs.2, 2, var) / length(imp)
-  return (list(coef = list(colMeans(m_coefs.1), colMeans(m_coefs.2)), var = list(var.1, var.2)))
+  lambda.1 <- (var_between.1 + var_between.1 / length(imp)) / var.1
+  lambda.2 <- (var_between.2 + var_between.2 / length(imp)) / var.2
+  df_old.1 <- (length(imp) - 1) / (lambda.1 ^ 2)
+  df_old.2 <- (length(imp) - 1) / (lambda.2 ^ 2)
+  df_obs.1 <- (imp_mod.1$df.residual + 1) / (imp_mod.1$df.residual + 3) * imp_mod.1$df.residual * (1 - lambda.1)
+  df_obs.2 <- (imp_mod.2$df.residual + 1) / (imp_mod.2$df.residual + 3) * imp_mod.2$df.residual * (1 - lambda.2)
+  
+  df_adj.1 <- (df_old.1 * df_obs.1) / (df_old.1 + df_obs.1)
+  df_adj.2 <- (df_old.2 * df_obs.2) / (df_old.2 + df_obs.2)
+  
+  return (list(coef = list(colMeans(m_coefs.1), colMeans(m_coefs.2)), var = list(var.1, var.2),
+               df_adj = list(df_adj.1, df_adj.2)))
+}
+
+
+CI_coverage <- function(output, true_coef.1, true_coef.2){
+  lower.1 <- output$coef[[1]] - qt(0.975, output$df_adj[[1]]) * sqrt(output$var[[1]])
+  upper.1 <- output$coef[[1]] + qt(0.975, output$df_adj[[1]]) * sqrt(output$var[[1]])
+  
+  lower.2 <- output$coef[[2]] - qt(0.975, output$df_adj[[2]]) * sqrt(output$var[[2]])
+  upper.2 <- output$coef[[2]] + qt(0.975, output$df_adj[[2]]) * sqrt(output$var[[2]])
+  
+  logistic <- (true_coef.1 >= lower.1) & (true_coef.1 <= upper.1)
+  linear <- (true_coef.2 >= lower.2) & (true_coef.2 <= upper.2)
+  return (list(logistic, linear))
 }
 
 n <- 20
 result_df.1 <- vector("list", n)
 result_df.2 <- vector("list", n)
 m <- 1
-
+CI_coverage_df.mice <- vector("list", n)
+CI_coverage_df.gans <- vector("list", n)
 for (i in 1:n){
   digit <- str_pad(i, nchar(4444), pad=0)
   
-  if (!file.exists(paste0("./simulations/megans/mlp_with_pac/", digit, ".RData"))){
+  if (!file.exists(paste0("./simulations/megans/attn_projd_3_1/", digit, ".RData"))){
     next
   }
   
@@ -93,69 +118,60 @@ for (i in 1:n){
   complete.2 <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + usborn +
                       female + bkg_o + bkg_pr, family = gaussian(), data = curr_sample)
   
-  load(paste0("./simulations/megans/mlp_with_pac/", digit, ".RData"))
-  imp_coefs_vars.gans.pac <- find_coef_var(imp = megans_imp.mlp$imputation)
-  # load(paste0("./simulations/megans/mlp_without_pac/", digit, ".RData"))
-  # imp_coefs_vars.gans.unpac <- find_coef_var(imp = megans_imp.mlp$imputation)
-  load(paste0("./simulations/megans/attn_g_1_3/", digit, ".RData"))
-  imp_coefs_vars.gans.attn_g_13 <- find_coef_var(imp = megans_imp.attn$imputation)
-  # load(paste0("./simulations/megans/attn_g_d_1_1/", digit, ".RData"))
-  # imp_coefs_vars.gans.attn_g_d_11 <- find_coef_var(imp = megans_imp.attn$imputation)
-  load(paste0("./simulations/megans/attn_d_3_1/", digit, ".RData"))
-  imp_coefs_vars.gans.attn_31 <- find_coef_var(imp = megans_imp.attn$imputation)
-  load(paste0("./simulations/megans/attn_d_5_3/", digit, ".RData"))
-  imp_coefs_vars.gans.attn_53 <- find_coef_var(imp = megans_imp.attn$imputation)
+  load(paste0("./simulations/megans/attn_projd_3_1/", digit, ".RData"))
+  imp_coefs_vars.gans.pac <- find_coef_var(imp = megans_imp.attn$imputation)
+
+  load(paste0("/nesi/project/uoa03789/PhD/SamplingDesigns/WeightsDesign/Test/testMICE/pmm/MICE_IMPUTE_", digit, ".RData"))
+  imp_coefs_vars.mice <- find_coef_var(imp = imputed_data_list)
   
   curr_res.1 <- data.frame(TRUE.Est = coef(true.1),
                            COMPL.Est = coef(complete.1),
-                           GANS_PAC.imp.Est = imp_coefs_vars.gans.pac$coef[[1]],
-                           # GANS_UNPAC.imp.Est = imp_coefs_vars.gans.unpac$coef[[1]],
-                           GANS_ATTN_D31.imp.Est = imp_coefs_vars.gans.attn_31$coef[[1]],
-                           GANS_ATTN_D53.imp.Est = imp_coefs_vars.gans.attn_53$coef[[1]],
-                           GANS_ATTN_G13.imp.Est = imp_coefs_vars.gans.attn_g_13$coef[[1]],
-                           # GANS_ATTN_GD11.imp.Est = imp_coefs_vars.gans.attn_g_d_11$coef[[1]],
+                           MICE.imp.Est = imp_coefs_vars.mice$coef[[1]],
+                           GANS.imp.Est = imp_coefs_vars.gans.pac$coef[[1]],
+
                            
                            TRUE.Var = diag(vcov(true.1)),
                            COMPL.Var = diag(vcov(complete.1)),
-                           GANS_PAC.imp.Var = imp_coefs_vars.gans.pac$var[[1]],
-                           # GANS_UNPAC.imp.Var = imp_coefs_vars.gans.unpac$var[[1]],
-                           GANS_ATTN_D31.imp.Var = imp_coefs_vars.gans.attn_31$var[[1]],
-                           GANS_ATTN_D53.imp.Var = imp_coefs_vars.gans.attn_53$var[[1]],
-                           GANS_ATTN_G13.imp.Var = imp_coefs_vars.gans.attn_g_13$var[[1]],
-                           # GANS_ATTN_GD11.imp.Var = imp_coefs_vars.gans.attn_g_d_11$var[[1]],
+                           MICE.imp.Var = imp_coefs_vars.mice$var[[1]],
+                           GANS.imp.Var = imp_coefs_vars.gans.pac$var[[1]],
                            
                            DIGIT = digit)
   
   curr_res.2 <- data.frame(TRUE.Est = coef(true.2),
                            COMPL.Est = coef(complete.2),
-                           GANS_PAC.imp.Est = imp_coefs_vars.gans.pac$coef[[2]],
-                           # GANS_UNPAC.imp.Est = imp_coefs_vars.gans.unpac$coef[[2]],
-                           GANS_ATTN_D31.imp.Est = imp_coefs_vars.gans.attn_31$coef[[2]],
-                           GANS_ATTN_D53.imp.Est = imp_coefs_vars.gans.attn_53$coef[[2]],
-                           GANS_ATTN_G13.imp.Est = imp_coefs_vars.gans.attn_g_13$coef[[2]],
-                           # GANS_ATTN_GD11.imp.Est = imp_coefs_vars.gans.attn_g_d_11$coef[[2]],
+                           MICE.imp.Est = imp_coefs_vars.mice$coef[[2]],
+                           GANS.imp.Est = imp_coefs_vars.gans.pac$coef[[2]],
                            
                            TRUE.Var = diag(vcov(true.2)),
                            COMPL.Var = diag(vcov(complete.2)),
-                           GANS_PAC.imp.Var = imp_coefs_vars.gans.pac$var[[2]],
-                           # GANS_UNPAC.imp.Var = imp_coefs_vars.gans.unpac$var[[2]],
-                           GANS_ATTN_D31.imp.Var = imp_coefs_vars.gans.attn_31$var[[2]],
-                           GANS_ATTN_D53.imp.Var = imp_coefs_vars.gans.attn_53$var[[2]],
-                           GANS_ATTN_G13.imp.Var = imp_coefs_vars.gans.attn_g_13$var[[2]],
-                           # GANS_ATTN_GD11.imp.Var = imp_coefs_vars.gans.attn_g_d_11$var[[2]],
+                           MICE.imp.Var = imp_coefs_vars.mice$var[[2]],
+                           GANS.imp.Var = imp_coefs_vars.gans.pac$var[[2]],
                            
                            DIGIT = digit)
   result_df.1[[m]] <- curr_res.1
   result_df.2[[m]] <- curr_res.2
+  
+  mice_coverage <- CI_coverage(imp_coefs_vars.mice, coef(true.1), coef(true.2))
+  gans_coverage <- CI_coverage(imp_coefs_vars.gans.pac, coef(true.1), coef(true.2))
+  
+  CI_coverage_df.mice[[m]] <- data.frame(logistic = mice_coverage[[1]], linear = mice_coverage[[2]])
+  CI_coverage_df.gans[[m]] <- data.frame(logistic = gans_coverage[[1]], linear = gans_coverage[[2]])
+  
   m <- m + 1
 }
+
+rowMeans(bind_cols(CI_coverage_df.mice)[, seq(2, 40, 2)])
+rowMeans(bind_cols(CI_coverage_df.mice)[, seq(1, 40, 2)])
+
+rowMeans(bind_cols(CI_coverage_df.gans)[, seq(2, 40, 2)])
+rowMeans(bind_cols(CI_coverage_df.gans)[, seq(1, 40, 2)])
 
 pacman::p_load("ggplot2", "tidyr", "dplyr", "RColorBrewer", "ggh4x")
 #### MODEL-BASED RESULTS
 combined_df.1 <- bind_rows(result_df.1) %>%
   filter(grepl("^c_ln_na_true", rownames(.))) %>%
   pivot_longer(
-    cols = 1:12,
+    cols = 1:8,
     names_to = c("METHOD", "TYPE"),
     names_pattern = "^(.*)\\.(Est|Var)$"
   )
@@ -163,7 +179,7 @@ combined_df.1 <- bind_rows(result_df.1) %>%
 combined_df.2 <- bind_rows(result_df.2) %>%
   filter(grepl("^c_ln_na_true", rownames(.))) %>%
   pivot_longer(
-    cols = 1:12,
+    cols = 1:8,
     names_to = c("METHOD", "TYPE"),
     names_pattern = "^(.*)\\.(Est|Var)$"
   )
@@ -189,9 +205,7 @@ combined_df.2 %>%
 
 
 ggplot(combined_df.1) +
-  geom_boxplot(aes(x = factor(METHOD, levels = c("TRUE", "COMPL", #"GANS_PAC.imp", "GANS_UNPAC.imp", 
-                                                 "GANS_ATTN_D31.imp", "GANS_ATTN_D53.imp",
-                                                 "GANS_ATTN_G13.imp")),
+  geom_boxplot(aes(x = factor(METHOD, levels = c("TRUE", "COMPL", "MICE.imp", "GANS.imp")),
                    y = value)) +
   geom_hline(data = means.1, aes(yintercept = value), linetype = "dashed", color = "black") +
   facet_wrap(~TYPE, scales = "free", ncol = 1,
@@ -211,9 +225,7 @@ ggplot(combined_df.1) +
 ggsave("Imputation_logistic_boxplot.png", width = 10, height = 10, limitsize = F)
 
 ggplot(combined_df.2) +
-  geom_boxplot(aes(x = factor(METHOD, levels = c("TRUE", "COMPL", #"GANS_PAC.imp", "GANS_UNPAC.imp", 
-                                                 "GANS_ATTN_D31.imp", "GANS_ATTN_D53.imp",
-                                                 "GANS_ATTN_G13.imp")),
+  geom_boxplot(aes(x = factor(METHOD, levels = c("TRUE", "COMPL", "MICE.imp", "GANS.imp")),
                    y = value)) +
   geom_hline(data = means.2, aes(yintercept = value), linetype = "dashed", color = "black") +
   facet_wrap(~TYPE, scales = "free", ncol = 1,

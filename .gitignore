@@ -18,6 +18,8 @@
 /.ipynb_checkpoints/
 /__pycache__/
 /.Rproj.user/
+/data/
+/simulations/
 
 # Ignore temporary files
 *.tmp

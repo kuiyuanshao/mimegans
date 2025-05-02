@@ -12,6 +12,8 @@
 *.pth
 *.sl
 *.out
+*.DS_Store
+*.Rhistory
 
 # Ignore specific directories
 /save/

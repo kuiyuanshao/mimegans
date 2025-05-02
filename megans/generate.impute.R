@@ -17,7 +17,7 @@ create_bfi <- function(data, batch_size, phase1_t, phase2_t, data_mask){
 generateImpute <- function(gnet, m = 5, 
                            data_original, data_norm, 
                            data_encode, data_training, data_mask,
-                           phase2_vars, num_vars, weight_var, num.normalizing, cat.encoding, 
+                           phase2_vars, num_vars, num.normalizing, cat.encoding, 
                            batch_size, g_dim, device, 
                            phase1_t, phase2_t){
   imputed_data_list <- vector("list", m)
@@ -58,8 +58,7 @@ generateImpute <- function(gnet, m = 5,
       norm_obj = data_norm
     ))
     #get the original order
-    gsamples <- cbind(curr_gsample$data, data_original[[weight_var]])
-    names(gsamples)[ncol(gsamples)] <- weight_var
+    gsamples <- curr_gsample$data
     gsamples <- gsamples[, names(data_original)]
     gsamples[] <- lapply(gsamples, as.numeric)
     imputations <- as.data.frame(data_mask * as.matrix(data_original) + 

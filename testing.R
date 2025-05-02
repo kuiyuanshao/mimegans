@@ -13,35 +13,51 @@ source("./megans/discriminators.R")
 if(!dir.exists('./simulations')){system('mkdir ./simulations')}
 if(!dir.exists('./simulations/megans')){system('mkdir ./simulations/megans')}
 
-if(!dir.exists('./simulations/megans/attn_d_3_1')){system('mkdir ./simulations/megans/attn_d_3_1')}
-#if(!dir.exists('./simulations/megans/attn_g_d_1_1')){system('mkdir ./simulations/megans/attn_g_d_1_1')}
-if(!dir.exists('./simulations/megans/attn_projd_3_1')){system('mkdir ./simulations/megans/attn_projd_3_1')}
+if(!dir.exists('./simulations/megans/mlp.mlp_32')){system('mkdir ./simulations/megans/mlp.mlp_32')}
+if(!dir.exists('./simulations/megans/mlp.attn_31')){system('mkdir ./simulations/megans/mlp.attn_31')}
+if(!dir.exists('./simulations/megans/attn.mlp_22')){system('mkdir ./simulations/megans/attn.mlp_22')}
+if(!dir.exists('./simulations/megans/attn.attn_21')){system('mkdir ./simulations/megans/attn.attn_21')}
 
-for (i in 2:20){
+for (i in 1:100){
   cat("Iteration:", i, "\n")
   digit <- str_pad(i, nchar(4444), pad=0)
   data_nut <- read.csv(paste0("./data/SRS_", digit, ".csv"))
   data_nut$X <- NULL
   data_nut$id <- NULL
   data_nut$R <- NULL
-  data_info = list(phase1_vars = c("c_ln_na_bio1", "c_ln_k_bio1", "c_ln_kcal_bio1", "c_ln_protein_bio1"), 
-                   phase2_vars = c("c_ln_na_true", "c_ln_k_true", "c_ln_kcal_true", "c_ln_protein_true"), 
-                   weight_var = "W",
+  data_info = list(weight_var = "W",
                    cat_vars = c("hypertension", "bkg_pr", "bkg_o", "female", 
                                 "high_chol", "usborn", "idx"),
-                   num_vars = names(data_nut)[!names(data_nut) %in% c("W", "hypertension", 
+                   num_vars = names(data_nut)[!names(data_nut) %in% c("hypertension", 
                                                                       "bkg_pr", "bkg_o", "female", 
                                                                       "high_chol", "usborn", "idx")])
-  
-  megans_imp.attn <- mmer.impute.cwgangp(data_nut, m = 5, num.normalizing = "mode", cat.encoding = "onehot", 
-                                         device = "cpu", epochs = 10000, 
-                                         params = list(gamma = 1, scaling = 1, n_g_layers = 3, 
-                                                       n_d_layers = 1, pac = 5, 
-                                                       token_bias = F, token_learn = T,
-                                                       type_g = "mlp", type_d = "attn",
-                                                       g_loss = "gan"), 
-                                         data_info = data_info, save.step = 1000)
-  save(megans_imp.attn, file = paste0("./simulations/megans/attn_projd_3_1/", digit, ".RData"))
+  megans_imp <- mmer.impute.cwgangp(data_nut, m = 20, num.normalizing = "mode", cat.encoding = "onehot", 
+                                    device = "cpu", epochs = 10000, 
+                                    params = list(n_g_layers = 3, n_d_layers = 2, 
+                                                  type_g = "mlp", type_d = "mlp"), 
+                                    data_info = data_info, save.step = 1000)
+  save(megans_imp, file = paste0("./simulations/megans/mlp.mlp_32/", digit, ".RData"))
+  megans_imp <- mmer.impute.cwgangp(data_nut, m = 20, num.normalizing = "mode", cat.encoding = "onehot", 
+                                    device = "cpu", epochs = 10000, 
+                                    params = list(n_g_layers = 3, n_d_layers = 1,
+                                                  token_bias = F, token_learn = T,
+                                                  type_g = "mlp", type_d = "attn"), 
+                                    data_info = data_info, save.step = 1000)
+  save(megans_imp, file = paste0("./simulations/megans/mlp.attn_31/", digit, ".RData"))
+  megans_imp <- mmer.impute.cwgangp(data_nut, m = 20, num.normalizing = "mode", cat.encoding = "onehot", 
+                                    device = "cpu", epochs = 10000, 
+                                    params = list(n_g_layers = 2, n_d_layers = 2,
+                                                  token_bias = F, token_learn = T,
+                                                  type_g = "attn", type_d = "mlp"), 
+                                    data_info = data_info, save.step = 1000)
+  save(megans_imp, file = paste0("./simulations/megans/attn.mlp_22/", digit, ".RData"))
+  megans_imp <- mmer.impute.cwgangp(data_nut, m = 20, num.normalizing = "mode", cat.encoding = "onehot", 
+                                    device = "cpu", epochs = 10000, 
+                                    params = list(n_g_layers = 2, n_d_layers = 1,
+                                                  token_bias = F, token_learn = T,
+                                                  type_g = "attn", type_d = "attn"), 
+                                    data_info = data_info, save.step = 1000)
+  save(megans_imp, file = paste0("./simulations/megans/attn.attn_21/", digit, ".RData"))
 }
 
 find_coef_var <- function(imp){

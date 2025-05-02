@@ -1,13 +1,5 @@
 pacman::p_load("survey", "readxl", "stringr", "dplyr", "purrr", "ggplot2")
 
-read_excel_allsheets <- function(filename, tibble = FALSE) {
-  sheets <- readxl::excel_sheets(filename)
-  x <- lapply(sheets, function(X) readxl::read_excel(filename, sheet = X))
-  if(!tibble) x <- lapply(x, as.data.frame)
-  names(x) <- sheets
-  x
-}
-
 find_coef_var <- function(imp){
   m_coefs.1 <- NULL
   m_coefs.2 <- NULL
@@ -15,29 +7,45 @@ find_coef_var <- function(imp){
   m_vars.2 <- NULL
   for (m in 1:length(imp)){
     ith_imp <- imp[[m]]
+    
     imp_mod.1 <- glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + usborn + female + bkg_o + bkg_pr, ith_imp, family = binomial())
     imp_mod.2 <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + usborn + female + bkg_o + bkg_pr, ith_imp, family = gaussian())
+    
     m_coefs.1 <- rbind(m_coefs.1, coef(imp_mod.1))
     m_coefs.2 <- rbind(m_coefs.2, coef(imp_mod.2))
     m_vars.1 <- rbind(m_vars.1, diag(vcov(imp_mod.1)))
     m_vars.2 <- rbind(m_vars.2, diag(vcov(imp_mod.2)))
   }
-  var.1 <- 1/length(imp) * colSums(m_vars.1) + (length(imp) + 1) * apply(m_coefs.1, 2, var) / length(imp)
-  var.2 <- 1/length(imp) * colSums(m_vars.2) + (length(imp) + 1) * apply(m_coefs.2, 2, var) / length(imp)
-  return (list(coef = list(colMeans(m_coefs.1), colMeans(m_coefs.2)), var = list(var.1, var.2)))
+  var_between.1 <- apply(m_coefs.1, 2, var)
+  var_between.2 <- apply(m_coefs.2, 2, var)
+  var.1 <- 1/length(imp) * colSums(m_vars.1) + (length(imp) + 1) / length(imp) * var_between.1
+  var.2 <- 1/length(imp) * colSums(m_vars.2) + (length(imp) + 1) / length(imp) * var_between.2
+  
+  lambda.1 <- (var_between.1 + var_between.1 / length(imp)) / var.1
+  lambda.2 <- (var_between.2 + var_between.2 / length(imp)) / var.2
+  df_old.1 <- (length(imp) - 1) / (lambda.1 ^ 2)
+  df_old.2 <- (length(imp) - 1) / (lambda.2 ^ 2)
+  df_obs.1 <- (imp_mod.1$df.residual + 1) / (imp_mod.1$df.residual + 3) * imp_mod.1$df.residual * (1 - lambda.1)
+  df_obs.2 <- (imp_mod.2$df.residual + 1) / (imp_mod.2$df.residual + 3) * imp_mod.2$df.residual * (1 - lambda.2)
+  
+  df_adj.1 <- (df_old.1 * df_obs.1) / (df_old.1 + df_obs.1)
+  df_adj.2 <- (df_old.2 * df_obs.2) / (df_old.2 + df_obs.2)
+  
+  return (list(coef = list(colMeans(m_coefs.1), colMeans(m_coefs.2)), var = list(var.1, var.2),
+               df_adj = list(df_adj.1, df_adj.2)))
 }
 
-find_coef_var <- function(imp){
-  m_coefs.1 <- NULL
-  m_vars.1 <- NULL
-  for (m in 1:length(imp)){
-    ith_imp <- imp[[m]]
-    imp_mod.1 <- lm(Y ~ X + Z, ith_imp)
-    m_coefs.1 <- rbind(m_coefs.1, coef(imp_mod.1))
-    m_vars.1 <- rbind(m_vars.1, diag(vcov(imp_mod.1)))
-  }
-  var.1 <- 1/length(imp) * colSums(m_vars.1) + (length(imp) + 1) * apply(m_coefs.1, 2, var) / length(imp)
-  return (list(coef = colMeans(m_coefs.1), var = var.1))
+
+CI_coverage <- function(output, true_coef.1, true_coef.2){
+  lower.1 <- output$coef[[1]] - qt(0.975, output$df_adj[[1]]) * sqrt(output$var[[1]])
+  upper.1 <- output$coef[[1]] + qt(0.975, output$df_adj[[1]]) * sqrt(output$var[[1]])
+  
+  lower.2 <- output$coef[[2]] - qt(0.975, output$df_adj[[2]]) * sqrt(output$var[[2]])
+  upper.2 <- output$coef[[2]] + qt(0.975, output$df_adj[[2]]) * sqrt(output$var[[2]])
+  
+  logistic <- (true_coef.1 >= lower.1) & (true_coef.1 <= upper.1)
+  linear <- (true_coef.2 >= lower.2) & (true_coef.2 <= upper.2)
+  return (list(logistic, linear))
 }
 
 # loading GAIN functions

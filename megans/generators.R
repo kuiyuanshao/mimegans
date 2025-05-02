@@ -1,6 +1,6 @@
 generator.mlp <- torch::nn_module(
   "Generator",
-  initialize = function(n_g_layers, params, ncols, nphase2, cat_inds){
+  initialize = function(n_g_layers, params, ncols, nphase2, output_dim, cat_inds){
     dim1 <- params$g_dim + ncols - nphase2
     dim2 <- params$g_dim
     self$seq <- torch::nn_sequential()
@@ -8,7 +8,7 @@ generator.mlp <- torch::nn_module(
       self$seq$add_module(paste0("Residual_", i), Residual(dim1, dim2))
       dim1 <- dim1 + dim2
     }
-    self$seq$add_module("Linear", nn_linear(dim1, nphase2))
+    self$seq$add_module("Linear", nn_linear(dim1, output_dim))
   },
   forward = function(input){
     out <- self$seq(input)
@@ -18,7 +18,7 @@ generator.mlp <- torch::nn_module(
 
 generator.attn <- torch::nn_module(
   "Generator",
-  initialize = function(n_g_layers, params, ncols, nphase2, cat_inds){
+  initialize = function(n_g_layers, params, ncols, nphase2, output_dim, cat_inds){
     self$cat_inds <- (cat_inds - nphase2)[(cat_inds - nphase2) > 0]
     self$num_inds <- which(!(1:(ncols - nphase2) %in% self$cat_inds))
     self$tokenizer <- Tokenizer((ncols - nphase2), self$cat_inds, params$token_bias, params$token_dim, params$token_learn)
@@ -41,7 +41,7 @@ generator.attn <- torch::nn_module(
     self$output_layer <- torch::nn_sequential(
       nn_layer_norm(dim2),
       nn_relu(),
-      nn_linear(dim2, nphase2)
+      nn_linear(dim2, output_dim)
     )
   },
   forward = function(input){

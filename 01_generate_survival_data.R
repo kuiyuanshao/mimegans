@@ -1,16 +1,16 @@
-#################################### Generate Survival Population ####################################
-pacman::p_load('data.table', 'bindata', 'magrittr', 'dplyr', 'MASS', 'sim1000G')
-
+#################################### Generate Population ####################################
 generateSurvivalData <- function(digit, seed){
   set.seed(seed)
-  
   n <- 2e4
-  data <- data.table(ID = 1:n)
+  data <- data.frame(ID = 1:n)
   data$AGE <- runif(n, 35, 85)
   # 0 For 45% Female, 1 For 55% Male
   data$SEX <- rbinom(n, 1, 0.55)
   # 50% Euro, 20% Black, 20% Asian, 10% Other
   data$RACE <- sample(1:4, size = n, replace = T, c(0.5, 0.2, 0.2, 0.1)) 
+  # Genotypes
+  
+  
   # SMOKE ~ AGE + SEX
   design_SMOKE <- model.matrix(~ I(AGE - 40) + SEX, data)
   betas_SMOKE <- rbind(c(-1, 0.01, 0.4),
@@ -72,5 +72,90 @@ generateSurvivalData <- function(digit, seed){
   # HYPERTENSION
   data$HYPERTENSION <- with(data, SBP >= 140 | DBP >= 90)
   
+}
+
+
+generateGenotypes <- function(N){
   
 }
+n_families <- N / 2
+kids_per_fam <- 3
+vcf_dir <- "./data/tcf7l2_cache"
+dir.create(vcf_dir, showWarnings = FALSE)
+risk_rs <- c(
+  "rs7903146","rs4506565","rs12255372","rs11196205","rs11196218",
+  "rs7072268","rs7895340","rs10885406","rs1153188","rs7901695",
+  "rs7924080","rs10923931","rs11196175","rs11196210","rs752104",
+  "rs17746147","rs1387153","rs4132670","rs1401282","rs1153189"
+)
+cran_pkgs <- c("curl","data.table","purrr","sim1000G")
+bio_pkgs  <- c("VariantAnnotation","Rsamtools","BiocGenerics")
+for(p in cran_pkgs) if(!requireNamespace(p, quietly = TRUE)) install.packages(p)
+if(!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+for(p in bio_pkgs)  if(!requireNamespace(p, quietly = TRUE))
+  BiocManager::install(p, ask = FALSE, update = FALSE)
+
+library(curl)
+library(Rsamtools)
+library(VariantAnnotation)
+library(sim1000G)
+library(data.table)
+
+options(timeout = max(1200, getOption("timeout")))
+
+# -------- 1 · download phased chr10 VCF -------------------
+vcf_remote <- "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/ALL.chr10.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcf.gz"
+vcf_gz <- file.path(vcf_dir, basename(vcf_remote))
+tbi_gz <- paste0(vcf_gz, ".tbi")
+
+if (!file.exists(vcf_gz)) {
+  curl_download(vcf_remote, vcf_gz, mode = "wb") # Takes a few minutes
+}
+if (!file.exists(tbi_gz)) {
+  indexTabix(vcf_gz, format = "vcf") # Takes a few minutes
+}
+
+# -------- 2 · slice the 2 Mb TCF7L2 window ---------------
+win_gr  <- GRanges("10", IRanges(114e6, 116e6))
+slice_gz <- file.path(vcf_dir, "TCF7L2_2Mb.vcf")
+if (!file.exists(paste0(slice_gz, ".bgz"))) {
+  param <- ScanVcfParam(which = win_gr)
+  vcf_win <- readVcf(vcf_gz, "hg19", param = param)
+  writeVcf(vcf_win, filename = slice_gz, index = TRUE)
+}
+slice_gz <- paste0(slice_gz, ".bgz")
+# -------- 3 · keep only the 20 risk SNPs ------------------
+twenty_gz <- file.path(vcf_dir, "TCF7L2_20SNPs.vcf")
+if (!file.exists(paste0(twenty_gz, ".bgz"))) {
+  vcf_win <- readVcf(slice_gz, "hg19")
+  keep    <- which(rowRanges(vcf_win)$ID %in% risk_rs)
+  vcf_20  <- vcf_win[keep, ]
+  writeVcf(vcf_20, twenty_gz, index = TRUE)
+}
+twenty_gz <- paste0(twenty_gz, ".bgz")
+# -------- 4 · simulate families with sim1000G -------------
+readGeneticMap(10)                       # downloads once
+vcf_20 <- readVCF(twenty_gz, min_maf = 0.01, max_maf = 0.5)
+
+total <- n_families * (2 + kids_per_fam)
+set.seed(2025)
+startSimulation(vcf_20, totalNumberOfIndividuals = total)
+
+ped <- purrr::map_dfr(
+  seq_len(n_families),
+  ~newFamilyWithOffspring(.x, noffspring = kids_per_fam)
+)
+
+geno <- extractGenotypeMatrix(vcf_20,
+                              ids = ped$gtindex,
+                              output.format = "numeric")
+
+# -------- 5 · tidy and save outputs -----------------------
+geno_dt <- as.data.table(geno)
+geno_dt[, id  := ped$id]
+geno_dt[, fid := ped$fid]
+setcolorder(geno_dt, c("fid","id", setdiff(names(geno_dt), c("fid","id"))))
+
+saveRDS(geno_dt, "sim_T2D_family_genotypes.rds")
+saveRDS(ped, "sim_T2D_pedigree.rds")
+

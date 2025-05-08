@@ -2,14 +2,12 @@ expit<-function(x){
   exp(x) / (1 + exp(x))
 }
 
-calcCICover <- function(true, estimate, df, se){
-  lower <- est - qt(0.975, df) * se
-  upper <- est + qt(0.975, df) * se
+calcCICover <- function(true, lower, upper){
   return (true >= lower) & (true <= upper)
 }
 
 as.mids <- function(imp_list){
-  imp_mids <- datlist2mids(imp_list)
+  imp_mids <- miceadds::datlist2mids(imp_list)
   return (imp_mids)
 }
 

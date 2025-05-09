@@ -77,78 +77,99 @@ generateSurvivalData <- function(digit, seed){
 
 generateGenotypes <- function(N){
   
+  
 }
 
-pkgs <- c("AnnotationHub", "VariantAnnotation", "sim1000G",
-          "SeqArray", "stringr", "data.table")
-rs_info <- data.table(chr = c(11, 3, 1, 6, 
-                              3, 8, 3, 9, 
-                              10, 11, 12, 17, 
-                              12, 3, 3, 11, 
-                              1, 19, 9, 22),
-                      rsid = c("rs10830963", "rs1801282", "rs340874", "rs7756992", 
-                               "rs4607103", "rs13266634", "rs11708067", "rs10811661",
-                               "rs7903146", "rs5219", "rs2074356", "rs757210", 
-                               "rs11063069", "rs17036101", "rs4402960", "rs1552224",
-                               "rs1234315", "rs10401969", "rs17584499", "rs4821480"),
-                      pos = c(92975544, 12351626, 213985913, 20679478,
-                              64726228, 117172544, 123346931, 22134095,
-                              112998590, 17388025, 112207597, 37736525,
-                              4265207, 12236345, 185793899, 72722053,
-                              173209324, 19296909, 8879118, 36299201))
-fetch_region <- function(chr, start_bp, end_bp,
-                         dest_dir = "./data/vcf", build = "hg19"){
-  dir.create(dest_dir, showWarnings = FALSE)
-  url <- sprintf(
-    "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/ALL.chr%d.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcf.gz",
-    chr
+library(rvest)
+library(httr)
+library(dplyr) 
+library(stringr)
+library(jsonlite)
+url  <- sprintf("https://www.snpedia.com/index.php/%s", rsids$refsnp_id[1])
+html <- read_html(url)
+
+script <- html |>
+  html_elements("script") |>
+  html_text2() |>
+  purrr::keep(~ str_detect(.x, "population-diversity-chart"))
+lab_raw <- str_match(script, "var labels = (\\[.*?\\]);")[,2]
+series_raw <- str_match(script, "var series = (\\[.*?\\]);")[,2]
+json_txt <- sprintf("{\"labels\":%s,\"series\":%s}", lab_raw, series_raw)
+obj <- jsonlite::fromJSON(json_txt)
+series_list <- purrr::transpose(obj$series)
+freqs <- tibble(pop = obj$labels) %>%
+  bind_cols(
+    purrr::map_dfc(
+      series_list,
+      ~ as.numeric(.x$data$value)    # .x$data is the 12-row data.frame of values+meta
+    ) %>%
+      setNames(c("AA","AB","BB"))
   )
-  out_vcf <- file.path(dest_dir,
-                       sprintf("chr%d.vcf.bgz", chr))
-  print(out_vcf)
-  if (!file.exists(out_vcf)) {
-    rng   <- GenomicRanges::GRanges(chr, IRanges::IRanges(start_bp, end_bp))
-    param <- VariantAnnotation::ScanVcfParam(which = rng)
-    
-    message(sprintf("➜  downloading chr%s:%s-%s …", chr, start_bp, end_bp))
-    vcf <- VariantAnnotation::readVcf(
-      Rsamtools::TabixFile(url),
-      genome = build,
-      param  = param
-    )
-    VariantAnnotation::writeVcf(vcf, out_vcf, index = TRUE)
-  }
-  out_vcf
-}
-
-windows <- rs_info[, .(
-  start = pmax(pos - 5e5, 1),
-  end   = pos + 5e5
-), by = .(chr)]
-
-vcf_paths <- windows[, fetch_region(chr, start, end), by = 1:nrow(windows)]$V1
-
-unique_chrs <- unique(rs_info$chr)
-maps <- setNames(
-  lapply(unique_chrs, function(c)
-    downloadGeneticMap(c)),
-  unique_chrs
+obj$series
+library(biomaRt)
+rsids <- data.frame(refsnp_id = c("Rs10811661", "rs11063069", "rs11708067", "rs17036101", "rs17584499",
+                                  "rs340874", "rs4402960", "rs4607103", "rs7754840", "rs9300039",
+                                  "rs5015480", "rs9465871", "rs4506565", "rs6718526", "rs358806"),
+                    genos = c("T/C", "A/G", "A/G", "G/A", "C/T",
+                              "T/C", "G/T", "C/T", "G/C", "C/A",
+                              "T/C", "T/C", "A/T", "C/T", "C/A"))
+mart <- useEnsembl("snp", dataset = "hsapiens_snp")
+meta <- getBM(
+  attributes = c("refsnp_id", "chr_name", "minor_allele", "minor_allele_freq"),
+  filters = "snp_filter",
+  values = rsids$refsnp_id,
+  mart = mart
 )
+meta <- merge(rsids, meta)
 
-simulate_chr <- function(vcf_file, map_file, n_ind = 1000) {
-  chr <- sub("chr(\\d+).vcf.bgz", "\\1", basename(vcf_file))
-  vcf  <- readVCF(vcf_file)
-  gmap_df <- fread(map_file[[chr]])
-  gmap_df$Chromosome <- gsub("chr", "", gmap_df$Chromosome)
-  startSimulation(vcf = vcf,
-                  totalNumberOfIndividuals = 2*n_ind,
-                  typeOfGeneticMap = "provided")
-  ids <- generateUnrelatedIndividuals(N = n_ind)
-  geno_mat <- retrieveGenotypes(ids)
-  dt <- as.data.table(geno_mat)
-  dt[, sample := seq_len(.N)]
-  dt
+library(LDlinkR)
+unique_chrs <- unique(rsids$chrs)
+ldmat <- lapply(unique_chrs, function(i){
+  if (sum(rsids$chrs == i) > 1){
+    LDmatrix(snp = rsids$rsids[rsids$chrs == i],
+             pop = "EUR", r2d = "r2",
+             token = "979f246a6b57") 
+  }
+})
+
+library(dplyr)
+geno <- meta %>%
+  mutate(major_allele = substr(allele, 1, 1),
+         p = minor_allele_freq,
+         q = 1 - p) %>% 
+  transmute(
+    refsnp_id,
+    major_allele,
+    minor_allele,
+    geno_major = paste0(major_allele, major_allele),
+    geno_het = paste0(major_allele, "/", minor_allele),
+    geno_minor = paste0(minor_allele, minor_allele),
+    prob_major = q^2,
+    prob_het = 2 * p * q,
+    prob_minor = p^2
+  )
+
+simulate_genotypes <- function(meta, n = 1000, seed = 1) {
+  set.seed(seed)
+  k <- matrix(
+    rbinom(n * nrow(meta), size = 2, prob = meta$minor_allele_freq),
+    nrow = n, byrow = TRUE
+  )
+  # build allele strings
+  as_geno <- function(k, maj, min) {
+    switch(k + 1,
+           paste0(maj, maj),
+           paste0(maj, "/", min),
+           paste0(min, min)
+    )
+  }
+  G <- matrix(nrow = n, ncol = nrow(meta))
+  for (j in seq_len(nrow(meta))) {
+    maj <- substr(meta$allele[j], 1, 1)
+    min <- meta$minor_allele[j]
+    G[, j] <- vapply(k[, j], as_geno, character(1), maj = maj, min = min)
+  }
+  colnames(G) <- meta$refsnp_id
+  rownames(G) <- paste0("ind", seq_len(n))
+  G
 }
-genos <- lapply(vcf_paths, simulate_chr, maps, n_ind = 1000)
-
-geno_dt <- Reduce(function(a, b) merge(a, b, by = "sample"), genos)

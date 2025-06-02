@@ -1,4 +1,5 @@
 install.packages(c(
   "mvtnorm", "survey", "sandwich", "mice", "miceadds", "mixgb", 
-  "xgboost", "dplyr", "ggplot2", "torch", "stringr", "sim1000G"), 
+  "xgboost", "dplyr", "tidyr", "ggplot2", "torch", "stringr", 
+  "LDlinkR", "purrr", "BalancedSampling"), 
   repos = "https://cran.rstudio.com")

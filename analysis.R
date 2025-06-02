@@ -1,14 +1,14 @@
 source("00_utils_functions.R")
 
 wdir <- "./simulations/megans/"
-attempts <- c("mlp.mlp_32", "mlp.attn_31", "attn.mlp_22", "attn.attn_21")
+attempts <- c("mlp.mlp_32", "mlp.attn_31", "attn.mlp_22", "attn.attn_21", "pmm")
 
-load("./data/htn_parameters.RData")
-load("./data/sbp_parameters.RData")
+load("/nesi/project/uoa03789/PhD/SamplingDesigns/NutritionalData/Output/htn_parameters.RData")
+load("/nesi/project/uoa03789/PhD/SamplingDesigns/NutritionalData/Output/sbp_parameters.RData")
 
-load("./data/TargetPopulationData.RData")
+load("/nesi/project/uoa03789/PhD/SamplingDesigns/NutritionalData/RData/TargetPopulationData.RData")
 
-ci.lm <- NULL
+glmci.lm <- NULL
 ci.bn <- NULL
 lm.df <- NULL
 bn.df <- NULL
@@ -16,7 +16,7 @@ bn.df <- NULL
 for (i in 1:58){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit)
-  load(paste0("./data/TRUE/NutritionalData_", digit, ".RData"))
+  load(paste0("/nesi/project/uoa03789/PhD/SamplingDesigns/NutritionalData/Output/NutritionalData_", digit, ".RData"))
   true.lm <- glm(sbp ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn +
                    female + bkg_o + bkg_pr, family = gaussian(), data = pop)
   true.bn <- glm(hypertension ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn +
@@ -55,8 +55,9 @@ for (i in 1:58){
     bn.df <- rbind(bn.df, curr_res.bn)
   }
 }
-
+save(lm.df, bn.df, ci.lm, ci.bn, file = "test.RData")
 library(ggplot2)
+load("test.RData")
 ggplot(lm.df) + 
   geom_boxplot(aes(x = method, y = as.numeric(coef))) + 
   geom_hline(aes(yintercept = sbp_parameters$coefficients$Estimate[4]), 
@@ -95,10 +96,18 @@ ci.bn[ci.bn$V10 == "mlp.attn_31", -10] %>%
   mutate(across(everything(), as.logical)) %>%
   colMeans()
 ####
-ci.lm[ci.lm$V10 == "attn.mlp_22", -10] %>% 
+ci.lm[ci.lm$V10 == "pmm", -10] %>% 
   mutate(across(everything(), as.logical)) %>%
   colMeans()
 
-ci.bn[ci.bn$V10 == "attn.mlp_22", -10] %>% 
+ci.bn[ci.bn$V10 == "pmm", -10] %>% 
   mutate(across(everything(), as.logical)) %>%
   colMeans()
+
+# two variances
+# 500 replicates, median of the 500 beta hats, bias = median - truth value.
+# beta hats - bias to re centre it.
+
+# 
+
+

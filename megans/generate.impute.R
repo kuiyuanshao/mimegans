@@ -24,7 +24,12 @@ generateImpute <- function(gnet, m = 5,
   gsample_data_list <- vector("list", m)
   batchforimpute <- create_bfi(data_original, batch_size, phase1_t, phase2_t, data_mask)
   data_mask <- as.matrix(1 - is.na(data_original))
-  data_original[is.na(data_original)] <- 0
+  
+  num_col <- sapply(data_original, is.numeric)
+  
+  allto_replace <- data_mask == 0
+  allidx <- which(allto_replace, arr.ind = TRUE)
+  data_original[unique(allidx[, 1]), num_col] <- 0
   
   for (z in 1:m){
     output_list <- vector("list", length(batchforimpute))
@@ -51,7 +56,6 @@ generateImpute <- function(gnet, m = 5,
       data = output_mat,
       encode_obj = data_encode
     ))
-    curr_gsample[] <- lapply(curr_gsample, as.numeric)
     curr_gsample <- do.call(denormalize, args = list(
       data = curr_gsample,
       num_vars = num_vars, 
@@ -60,12 +64,28 @@ generateImpute <- function(gnet, m = 5,
     #get the original order
     gsamples <- curr_gsample$data
     gsamples <- gsamples[, names(data_original)]
-    gsamples[] <- lapply(gsamples, as.numeric)
-    imputations <- as.data.frame(data_mask * as.matrix(data_original) + 
-                                   (1 - data_mask) * as.matrix(gsamples))
     
-    imputed_data_list[[z]] <- type.convert(imputations, as.is =TRUE)
-    gsample_data_list[[z]] <- type.convert(gsamples, as.is =TRUE)
+    imputations <- data_original
+    # ---- numeric columns: use matrix arithmetic ---
+    if (any(num_col)) {
+      out_num <- data_mask[, num_col] * 
+        as.matrix(data_original[, num_col]) +
+        (1 - data_mask[, num_col]) *
+        as.matrix(gsamples[, num_col])
+      imputations[, num_col] <- out_num
+    }
+    # ---- non-numeric columns (factor / character / etc.) -------------
+    if (any(!num_col)) {
+      to_replace <- data_mask[, !num_col] == 0
+      idx <- which(to_replace, arr.ind = TRUE)
+      col_ids <- which(!num_col)[idx[, "col"]]
+      imputations[cbind(idx[, "row"], col_ids)] <- gsamples[cbind(idx[, "row"], col_ids)]
+    }
+    
+    #imputations <- as.data.frame(data_mask * as.matrix(data_original) + 
+    #                               (1 - data_mask) * as.matrix(gsamples))
+    imputed_data_list[[z]] <- imputations
+    gsample_data_list[[z]] <- gsamples
   }
   return (list(imputation = imputed_data_list, gsample = gsample_data_list))
 }

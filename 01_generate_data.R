@@ -594,8 +594,8 @@ transform_betas <- function(input_vector) {
 if(!dir.exists('./data/TRUE')){system('mkdir ./data/TRUE')}
 replicate <- 1000
 n <- 2e4
-seed <- 1
-for (i in 1:replicate){
+seed <- 12
+for (i in 12:61){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   data <- generateData(n, seed)

@@ -1,4 +1,4 @@
-expit<-function(x){
+expit <- function(x){
   exp(x) / (1 + exp(x))
 }
 
@@ -11,7 +11,7 @@ as.mids <- function(imp_list){
   return (imp_mids)
 }
 
-exactAllocation <- function(data, stratum_variable, target_variable, sample_size, type){
+exactAllocation <- function(data, stratum_variable, target_variable, sample_size){
   strata_units <- as.data.frame(table(data[[stratum_variable]]))
   colnames(strata_units) <- c(stratum_variable, "count")
   conversion_functions <- list(

@@ -9,14 +9,14 @@ cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10,
                             token_bias = F, token_dim = 8, token_learn = F,
                             type_g = "mlp", type_d = "mlp"){
   list(
-    batch_size = batch_size, gamma = gamma, lambda = lambda, alpha = alpha, beta = beta, 
+    batch_size = batch_size, gamma = gamma, lambda = lambda, beta = beta, 
     lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 
     g_weight_decay = g_weight_decay, d_weight_decay = d_weight_decay, 
     g_dim = g_dim, d_dim = d_dim, 
     pac = pac, n_g_layers = n_g_layers, n_d_layers = n_d_layers, 
     at_least_p = at_least_p, discriminator_steps = discriminator_steps, scaling = scaling, 
     token_bias = token_bias, token_dim = token_dim, token_learn = token_learn, 
-    type_g = type_g, type_d = type_d, g_loss = g_loss, d_loss = d_loss
+    type_g = type_g, type_d = type_d
   )
 }
 

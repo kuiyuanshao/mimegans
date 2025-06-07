@@ -1,6 +1,6 @@
 pacman::p_load(progress, torch)
 
-cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10,
+cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10, beta = 1, 
                             lr_g = 1e-4, lr_d = 1e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
                             g_weight_decay = 1e-6, d_weight_decay = 1e-6, 
                             g_dim = 256, d_dim = 256, pac = 5, 
@@ -162,7 +162,7 @@ mmer.impute.cwgangp <- function(data, m = 5, num.normalizing = "mode", cat.encod
     fake_act_C_I <- torch_cat(list(fake_I_act, C_I), dim = 2)
     
     y_fake <- dnet(fake_act_C_I)
-    g_loss <- g_loss(y_fake, params)
+    g_loss <- g_loss(y_fake, fake_act_C_I, true_I, data_encode, phase2_vars, params)
     
     g_solver$zero_grad()
     g_loss$backward()

@@ -53,7 +53,7 @@ seed <- 1
 for (i in 1:replicate){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
-  load(paste0("./data/TRUE/", digit, ".RData"))
+  load(paste0("./data/Complete/", digit, ".RData"))
   samp_result <- generateSample(data, 0.05, seed)
   write.csv(samp_result$samp_balance, 
             file = paste0("./data/Sample/Balance/", digit, ".csv"))

@@ -5,6 +5,25 @@ lapply(paste0("./comparing-model-based/mice/", list.files("./comparing-model-bas
 lapply(paste0("./comparing-model-based/mixgb/", list.files("./comparing-model-based/mixgb/")), source)
 lapply(paste0("./comparing-design-based/raking/", list.files("./comparing-design-based/raking/")), source)
 
+if(!dir.exists('./simulations')){system('mkdir ./simulations')}
+if(!dir.exists('./simulations/Balance')){system('mkdir ./simulations/Balance')}
+if(!dir.exists('./simulations/Neyman')){system('mkdir ./simulations/Neyman')}
+
+if(!dir.exists('./simulations/Balance/megans')){system('mkdir ./simulations/Balance/megans')}
+if(!dir.exists('./simulations/Neyman/megans')){system('mkdir ./simulations/Neyman/megans')}
+
+if(!dir.exists('./simulations/Balance/gain')){system('mkdir ./simulations/Balance/gain')}
+if(!dir.exists('./simulations/Neyman/gain')){system('mkdir ./simulations/Neyman/gain')}
+
+if(!dir.exists('./simulations/Balance/mice')){system('mkdir ./simulations/Balance/mice')}
+if(!dir.exists('./simulations/Neyman/mice')){system('mkdir ./simulations/Neyman/mice')}
+
+if(!dir.exists('./simulations/Balance/mixgb')){system('mkdir ./simulations/Balance/mixgb')}
+if(!dir.exists('./simulations/Neyman/mixgb')){system('mkdir ./simulations/Neyman/mixgb')}
+
+if(!dir.exists('./simulations/Balance/raking')){system('mkdir ./simulations/Balance/raking')}
+if(!dir.exists('./simulations/Neyman/raking')){system('mkdir ./simulations/Neyman/raking')}
+
 data_info <- list(weight_var = "W",
                   cat_vars = c("SEX", "RACE", "SMOKE", "EXER", "ALC", "INSURANCE", "REGION", 
                                "URBAN", "INCOME", "MARRIAGE", 
@@ -26,24 +45,6 @@ data_info <- list(weight_var = "W",
                                "PULSE", "PP", "EDU_STAR", "Na_INTAKE_STAR", "K_INTAKE_STAR", "KCAL_INTAKE_STAR",    
                                "PROTEIN_INTAKE_STAR", "GLUCOSE_STAR", "F_GLUCOSE_STAR", "HbA1c_STAR", "INSULIN_STAR", "T_I",                
                                "T_I_STAR"))
-if(!dir.exists('./simulations')){system('mkdir ./simulations')}
-if(!dir.exists('./simulations/Balance')){system('mkdir ./simulations/Balance')}
-if(!dir.exists('./simulations/Neyman')){system('mkdir ./simulations/Neyman')}
-
-if(!dir.exists('./simulations/Balance/megans')){system('mkdir ./simulations/Balance/megans')}
-if(!dir.exists('./simulations/Neyman/megans')){system('mkdir ./simulations/Neyman/megans')}
-
-if(!dir.exists('./simulations/Balance/gain')){system('mkdir ./simulations/Balance/gain')}
-if(!dir.exists('./simulations/Neyman/gain')){system('mkdir ./simulations/Neyman/gain')}
-
-if(!dir.exists('./simulations/Balance/mice')){system('mkdir ./simulations/Balance/mice')}
-if(!dir.exists('./simulations/Neyman/mice')){system('mkdir ./simulations/Neyman/mice')}
-
-if(!dir.exists('./simulations/Balance/mixgb')){system('mkdir ./simulations/Balance/mixgb')}
-if(!dir.exists('./simulations/Neyman/mixgb')){system('mkdir ./simulations/Neyman/mixgb')}
-
-if(!dir.exists('./simulations/Balance/raking')){system('mkdir ./simulations/Balance/raking')}
-if(!dir.exists('./simulations/Neyman/raking')){system('mkdir ./simulations/Neyman/raking')}
 replicate <- 1000
 for (i in 1:replicate){
   digit <- stringr::str_pad(i, 4, pad = 0)
@@ -58,8 +59,9 @@ for (i in 1:replicate){
   
   # MEGANs:
   megans_imp.balance <- mmer.impute.cwgangp(samp_balance, m = 1, num.normalizing = "mode", cat.encoding = "onehot", 
-                                            device = "cpu", epochs = 1000, 
-                                            params = list(n_g_layers = 3, n_d_layers = 2, 
+                                            device = "cpu", epochs = 20000, 
+                                            params = list(n_g_layers = 5, n_d_layers = 3,
+                                                          beta = 0, 
                                                           type_g = "mlp", type_d = "mlp"), 
                                             data_info = data_info, save.step = 1000)
   save(megans_imp.balance, file = paste0("./simulations/Balance/megans/", digit, ".RData"))
@@ -78,4 +80,55 @@ for (i in 1:replicate){
                           alpha = 10, beta = 1, n = 10000)
   # MICE:
   
+}
+library(survival)
+mod.imp <- coxph(Surv(T_I, EVENT) ~ I(HbA1c / 10) + rs4506565 + I((AGE - 60) / 5) + SEX + INSURANCE + 
+        RACE + ALC + SMOKE + EXER, 
+        data = match_types(megans_imp.balance$imputation[[1]], data))
+load("./data/TRUE/0001.RData")
+mod.true <- coxph(Surv(T_I, EVENT) ~ I(HbA1c / 10) + rs4506565 + I((AGE - 60) / 5) + SEX + INSURANCE + 
+               RACE + ALC + SMOKE + EXER, data = data)
+
+mod1 <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
+        RACE + ALC + SMOKE + EXER, data = data)
+
+mod2 <- coxph(Surv(T_I_STAR, EVENT_STAR) ~ I((HbA1c - 50) / 5) + rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
+                RACE + ALC + SMOKE + EXER, data = data)
+ggplot() + 
+  geom_density(aes(x = HbA1c), data = megans_imp.balance$imputation[[1]]) + 
+  geom_density(aes(x = HbA1c), data = samp_balance, colour = "red") + 
+  geom_density(aes(x = HbA1c), data = data, colour = "blue") + 
+  geom_density(aes(x = HbA1c_STAR), data = megans_imp.balance$imputation[[1]])
+
+exp(coef(mod1)) - exp(coef(mod2))
+
+m <- Mclust(samp_balance$HbA1c[samp_balance$R == 1])
+pred <- predict(m, newdata = samp_balance$HbA1c[samp_balance$R == 1])
+
+match_types <- function(new_df, orig_df) {
+  common <- intersect(names(orig_df), names(new_df))
+  out <- new_df
+  
+  for (nm in common) {
+    tmpl <- orig_df[[nm]]
+    col <- out[[nm]]
+    if (is.integer(tmpl))        out[[nm]] <- as.integer(col)
+    else if (is.numeric(tmpl))   out[[nm]] <- as.numeric(col)
+    else if (is.logical(tmpl))   out[[nm]] <- as.logical(col)
+    else if (is.factor(tmpl)) {
+      out[[nm]] <- factor(col,
+                          levels = levels(tmpl),
+                          ordered = is.ordered(tmpl))
+    }
+    else if (inherits(tmpl, "Date")) {
+      out[[nm]] <- as.Date(col)
+    } else if (inherits(tmpl, "POSIXct")) {
+      tz <- attr(tmpl, "tzone")
+      out[[nm]] <- as.POSIXct(col, tz = tz)
+    }
+    else {
+      out[[nm]] <- as.character(col)
+    }
+  }
+  out
 }

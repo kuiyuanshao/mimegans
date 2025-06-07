@@ -1,5 +1,6 @@
-g_loss <- function(y_fake, params, ...){
-  return (params$gamma * -torch_mean(y_fake))
+g_loss <- function(y_fake, fake, true, encode_result, vars, params, ...){
+  return (params$gamma * -torch_mean(y_fake) + 
+            params$beta * cross_entropy_loss(fake, true, encode_result, vars))
 }
 
 d_loss <- function(dnet, true, fake, params, device){
@@ -10,15 +11,15 @@ d_loss <- function(dnet, true, fake, params, device){
   return (d_loss)
 }
 
-cross_entropy_loss <- function(fake, true, encode_result, vars, size){
+cross_entropy_loss <- function(fake, true, encode_result, vars){
   cats <- encode_result$binary_indices[which(sapply(encode_result$new_col_names, function(col_names) {
     any(col_names %in% vars)
   }))]
   loss <- list()
   i <- 1
   for (cat in cats){
-    loss[[i]] <- nnf_cross_entropy(fake[, cat - size, drop = F], 
-                                   torch_argmax(true[, cat - size, drop = F], dim = 2), 
+    loss[[i]] <- nnf_cross_entropy(fake[, cat, drop = F], 
+                                   torch_argmax(true[, cat, drop = F], dim = 2), 
                                    reduction = "mean")
     i <- i + 1
   }

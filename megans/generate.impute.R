@@ -26,10 +26,8 @@ generateImpute <- function(gnet, m = 5,
   data_mask <- as.matrix(1 - is.na(data_original))
   
   num_col <- sapply(data_original, is.numeric)
-  
-  allto_replace <- data_mask == 0
-  allidx <- which(allto_replace, arr.ind = TRUE)
-  data_original[unique(allidx[, 1]), num_col] <- 0
+  phase2_num_idx <- which(num_col & names(data_original) %in% phase2_vars)
+  data_original[which(is.na(data_original[, phase2_vars[1]])), phase2_num_idx] <- 0
   
   for (z in 1:m){
     output_list <- vector("list", length(batchforimpute))
@@ -68,10 +66,8 @@ generateImpute <- function(gnet, m = 5,
     imputations <- data_original
     # ---- numeric columns: use matrix arithmetic ---
     if (any(num_col)) {
-      out_num <- data_mask[, num_col] * 
-        as.matrix(data_original[, num_col]) +
-        (1 - data_mask[, num_col]) *
-        as.matrix(gsamples[, num_col])
+      out_num <- data_mask[, num_col] * as.matrix(data_original[, num_col]) +
+        (1 - data_mask[, num_col]) * as.matrix(gsamples[, num_col])
       imputations[, num_col] <- out_num
     }
     # ---- non-numeric columns (factor / character / etc.) -------------
@@ -84,8 +80,8 @@ generateImpute <- function(gnet, m = 5,
     
     #imputations <- as.data.frame(data_mask * as.matrix(data_original) + 
     #                               (1 - data_mask) * as.matrix(gsamples))
-    imputed_data_list[[z]] <- imputations
-    gsample_data_list[[z]] <- gsamples
+    imputed_data_list[[z]] <- type.convert(imputations, as.is = TRUE)
+    gsample_data_list[[z]] <- type.convert(gsamples, as.is = TRUE)
   }
   return (list(imputation = imputed_data_list, gsample = gsample_data_list))
 }

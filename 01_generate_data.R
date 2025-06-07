@@ -170,43 +170,44 @@ generateData <- function(n, seed){
   }
   # DIABETES:
   selfReport <- function(true_today, sd_true_past, sd_mis_report,
-                         p_mis_report = 0.25){
-    past_value <- true_today + rnorm(length(true_today), 0, sd_true_past)
-    ind <- sample(length(true_today), p_mis_report * length(true_today))
-    past_value[ind] <- past_value[ind] + rnorm(length(ind), 0, sd_mis_report)
+                         p_mis_report = 1/3){
+    past_value <- true_today + rnorm(length(true_today), 0, sd_true_past) # True Past Value differs from True Value Today
+    ind <- sample(length(true_today), round(p_mis_report * length(true_today)))
+    past_value[ind] <- past_value[ind] + rnorm(length(ind), 0, sd_mis_report) # Patient mis-reported the True Past Value.
     return (round(past_value, 3))
   }
-  data$GLUCOSE_STAR <- round(data$GLUCOSE + rnorm(n, 0, 0.5), 3)
-  data$F_GLUCOSE_STAR <- selfReport(data$F_GLUCOSE, 0.5, 0.5)
-  data$HbA1c_STAR <- selfReport(data$HbA1c, 2, 1)
-  data$INSULIN_STAR <- selfReport(data$INSULIN, 2, 1)
+  data$GLUCOSE_STAR <- round(data$GLUCOSE + rnorm(n, 0, 3.5), 3)
+  data$F_GLUCOSE_STAR <- selfReport(data$F_GLUCOSE, 2.5, 2.5)
+  data$HbA1c_STAR <- selfReport(data$HbA1c, 10, 10)
+  data$INSULIN_STAR <- selfReport(data$INSULIN, 12.5, 12.5)
+  
+  # AGE:
+  data$AGE_STAR <- data$AGE + rnorm(n, 0, 1)
   
   # T_I: Self-Reported Time Interval between Treatment Initiation SGLT2 and T2D Diagnosis (Months)
-  mm_T_I <- model.matrix(~ I(HbA1c / 10) + rs4506565 + I((AGE - 60) / 5) + SEX + INSURANCE + 
+  mm_T_I <- model.matrix(~ I((HbA1c - 50) / 5) + rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
                            RACE + I(BMI / 5) + ALC + SMOKE + EXER, data = data)
-  betas_T_I <- log(c(1, 1.15, 1.12, 1.24, 1.08, 1.1, 0.75, 
-                     0.90, 0.92, 1, 0.95, 1.1, 0.95, 1.2, 0.85, 0.95, 1.15, 0.9))
+  betas_T_I <- log(c(0.75, 1.25, 1.05, 1.10, 1.10, 1.1, 0.75, 
+                     0.90, 0.90, 1, 0.95, 1.1, 0.95, 1.15, 0.85, 0.95, 1.15, 0.9))
   eta_I <- as.vector(mm_T_I %*% betas_T_I)
   k <- 1.2
   lambda <- log(2) / (100 ^ k)
   data$T_I <- (-log(runif(n)) / (lambda*exp(eta_I)))^(1/k) + 6
   
   data$T_I_STAR <- data$T_I
-  ind_event <- which(data$T_I < 24)
+  ind_event <- which(data$T_I <= 24)
   FN <- sample(ind_event, round(0.1 * length(ind_event))) # False Negative
-  data$T_I_STAR[FN] <- 24
+  data$T_I_STAR[FN] <- 24.01
   ind_noevent <- which(data$T_I > 24)
   FP <- sample(ind_noevent, round(0.1 * length(ind_noevent))) # False Positive
-  data$T_I_STAR[FP] <- runif(length(FP), 6, 23.99)
-  ind_rest <- which(!(c(ind_event, ind_noevent) %in% 1:n))
-  ME <- sample(ind_rest, round(0.35 * length(ind_rest))) # Mis-Reported
-  data$T_I_STAR[ME] <- data$T_I[ME] + rnorm(length(ME), 0, 1)
+  data$T_I_STAR[FP] <- runif(length(FP), 6, 24)
+  data$T_I_STAR <- data$T_I_STAR + rnorm(n, 0, 1)
   
-  data$T_I <- round(pmin(data$T_I, 24), 3)
-  data$T_I_STAR <- round(pmin(data$T_I_STAR, 24), 3)
+  data$T_I <- round(pmin(data$T_I, 24.01), 3)
+  data$T_I_STAR <- round(pmin(data$T_I_STAR, 24.01), 3)
   # EVENT:
-  data$EVENT <- data$T_I < 24
-  data$EVENT_STAR <- data$T_I_STAR < 24
+  data$EVENT <- data$T_I <= 24
+  data$EVENT_STAR <- data$T_I_STAR <= 24
   
   return (data)
 }
@@ -591,15 +592,15 @@ transform_betas <- function(input_vector) {
 
 
 ####### STARTING SIMULATION.  SAVING FILES ########
-if(!dir.exists('./data/TRUE')){system('mkdir ./data/TRUE')}
+if(!dir.exists('./data/Complete')){system('mkdir ./data/Complete')}
 replicate <- 1000
 n <- 2e4
-seed <- 12
-for (i in 12:61){
+seed <- 1
+for (i in 1:replicate){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   data <- generateData(n, seed)
-  save(data, file = paste0("./data/TRUE/", digit, ".RData"))
+  save(data, file = paste0("./data/Complete/", digit, ".RData"))
   seed <- seed + 1
 }
 

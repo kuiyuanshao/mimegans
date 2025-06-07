@@ -1,9 +1,9 @@
 lapply(c("mice", "mixgb", "dplyr", "stringr"), require, character.only = T)
 lapply(paste0("./megans/", list.files("./megans")), source)
-lapply(paste0("./comparing-model-based/gain/", list.files("./comparing-model-based/gain/")), source)
-lapply(paste0("./comparing-model-based/mice/", list.files("./comparing-model-based/mice/")), source)
-lapply(paste0("./comparing-model-based/mixgb/", list.files("./comparing-model-based/mixgb/")), source)
-lapply(paste0("./comparing-design-based/raking/", list.files("./comparing-design-based/raking/")), source)
+lapply(paste0("./comparisons/gain/", list.files("./comparisons/gain/")), source)
+lapply(paste0("./comparisons/mice/", list.files("./comparisons/mice/")), source)
+lapply(paste0("./comparisons/mixgb/", list.files("./comparisons/mixgb/")), source)
+lapply(paste0("./comparisons/raking/", list.files("./comparisons/raking/")), source)
 
 if(!dir.exists('./simulations')){system('mkdir ./simulations')}
 if(!dir.exists('./simulations/Balance')){system('mkdir ./simulations/Balance')}
@@ -59,7 +59,7 @@ for (i in 1:replicate){
   
   # MEGANs:
   megans_imp.balance <- mmer.impute.cwgangp(samp_balance, m = 1, num.normalizing = "mode", cat.encoding = "onehot", 
-                                            device = "cpu", epochs = 20000, 
+                                            device = "cuda", epochs = 20000, 
                                             params = list(n_g_layers = 5, n_d_layers = 3,
                                                           beta = 0, 
                                                           type_g = "mlp", type_d = "mlp"), 

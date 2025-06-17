@@ -21,7 +21,8 @@ generator.attn <- torch::nn_module(
   initialize = function(n_g_layers, params, ncols, nphase2, output_dim, cat_inds){
     self$cat_inds <- (cat_inds - nphase2)[(cat_inds - nphase2) > 0]
     self$num_inds <- which(!(1:(ncols - nphase2) %in% self$cat_inds))
-    self$tokenizer <- Tokenizer((ncols - nphase2), self$cat_inds, params$token_bias, params$token_dim, params$token_learn)
+    self$tokenizer <- Tokenizer((ncols - nphase2), self$cat_inds,
+                                params$token_dim, params$token_learn)
     
     self$noise_dim <- params$g_dim
     dim1 <- params$g_dim + (ncols - nphase2 + 1) * self$tokenizer$token_dim

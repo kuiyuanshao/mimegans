@@ -44,7 +44,7 @@ data_info <- list(weight_var = "W",
                                "ALBUMIN", "GLOBULIN", "FERRITIN", "CRP", "SBP", "DBP",                
                                "PULSE", "PP", "EDU_STAR", "Na_INTAKE_STAR", "K_INTAKE_STAR", "KCAL_INTAKE_STAR",    
                                "PROTEIN_INTAKE_STAR", "GLUCOSE_STAR", "F_GLUCOSE_STAR", "HbA1c_STAR", "INSULIN_STAR", "T_I",                
-                               "T_I_STAR"))
+                               "T_I_STAR", "C", "C_STAR"))
 replicate <- 1000
 for (i in 1:replicate){
   digit <- stringr::str_pad(i, 4, pad = 0)
@@ -58,11 +58,16 @@ for (i in 1:replicate){
     mutate(across(all_of(data_info$cat_vars), as.factor, .names = "{.col}"))
   
   # MEGANs:
-  megans_imp.balance <- mmer.impute.cwgangp(samp_balance, m = 1, num.normalizing = "mode", cat.encoding = "onehot", 
-                                            device = "cuda", epochs = 20000, 
-                                            params = list(n_g_layers = 5, n_d_layers = 3,
-                                                          beta = 0, 
-                                                          type_g = "mlp", type_d = "mlp"), 
+  megans_imp.balance <- mmer.impute.cwgangp(samp_balance, m = 1, 
+                                            num.normalizing = "mode", 
+                                            cat.encoding = "onehot", 
+                                            device = "cpu", epochs = 5000, 
+                                            params = list(batch_size = 500, 
+                                                          alpha = 0, beta = 1, 
+                                                          discriminator_steps = 3, 
+                                                          zeta = 0, at_least_p = 0.5, 
+                                                          n_g_layers = 1, n_d_layers = 2,
+                                                          type_g = "attn", type_d = "mlp"), 
                                             data_info = data_info, save.step = 1000)
   save(megans_imp.balance, file = paste0("./simulations/Balance/megans/", digit, ".RData"))
   megans_imp.neyman <- mmer.impute.cwgangp(samp_neyman, m = 20, num.normalizing = "mode", cat.encoding = "onehot", 
@@ -81,54 +86,67 @@ for (i in 1:replicate){
   # MICE:
   
 }
+megans_imp.balance <- mmer.impute.cwgangp(samp_balance, m = 1, 
+                                          num.normalizing = "mode", 
+                                          cat.encoding = "onehot", 
+                                          device = "cpu", epochs = 3000, 
+                                          params = list(batch_size = 500, 
+                                                        alpha = 0, beta = 1, 
+                                                        zeta = 0, at_least_p = 0.5, 
+                                                        n_g_layers = 1, n_d_layers = 2,
+                                                        type_g = "attn", type_d = "mlp"), 
+                                          data_info = data_info, save.step = 1000)
 library(survival)
-mod.imp <- coxph(Surv(T_I, EVENT) ~ I(HbA1c / 10) + rs4506565 + I((AGE - 60) / 5) + SEX + INSURANCE + 
-        RACE + ALC + SMOKE + EXER, 
-        data = match_types(megans_imp.balance$imputation[[1]], data))
-load("./data/TRUE/0001.RData")
-mod.true <- coxph(Surv(T_I, EVENT) ~ I(HbA1c / 10) + rs4506565 + I((AGE - 60) / 5) + SEX + INSURANCE + 
-               RACE + ALC + SMOKE + EXER, data = data)
+samp_srs <- read.csv("./data/SRS_0001.csv")
+data_info <- list(weight_var = "W",
+                 cat_vars = c("hypertension", "bkg_pr", "bkg_o", "female", 
+                              "high_chol", "usborn", "idx", "W", "R"),
+                 num_vars = names(samp_srs)[!names(samp_srs) %in% c("hypertension", 
+                                                                    "bkg_pr", "bkg_o", "female", 
+                                                                    "high_chol", "usborn", "idx", "W", "R")])
+megans_imp.srs <- mmer.impute.cwgangp(samp_srs, m = 1, 
+                                      num.normalizing = "mode", 
+                                      cat.encoding = "onehot", 
+                                      device = "cpu", epochs = 3000, 
+                                      params = list(batch_size = 500, 
+                                                          alpha = 0, beta = 1, 
+                                                          discriminator_steps = 3, 
+                                                          zeta = 0, at_least_p = 0.5, pac = 5,
+                                                          n_g_layers = 1, n_d_layers = 2,
+                                                          type_g = "attn", type_d = "mlp",
+                                                          token_learn = F), 
+                                      data_info = data_info, save.step = 1000)
+load("./data/NutritionalData_0001.RData")
+imp_mod.1 <- glm(hypertension ~ c_ln_na_true + c_age + c_bmi + 
+                   high_chol + usborn + female + bkg_o + bkg_pr, 
+                 megans_imp.srs$imputation[[1]], family = binomial())
+imp_mod.2 <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + 
+                   high_chol + usborn + female + bkg_o + bkg_pr, 
+                 megans_imp.srs$imputation[[1]], family = gaussian())
+true_mod.1 <- glm(hypertension ~ c_ln_na_true + c_age + c_bmi + 
+                   high_chol + usborn + female + bkg_o + bkg_pr, 
+                 pop, family = binomial())
+true_mod.2 <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + 
+                   high_chol + usborn + female + bkg_o + bkg_pr, 
+                 pop, family = gaussian())
+coef(true_mod.1) - coef(imp_mod.1)
+coef(true_mod.2) - coef(imp_mod.2)
 
-mod1 <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
-        RACE + ALC + SMOKE + EXER, data = data)
 
-mod2 <- coxph(Surv(T_I_STAR, EVENT_STAR) ~ I((HbA1c - 50) / 5) + rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
-                RACE + ALC + SMOKE + EXER, data = data)
-ggplot() + 
-  geom_density(aes(x = HbA1c), data = megans_imp.balance$imputation[[1]]) + 
-  geom_density(aes(x = HbA1c), data = samp_balance, colour = "red") + 
-  geom_density(aes(x = HbA1c), data = data, colour = "blue") + 
-  geom_density(aes(x = HbA1c_STAR), data = megans_imp.balance$imputation[[1]])
+load("./data/Complete/0001.RData")
+mod.imp <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
+                   rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
+                   RACE + I(BMI / 5) + EXER, 
+                 data = match_types(megans_imp.balance$imputation[[1]], data))
+mod.true <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
+                    RACE + I(BMI / 5) + EXER, data = data)
+exp(coef(mod.imp)) - exp(coef(mod.true))
 
-exp(coef(mod1)) - exp(coef(mod2))
 
-m <- Mclust(samp_balance$HbA1c[samp_balance$R == 1])
-pred <- predict(m, newdata = samp_balance$HbA1c[samp_balance$R == 1])
-
-match_types <- function(new_df, orig_df) {
-  common <- intersect(names(orig_df), names(new_df))
-  out <- new_df
-  
-  for (nm in common) {
-    tmpl <- orig_df[[nm]]
-    col <- out[[nm]]
-    if (is.integer(tmpl))        out[[nm]] <- as.integer(col)
-    else if (is.numeric(tmpl))   out[[nm]] <- as.numeric(col)
-    else if (is.logical(tmpl))   out[[nm]] <- as.logical(col)
-    else if (is.factor(tmpl)) {
-      out[[nm]] <- factor(col,
-                          levels = levels(tmpl),
-                          ordered = is.ordered(tmpl))
-    }
-    else if (inherits(tmpl, "Date")) {
-      out[[nm]] <- as.Date(col)
-    } else if (inherits(tmpl, "POSIXct")) {
-      tz <- attr(tmpl, "tzone")
-      out[[nm]] <- as.POSIXct(col, tz = tz)
-    }
-    else {
-      out[[nm]] <- as.character(col)
-    }
-  }
-  out
-}
+ggplot(samp_balance) + 
+  geom_density(aes(x = HbA1c)) + 
+  geom_density(data = megans_imp.balance$step_result[[5]][[1]],
+               aes(x = HbA1c), colour = "red") +
+  geom_density(data = data, 
+               aes(x = HbA1c), colour = "blue") +
+  geom_vline(xintercept = 77.08)

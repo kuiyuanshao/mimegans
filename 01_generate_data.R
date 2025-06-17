@@ -181,33 +181,40 @@ generateData <- function(n, seed){
   data$HbA1c_STAR <- selfReport(data$HbA1c, 10, 10)
   data$INSULIN_STAR <- selfReport(data$INSULIN, 12.5, 12.5)
   
-  # AGE:
-  data$AGE_STAR <- data$AGE + rnorm(n, 0, 1)
-  
   # T_I: Self-Reported Time Interval between Treatment Initiation SGLT2 and T2D Diagnosis (Months)
   mm_T_I <- model.matrix(~ I((HbA1c - 50) / 5) + rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
-                           RACE + I(BMI / 5) + ALC + SMOKE + EXER, data = data)
-  betas_T_I <- log(c(0.75, 1.25, 1.05, 1.10, 1.10, 1.1, 0.75, 
-                     0.90, 0.90, 1, 0.95, 1.1, 0.95, 1.15, 0.85, 0.95, 1.15, 0.9))
+                           RACE + I(BMI / 5) + EXER, data = data)
+  betas_T_I <- log(c(1, 1.25, 1.05, 1.10, 1.10, 1.1, 0.75, 
+                     0.90, 0.90, 1, 0.95, 1.1, 1.15, 0.9))
   eta_I <- as.vector(mm_T_I %*% betas_T_I)
   k <- 1.2
-  lambda <- log(2) / (100 ^ k)
-  data$T_I <- (-log(runif(n)) / (lambda*exp(eta_I)))^(1/k) + 6
+  lambda <- log(2) / (120 ^ k)
+  T_I <- (-log(runif(n)) / (lambda*exp(eta_I)))^(1/k) + 1
   
-  data$T_I_STAR <- data$T_I
-  ind_event <- which(data$T_I <= 24)
-  FN <- sample(ind_event, round(0.1 * length(ind_event))) # False Negative
-  data$T_I_STAR[FN] <- 24.01
-  ind_noevent <- which(data$T_I > 24)
-  FP <- sample(ind_noevent, round(0.1 * length(ind_noevent))) # False Positive
-  data$T_I_STAR[FP] <- runif(length(FP), 6, 24)
-  data$T_I_STAR <- data$T_I_STAR + rnorm(n, 0, 1)
+  # 30% random censoring
+  C <- rep(24.001, n)
+  C_STAR <- rep(24.001, n)
   
-  data$T_I <- round(pmin(data$T_I, 24.01), 3)
-  data$T_I_STAR <- round(pmin(data$T_I_STAR, 24.01), 3)
-  # EVENT:
-  data$EVENT <- data$T_I <= 24
-  data$EVENT_STAR <- data$T_I_STAR <= 24
+  C_ind <- sample(n, 0.3 * n)
+  C_drop <- rexp(0.3 * n, rate = 0.2)
+  C_drop_star <- C_drop + rnorm(0.3 * n, 0, 1)
+  
+  C[C_ind] <- pmin(24.001, C_drop)
+  C_STAR[C_ind] <- pmax(0.01, pmin(24.001, C_drop_star))
+  
+  data$C <- C
+  data$T_I <- pmin(T_I, C)
+  data$EVENT <- T_I < C
+  
+  T_I_STAR <- T_I
+  # 70% wrong time reported for people had event:
+  ind_event <- which(data$EVENT)
+  ind_misreport <- sample(ind_event, round(0.7 * length(ind_event)))
+  T_I_STAR[ind_misreport] <- T_I_STAR[ind_misreport] + 
+    rnorm(length(ind_misreport), 0, 3)
+  data$C_STAR <- C_STAR
+  data$T_I_STAR <- pmin(T_I_STAR, C_STAR)
+  data$EVENT_STAR <- T_I_STAR < C_STAR
   
   return (data)
 }
@@ -593,13 +600,13 @@ transform_betas <- function(input_vector) {
 
 ####### STARTING SIMULATION.  SAVING FILES ########
 if(!dir.exists('./data/Complete')){system('mkdir ./data/Complete')}
-replicate <- 1000
+replicate <- 1
 n <- 2e4
 seed <- 1
 for (i in 1:replicate){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
-  data <- generateData(n, seed)
+  data <- suppressMessages({generateData(n, seed)})
   save(data, file = paste0("./data/Complete/", digit, ".RData"))
   seed <- seed + 1
 }

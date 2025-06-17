@@ -1,30 +1,33 @@
 pacman::p_load(progress, torch)
 
-cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10, beta = 1, 
+cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10, 
+                            alpha = 1, beta = 1, zeta = 10, at_least_p = 1/2, 
                             lr_g = 1e-4, lr_d = 1e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
                             g_weight_decay = 1e-6, d_weight_decay = 1e-6, 
                             g_dim = 256, d_dim = 256, pac = 5, 
-                            n_g_layers = 3, n_d_layers = 1, 
-                            at_least_p = 0.2, discriminator_steps = 1, scaling = 1,
-                            token_bias = F, token_dim = 8, token_learn = F,
+                            n_g_layers = 3, n_d_layers = 1, discriminator_steps = 3,
+                            token_dim = 8, token_learn = F,
                             type_g = "mlp", type_d = "mlp"){
   list(
-    batch_size = batch_size, gamma = gamma, lambda = lambda, beta = beta, 
-    lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 
+    batch_size = batch_size, gamma = gamma, lambda = lambda, alpha = alpha, beta = beta, zeta = zeta, 
+    at_least_p = at_least_p, lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 
     g_weight_decay = g_weight_decay, d_weight_decay = d_weight_decay, 
     g_dim = g_dim, d_dim = d_dim, 
     pac = pac, n_g_layers = n_g_layers, n_d_layers = n_d_layers, 
-    at_least_p = at_least_p, discriminator_steps = discriminator_steps, scaling = scaling, 
-    token_bias = token_bias, token_dim = token_dim, token_learn = token_learn, 
+    discriminator_steps = discriminator_steps, 
+    token_dim = token_dim, token_learn = token_learn, 
     type_g = type_g, type_d = type_d
   )
 }
 
-mmer.impute.cwgangp <- function(data, m = 5, num.normalizing = "mode", cat.encoding = "onehot", device = "cpu",
-                                epochs = 10000, params = list(), data_info = list(), save.model = FALSE, save.step = 1000){
+mmer.impute.cwgangp <- function(data, m = 5, 
+                                num.normalizing = "mode", cat.encoding = "onehot", 
+                                device = "cpu",
+                                epochs = 10000, 
+                                params = list(), data_info = list(), 
+                                save.model = FALSE, save.step = 1000){
   params <- do.call("cwgangp_default", params)
   device <- torch_device(device)
-  
   list2env(params, envir = environment())
   list2env(data_info, envir = environment())
   
@@ -32,24 +35,23 @@ mmer.impute.cwgangp <- function(data, m = 5, num.normalizing = "mode", cat.encod
   phase1_vars <- names(data)[which(!(names(data) %in% phase2_vars))]
   phase1_rows <- which(is.na(data[, phase2_vars[1]]))
   phase2_rows <- which(!is.na(data[, phase2_vars[1]]))
-  
   normalize <- paste("normalize", num.normalizing, sep = ".")
   encode <- paste("encode", cat.encoding, sep = ".")
   
   #Weights are removed from the normalization
   data_norm <- do.call(normalize, args = list(
     data = data,
-    num_vars = num_vars, scaling = scaling
+    num_vars = num_vars
   ))
   
   if (num.normalizing == "mode"){
     cat_vars <- c(cat_vars, setdiff(names(data_norm$data), names(data)))
     phase1_vars <- c(phase1_vars, names(data_norm$data)[
       !names(data_norm$data) %in% names(data) &
-        grepl(paste(phase1_vars, collapse = "|"), names(data_norm$data))])
+        names(data_norm$data) %in% paste0(phase1_vars, sep = "_mode")])
     phase2_vars <- c(phase2_vars, names(data_norm$data)[
       !names(data_norm$data) %in% names(data) &
-        grepl(paste(phase2_vars, collapse = "|"), names(data_norm$data))])
+        names(data_norm$data) %in% paste0(phase2_vars, sep = "_mode")])
   }
   
   data_encode <- do.call(encode, args = list(
@@ -97,6 +99,7 @@ mmer.impute.cwgangp <- function(data, m = 5, num.normalizing = "mode", cat.encod
   g_solver <- torch::optim_adam(gnet$parameters, lr = lr_g, betas = g_betas, weight_decay = g_weight_decay)
   d_solver <- torch::optim_adam(dnet$parameters, lr = lr_d, betas = d_betas, weight_decay = d_weight_decay)
   
+  nn_utils_clip_grad_norm_(gnet$parameters, max_norm = 10)
   training_loss <- matrix(0, nrow = epochs, ncol = 2)
   pb <- progress_bar$new(
     format = paste0("Running :what [:bar] :percent eta: :eta | G Loss: :g_loss | D Loss: :d_loss"),
@@ -106,8 +109,13 @@ mmer.impute.cwgangp <- function(data, m = 5, num.normalizing = "mode", cat.encod
     step_result <- list()
     p <- 1
   } 
-  
+  alpha_init <- params$alpha
+  beta_init <- params$beta
   for (i in 1:epochs){
+    if (params$zeta > 0){
+      params$alpha <- 1e-10 + (alpha_init - 1e-10) * 1 / (1 + exp(params$zeta/epochs * (i - 1/10 * epochs)))
+      #params$beta <- 1e-10 + (beta_init - 1e-10) * 1 / (1 + exp(params$zeta/epochs * (i - 1/10 * epochs)))
+    }
     for (d in 1:discriminator_steps){
       batch <- samplebatches(data, data_training, list(data_mask, phase1_t, phase2_t), 
                              phase1_rows, phase2_rows, 
@@ -162,7 +170,7 @@ mmer.impute.cwgangp <- function(data, m = 5, num.normalizing = "mode", cat.encod
     fake_act_C_I <- torch_cat(list(fake_I_act, C_I), dim = 2)
     
     y_fake <- dnet(fake_act_C_I)
-    g_loss <- g_loss(y_fake, fake_act_C_I, true_I, data_encode, phase2_vars, params)
+    g_loss <- g_loss(y_fake, fake_act_C_I, true_I, data_encode, phase2_vars, params, num_inds)
     
     g_solver$zero_grad()
     g_loss$backward()

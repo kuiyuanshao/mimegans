@@ -1,4 +1,20 @@
-normalize.mode <- function(data, num_vars, scaling, ...) {
+normalize.mode <- function(data, num_vars, ...) {
+  count_modes <- function(x,
+                          adjust   = 1,
+                          tol      = 0,
+                          min_dist = 0,
+                          ...) {
+    d <- density(x, adjust = adjust, ...)
+    y  <- d$y
+    idx <- which(diff(sign(diff(y))) == -2) + 1
+    if (tol > 0)
+      idx <- idx[y[idx] > tol]
+    if (min_dist > 0 && length(idx) > 1) {
+      keep <- c(TRUE, diff(d$x[idx]) >= min_dist)
+      idx  <- idx[keep]
+    }
+    length(idx)
+  }
   if (!require(mclust, quietly = TRUE)) {
     install.packages("mclust")
     library(mclust)
@@ -12,12 +28,13 @@ normalize.mode <- function(data, num_vars, scaling, ...) {
     if (length(unique(curr_col)) == 1){
       mc <- Mclust(curr_col_obs, G = 1)
     }else{
-      mc <- Mclust(curr_col_obs)
+      mc <- Mclust(curr_col_obs, 
+                   G = min(c(5, count_modes(curr_col_obs))))
     }
     pred <- predict(mc, newdata = curr_col_obs)
-    mode_labels <- pred$classification
+    mode_labels <- as.numeric(as.factor(pred$classification))
     mode_means <- numeric(length(unique(mode_labels)))
-    mode_sds <- scaling * numeric(length(unique(mode_labels)))
+    mode_sds <- numeric(length(unique(mode_labels)))
     
     curr_col_norm <- rep(NA, length(curr_col_obs))
     for (mode in sort(unique(mode_labels))) {
@@ -98,9 +115,9 @@ denormalize.minmax <- function(data, num_vars, norm_obj){
 }
 
 
-normalize.zscore <- function(data, num_vars, scaling = 1, ...){
+normalize.zscore <- function(data, num_vars, ...){
   means <- apply(data[, num_vars, drop = F], 2, mean, na.rm = T)
-  sds <- scaling * apply(data[, num_vars, drop = F], 2, sd, na.rm = T)
+  sds <- apply(data[, num_vars, drop = F], 2, sd, na.rm = T)
   data_norm <- as.data.frame(do.call(cbind, lapply(names(data), function(i){
     if (i %in% num_vars){
       normalized <- (data[, i] - means[i] + 1e-6) / ((sds[i] + 1e-6))

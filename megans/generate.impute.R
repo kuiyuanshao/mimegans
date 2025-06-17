@@ -1,3 +1,31 @@
+match_types <- function(new_df, orig_df) {
+  common <- intersect(names(orig_df), names(new_df))
+  out <- new_df
+  
+  for (nm in common) {
+    tmpl <- orig_df[[nm]]
+    col <- out[[nm]]
+    if (is.integer(tmpl))        out[[nm]] <- as.integer(col)
+    else if (is.numeric(tmpl))   out[[nm]] <- as.numeric(col)
+    else if (is.logical(tmpl))   out[[nm]] <- as.logical(col)
+    else if (is.factor(tmpl)) {
+      out[[nm]] <- factor(col,
+                          levels = levels(tmpl),
+                          ordered = is.ordered(tmpl))
+    }
+    else if (inherits(tmpl, "Date")) {
+      out[[nm]] <- as.Date(col)
+    } else if (inherits(tmpl, "POSIXct")) {
+      tz <- attr(tmpl, "tzone")
+      out[[nm]] <- as.POSIXct(col, tz = tz)
+    }
+    else {
+      out[[nm]] <- as.character(col)
+    }
+  }
+  out
+}
+
 create_bfi <- function(data, batch_size, phase1_t, phase2_t, data_mask){
   n <- ceiling(nrow(data) / batch_size)
   idx <- 1
@@ -67,7 +95,7 @@ generateImpute <- function(gnet, m = 5,
     # ---- numeric columns: use matrix arithmetic ---
     if (any(num_col)) {
       out_num <- data_mask[, num_col] * as.matrix(data_original[, num_col]) +
-        (1 - data_mask[, num_col]) * as.matrix(gsamples[, num_col])
+        (1 - data_mask[, num_col]) * as.numeric(as.matrix(gsamples[, num_col]))
       imputations[, num_col] <- out_num
     }
     # ---- non-numeric columns (factor / character / etc.) -------------
@@ -80,8 +108,8 @@ generateImpute <- function(gnet, m = 5,
     
     #imputations <- as.data.frame(data_mask * as.matrix(data_original) + 
     #                               (1 - data_mask) * as.matrix(gsamples))
-    imputed_data_list[[z]] <- type.convert(imputations, as.is = TRUE)
-    gsample_data_list[[z]] <- type.convert(gsamples, as.is = TRUE)
+    imputed_data_list[[z]] <- match_types(imputations, data_original)
+    gsample_data_list[[z]] <- match_types(gsamples, data_original)
   }
   return (list(imputation = imputed_data_list, gsample = gsample_data_list))
 }

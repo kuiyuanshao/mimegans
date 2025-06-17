@@ -1,7 +1,29 @@
-g_loss <- function(y_fake, fake, true, encode_result, vars, params, ...){
-  return (params$gamma * -torch_mean(y_fake) + 
-            params$beta * cross_entropy_loss(fake, true, encode_result, vars))
+g_loss <- function(y_fake, fake, true, encode_result, vars, params, num_inds, ...){
+  ## ── always compute the GAN term ───────────────────────────────
+  gan_term <- params$gamma * -torch_mean(y_fake)
+  
+  ## ── optionally compute MSE ────────────────────────────────────
+  mse_term <- torch_tensor(0, dtype = gan_term$dtype, device = gan_term$device)
+  if (params$alpha != 0) {
+    mse_term <- params$alpha *
+      nnf_mse_loss(
+        fake[, num_inds, drop = FALSE],
+        true[, num_inds, drop = FALSE]
+      )
+  }
+  
+  ## ── optionally compute cross-entropy ──────────────────────────
+  ce_term <- torch_tensor(0, dtype = gan_term$dtype, device = gan_term$device)
+  if (params$beta != 0) {
+    ce_term <- params$beta *
+      cross_entropy_loss(fake, true, encode_result, vars)
+  }
+  
+  ## ── aggregate and return ─────────────────────────────────────
+  total_loss <- gan_term + mse_term + ce_term
+  return(total_loss)
 }
+
 
 d_loss <- function(dnet, true, fake, params, device){
   y_fake <- dnet(fake)
@@ -34,7 +56,6 @@ activation_fun <- function(fake, encode_result, vars, tau = 0.2, hard = F){
   for (cat in cats){
     fake[, cat] <- nnf_gumbel_softmax(fake[, cat], tau = tau, hard = hard)
   }
-  
   return (fake)
 }
 

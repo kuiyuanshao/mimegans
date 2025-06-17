@@ -1,6 +1,6 @@
 samplebatches <- function(data_original, data_training, tensor_list, 
                           phase1_rows, phase2_rows, phase1_vars, phase2_vars, 
-                          num_vars, new_col_names, batch_size, at_least_p = 0.2){
+                          num_vars, new_col_names, batch_size, at_least_p = 0.5){
   # Remove non-informative columns for phase1 and phase2 based on the training data
   cat_names <- unlist(new_col_names)
   phase1_bins <- cat_names[!(cat_names %in% phase2_vars)] 

@@ -150,3 +150,16 @@ ggplot(samp_balance) +
   geom_density(data = data, 
                aes(x = HbA1c), colour = "blue") +
   geom_vline(xintercept = 77.08)
+
+
+### Once we set the start to zero, everyone would have different censoring time.
+### Neyman allocation: influence function A ~ Z, to do neyman allocation.
+### Tong's github.
+
+
+
+
+
+
+
+

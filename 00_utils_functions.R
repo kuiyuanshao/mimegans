@@ -11,6 +11,13 @@ as.mids <- function(imp_list){
   return (imp_mids)
 }
 
+inffun <- function(mod){
+  mm <- model.matrix(mod)
+  residuals <- residuals(mod.aux, type = "score")
+  inv_vmatrix <- mod.aux$var
+  residuals %*% inv_vmatrix
+}
+
 exactAllocation <- function(data, stratum_variable, target_variable, sample_size){
   strata_units <- as.data.frame(table(data[[stratum_variable]]))
   colnames(strata_units) <- c(stratum_variable, "count")

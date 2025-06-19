@@ -188,33 +188,21 @@ generateData <- function(n, seed){
                      0.90, 0.90, 1, 0.95, 1.1, 1.15, 0.9))
   eta_I <- as.vector(mm_T_I %*% betas_T_I)
   k <- 1.2
-  lambda <- log(2) / (120 ^ k)
+  lambda <- log(2) / (60 ^ k)
   T_I <- (-log(runif(n)) / (lambda*exp(eta_I)))^(1/k) + 1
   
-  # 30% random censoring
-  C <- rep(24.001, n)
-  C_STAR <- rep(24.001, n)
+  C_drop <- rexp(n, rate = 0.1)
+  C_drop_star <- C_drop + rnorm(n, 0, 2)
   
-  C_ind <- sample(n, 0.3 * n)
-  C_drop <- rexp(0.3 * n, rate = 0.2)
-  C_drop_star <- C_drop + rnorm(0.3 * n, 0, 1)
-  
-  C[C_ind] <- pmin(24.001, C_drop)
-  C_STAR[C_ind] <- pmax(0.01, pmin(24.001, C_drop_star))
-  
+  C <- pmin(24.001, C_drop)
+  C_STAR <- pmax(0.01, pmin(24.001, C_drop_star))
   data$C <- C
-  data$T_I <- pmin(T_I, C)
-  data$EVENT <- T_I < C
-  
-  T_I_STAR <- T_I
-  # 70% wrong time reported for people had event:
-  ind_event <- which(data$EVENT)
-  ind_misreport <- sample(ind_event, round(0.7 * length(ind_event)))
-  T_I_STAR[ind_misreport] <- T_I_STAR[ind_misreport] + 
-    rnorm(length(ind_misreport), 0, 3)
   data$C_STAR <- C_STAR
-  data$T_I_STAR <- pmin(T_I_STAR, C_STAR)
-  data$EVENT_STAR <- T_I_STAR < C_STAR
+  
+  data$T_I <- pmin(T_I, C)
+  data$EVENT <- T_I <= C
+  data$T_I_STAR <- pmin(T_I, C_STAR)
+  data$EVENT_STAR <- T_I <= C_STAR
   
   return (data)
 }
@@ -610,14 +598,4 @@ for (i in 1:replicate){
   save(data, file = paste0("./data/Complete/", digit, ".RData"))
   seed <- seed + 1
 }
-
-
-
-
-
-
-
-
-
-
 

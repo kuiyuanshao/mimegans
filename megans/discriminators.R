@@ -1,6 +1,6 @@
 discriminator.mlp <- torch::nn_module(
   "Discriminator",
-  initialize = function(n_d_layers, params, ncols, cat_inds) {
+  initialize = function(n_d_layers, params, ncols) {
     self$pacdim <- ncols * params$pac
     self$seq <- torch::nn_sequential()
     
@@ -22,13 +22,8 @@ discriminator.mlp <- torch::nn_module(
 
 discriminator.attn <- torch::nn_module(
   "DiscriminatorAttn",
-  initialize = function(n_d_layers, params, ncols, cat_inds) {
-    self$ncols <- ncols
-    self$cat_inds <- cat_inds
-    self$num_inds <- which(!(1:ncols %in% cat_inds))
-    self$tokenizer <- Tokenizer(ncols, cat_inds, params$token_bias, params$token_dim, params$token_learn)
-    
-    self$pacdim <- self$tokenizer$token_dim * (ncols + 1) * params$pac
+  initialize = function(n_d_layers, params, ncols) {
+    self$pacdim <- params$token_dim * (ncols + 1) * params$pac
     
     self$proj_layer <- torch::nn_sequential(
       nn_linear(self$pacdim, params$d_dim),
@@ -49,10 +44,6 @@ discriminator.attn <- torch::nn_module(
     )
   },
   forward = function(input) {
-    input <- self$tokenizer(input[, self$num_inds, drop = F], 
-                            input[, self$cat_inds, drop = F])
-    input <- input$reshape(c(input$size(1), input$size(2) * input$size(3)))
-    input <- input$reshape(c(-1, self$pacdim))
     out <- input %>%
       self$proj_layer() %>%
       self$seq() %>%

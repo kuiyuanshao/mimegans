@@ -15,18 +15,18 @@ Residual <- torch::nn_module(
 
 Tokenizer <- nn_module(
   "Tokenizer",
-  initialize = function(ncols, cat_inds, token_dim = 8, train = F) {
+  initialize = function(ncols, cat_inds, token_dim = 8, n_unique) {
     self$cat_inds <- cat_inds
     self$token_dim <- token_dim
-    binary_offsets <- cumsum(c(1, rep(2, length(cat_inds) - 1)))
+    category_offsets <- cumsum(c(1, n_unique[-length(n_unique)]))
     
-    self$register_buffer("binary_offsets", torch_tensor(binary_offsets, dtype = torch_long()))
-    self$binary_embeddings <- nn_embedding(length(cat_inds) * 2, token_dim)
-    self$binary_embeddings$weight$requires_grad <- train
-    nn_init_kaiming_uniform_(self$binary_embeddings$weight, a = sqrt(5))
+    self$register_buffer("category_offsets", torch_tensor(category_offsets, dtype = torch_long()))
+    self$category_embeddings <- nn_embedding(sum(n_unique) + 1, token_dim)
+    self$category_embeddings$weight$requires_grad <- F
+    nn_init_kaiming_uniform_(self$category_embeddings$weight, a = sqrt(5))
     
     self$weight <- nn_parameter(torch_empty(ncols - length(cat_inds) + 1, token_dim))
-    self$weight$requires_grad <- train
+    self$weight$requires_grad <- F
     
     nn_init_kaiming_uniform_(self$weight, a = sqrt(5))
     
@@ -36,7 +36,7 @@ Tokenizer <- nn_module(
     if (length(self$cat_inds) <= 1){
       return (self$weight$size(1))
     }else{
-      return (self$binary_offsets$size(1) + self$weight$size(1))
+      return (self$category_offsets$size(1) + self$weight$size(1))
     }
   },
   
@@ -57,9 +57,10 @@ Tokenizer <- nn_module(
     x <- self$weight$unsqueeze(1) * x_num$unsqueeze(3)
     
     if (length(self$cat_inds) > 0){
-      x <- torch_cat(list(x, self$binary_embeddings(x_some$to(dtype = torch_long()) + self$binary_offsets$unsqueeze(1))), dim = 2)
+      inp <- x_some$to(dtype = torch_long()) + 
+        self$category_offsets$unsqueeze(1)
+      x <- torch_cat(list(x, self$category_embeddings(inp)), dim = 2)
     }
-    
     return (x)
   }
 )

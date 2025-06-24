@@ -1,6 +1,6 @@
 samplebatches <- function(data_original, data_training, tensor_list, 
                           phase1_rows, phase2_rows, phase1_vars, phase2_vars, 
-                          num_vars, new_col_names, batch_size, at_least_p = 0.5){
+                          num_vars, new_col_names, batch_size, at_least_p = 0.2){
   # Remove non-informative columns for phase1 and phase2 based on the training data
   cat_names <- unlist(new_col_names)
   phase1_bins <- cat_names[!(cat_names %in% phase2_vars)] 
@@ -36,8 +36,8 @@ samplebatches <- function(data_original, data_training, tensor_list,
   sample_by_level <- function(phase_rows, col, desired_counts) {
     # Get the values for the provided column in the phase
     values <- data_training[phase_rows, col]
-    unique_levels <- sort(unique(values))
-    
+    unique_levels <- sample(unique(values), 2)
+
     # Get indices for each binary level.
     group1 <- phase_rows[which(values == unique_levels[1])]
     group2 <- phase_rows[which(values == unique_levels[2])]

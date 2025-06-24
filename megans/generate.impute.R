@@ -1,3 +1,8 @@
+pmm <- function(yhatobs, yhatmis, yobs, k) {
+  idx <- mice::matchindex(d = yhatobs, t = yhatmis, k = k)
+  yobs[idx]
+}
+
 match_types <- function(new_df, orig_df) {
   common <- intersect(names(orig_df), names(new_df))
   out <- new_df
@@ -26,7 +31,7 @@ match_types <- function(new_df, orig_df) {
   out
 }
 
-create_bfi <- function(data, batch_size, phase1_t, phase2_t, data_mask){
+create_bfi <- function(data, batch_size, tensor_list){
   n <- ceiling(nrow(data) / batch_size)
   idx <- 1
   batches <- vector("list", n)
@@ -34,9 +39,7 @@ create_bfi <- function(data, batch_size, phase1_t, phase2_t, data_mask){
     if (i == n){
       batch_size <- nrow(data) - batch_size * (n - 1)
     }
-    batches[[i]] <- list(X = phase2_t[idx:(idx + batch_size - 1), ],
-                         C = phase1_t[idx:(idx + batch_size - 1), ],
-                         M = data_mask[idx:(idx + batch_size - 1), ])
+    batches[[i]] <- lapply(tensor_list, function(tensor) tensor[idx:(idx + batch_size - 1), , drop = FALSE])
     idx <- idx + batch_size
   }
   return (batches = batches)
@@ -44,13 +47,14 @@ create_bfi <- function(data, batch_size, phase1_t, phase2_t, data_mask){
 
 generateImpute <- function(gnet, m = 5, 
                            data_original, data_norm, 
-                           data_encode, data_training, data_mask,
-                           phase2_vars, num_vars, num.normalizing, cat.encoding, 
-                           batch_size, g_dim, device, 
-                           phase1_t, phase2_t){
+                           data_encode, data_training,
+                           phase1_vars, phase2_vars, 
+                           num_vars, num.normalizing, cat.encoding, 
+                           batch_size, g_dim, device, params,
+                           tensor_list, tokenizer_list){ #, phase1_rows, phase2_rows, vars_to_pmm){
   imputed_data_list <- vector("list", m)
   gsample_data_list <- vector("list", m)
-  batchforimpute <- create_bfi(data_original, batch_size, phase1_t, phase2_t, data_mask)
+  batchforimpute <- create_bfi(data_original, batch_size, tensor_list)
   data_mask <- as.matrix(1 - is.na(data_original))
   
   num_col <- sapply(data_original, is.numeric)
@@ -61,14 +65,22 @@ generateImpute <- function(gnet, m = 5,
     output_list <- vector("list", length(batchforimpute))
     for (i in 1:length(batchforimpute)){
       batch <- batchforimpute[[i]]
-      X <- batch$X
-      C <- batch$C
-      M <- batch$M
+      X <- batch[[3]]
+      C <- batch[[2]]
+      M <- batch[[1]]
 
       fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), g_dim))$to(device = device)
-      fakez_C <- torch_cat(list(fakez, C), dim = 2)
+      if (params$tokenize){
+        C_token <- tokenizer_list$tokenizer(C[, tokenizer_list$num_inds_p1, drop = F], 
+                                            C[, tokenizer_list$cat_inds_p1, drop = F])
+        C_token <- C_token$reshape(c(C_token$size(1), 
+                                     C_token$size(2) * C_token$size(3)))
+        fakez_C <- torch_cat(list(fakez, C_token), dim = 2)
+      }else{
+        fakez_C <- torch_cat(list(fakez, C), dim = 2)
+      }
       gsample <- gnet(fakez_C)
-      gsample <- activation_fun(gsample, data_encode, phase2_vars)
+      gsample <- activation_fun(gsample, data_encode, phase2_vars, tau = 0.2, hard = T, gen = F)
       gsample <- torch_cat(list(gsample, C), dim = 2)
       output_list[[i]] <- as.matrix(gsample$detach()$cpu())
     }
@@ -90,6 +102,21 @@ generateImpute <- function(gnet, m = 5,
     #get the original order
     gsamples <- curr_gsample$data
     gsamples <- gsamples[, names(data_original)]
+    gsamples[, which(names(gsamples) %in% phase1_vars)] <- 
+      data_original[, which(names(gsamples) %in% phase1_vars)]
+    
+    
+    # vars_to_pmm <- "T_I"
+    # if (!is.null(vars_to_pmm)){
+    #   for (i in vars_to_pmm){
+    #     if (i %in% num_vars){
+    #       pmm_matched <- pmm(gsamples[data_original$R == 1, i],
+    #                          gsamples[data_original$R == 0, i],
+    #                          data_original[data_original$R == 1, i], 5)
+    #       gsamples[data_original$R == 0, i] <- pmm_matched
+    #     }
+    #   }
+    # }
     
     imputations <- data_original
     # ---- numeric columns: use matrix arithmetic ---
@@ -106,10 +133,8 @@ generateImpute <- function(gnet, m = 5,
       imputations[cbind(idx[, "row"], col_ids)] <- gsamples[cbind(idx[, "row"], col_ids)]
     }
     
-    #imputations <- as.data.frame(data_mask * as.matrix(data_original) + 
-    #                               (1 - data_mask) * as.matrix(gsamples))
-    imputed_data_list[[z]] <- match_types(imputations, data_original)
-    gsample_data_list[[z]] <- match_types(gsamples, data_original)
+    imputed_data_list[[z]] <- imputations
+    gsample_data_list[[z]] <- gsamples
   }
   return (list(imputation = imputed_data_list, gsample = gsample_data_list))
 }

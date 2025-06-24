@@ -1,17 +1,29 @@
 normalize.mode <- function(data, num_vars, ...) {
-  count_modes <- function(x,
-                          adjust   = 1,
-                          tol      = 0,
-                          min_dist = 0,
+  count_modes <- function(x, adjust = 1.5, tol = 0, 
+                          min_dist = 0, prop_drop = 0.10, 
                           ...) {
     d <- density(x, adjust = adjust, ...)
-    y  <- d$y
+    y <- d$y;  xs <- d$x
+    
     idx <- which(diff(sign(diff(y))) == -2) + 1
+    
     if (tol > 0)
       idx <- idx[y[idx] > tol]
+    
     if (min_dist > 0 && length(idx) > 1) {
-      keep <- c(TRUE, diff(d$x[idx]) >= min_dist)
+      keep <- c(TRUE, diff(xs[idx]) >= min_dist)
       idx  <- idx[keep]
+    }
+    if (length(idx) > 1) {
+      peak_h <- y[idx]
+      
+      left  <- c(1, idx[-length(idx)])
+      right <- c(idx[-1], length(y))
+      valley <- mapply(function(l, r) min(y[l:r]), left, right)
+      
+      prominence <- peak_h - valley
+      keep <- prominence >= prop_drop * max(y) 
+      idx <- idx[keep]
     }
     length(idx)
   }
@@ -29,7 +41,7 @@ normalize.mode <- function(data, num_vars, ...) {
       mc <- Mclust(curr_col_obs, G = 1)
     }else{
       mc <- Mclust(curr_col_obs, 
-                   G = min(c(5, count_modes(curr_col_obs))))
+                   G = min(c(5, count_modes(curr_col_obs, ...))))
     }
     pred <- predict(mc, newdata = curr_col_obs)
     mode_labels <- as.numeric(as.factor(pred$classification))

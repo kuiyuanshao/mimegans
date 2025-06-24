@@ -1,21 +1,22 @@
 pacman::p_load(progress, torch)
 
 cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10, 
-                            alpha = 1, beta = 1, zeta = 10, at_least_p = 1/2, 
-                            lr_g = 1e-4, lr_d = 1e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
+                            alpha = 0, beta = 1, at_least_p = 1/2, 
+                            lr_g = 1e-4, lr_d = 5e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
                             g_weight_decay = 1e-6, d_weight_decay = 1e-6, 
                             g_dim = 256, d_dim = 256, pac = 5, 
-                            n_g_layers = 3, n_d_layers = 1, discriminator_steps = 3,
-                            token_dim = 8, token_learn = F,
-                            type_g = "mlp", type_d = "mlp"){
+                            n_g_layers = 1, n_d_layers = 3, discriminator_steps = 1,
+                            tau = 1, hard = F, 
+                            tokenize = T, token_dim = 8, 
+                            type_g = "attn", type_d = "mlp"){
+  
   list(
-    batch_size = batch_size, gamma = gamma, lambda = lambda, alpha = alpha, beta = beta, zeta = zeta, 
+    batch_size = batch_size, gamma = gamma, lambda = lambda, alpha = alpha, beta = beta, 
     at_least_p = at_least_p, lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 
     g_weight_decay = g_weight_decay, d_weight_decay = d_weight_decay, 
-    g_dim = g_dim, d_dim = d_dim, 
-    pac = pac, n_g_layers = n_g_layers, n_d_layers = n_d_layers, 
-    discriminator_steps = discriminator_steps, 
-    token_dim = token_dim, token_learn = token_learn, 
+    g_dim = g_dim, d_dim = d_dim, pac = pac, n_g_layers = n_g_layers, n_d_layers = n_d_layers, 
+    discriminator_steps = discriminator_steps, tau = tau, hard = hard,
+    tokenize = tokenize, token_dim = token_dim,
     type_g = type_g, type_d = type_d
   )
 }
@@ -24,8 +25,8 @@ mmer.impute.cwgangp <- function(data, m = 5,
                                 num.normalizing = "mode", cat.encoding = "onehot", 
                                 device = "cpu",
                                 epochs = 10000, 
-                                params = list(), data_info = list(), 
-                                save.model = FALSE, save.step = 1000){
+                                params = list(), data_info = list(),
+                                save.model = FALSE, save.step = 500){
   params <- do.call("cwgangp_default", params)
   device <- torch_device(device)
   list2env(params, envir = environment())
@@ -56,7 +57,8 @@ mmer.impute.cwgangp <- function(data, m = 5,
   
   data_encode <- do.call(encode, args = list(
     data = data_norm$data,
-    cat_vars = cat_vars
+    cat_vars = cat_vars, 
+    phase1_vars, type_g
   ))
   
   nrows <- nrow(data_encode$data)
@@ -91,13 +93,32 @@ mmer.impute.cwgangp <- function(data, m = 5,
   phase2_t[is.na(phase2_t)] <- 0 
   phase2_t <- torch_tensor(as.matrix(phase2_t), device = device)
   
-  gnet <- do.call(paste("generator", type_g, sep = "."), 
-                  args = list(n_g_layers, params, ncols, length(phase2_vars), length(phase2_vars), unlist(binary_indices_reordered)))$to(device = device)
-  dnet <- do.call(paste("discriminator", type_d, sep = "."), 
-                  args = list(n_d_layers, params, ncols, unlist(binary_indices_reordered)))$to(device = device)
+  if (type_g == "attn"){
+    if (tokenize){
+      cat_inds_p1 <- (unlist(binary_indices_reordered) - 
+                        length(phase2_vars))[(unlist(binary_indices_reordered) - length(phase2_vars)) > 0]
+      num_inds_p1 <- which(!(1:(ncols - length(phase2_vars)) %in% cat_inds_p1))
+      tokenizer <- Tokenizer(dim(phase1_t)[2], cat_inds_p1, 
+                             params$token_dim, unlist(data_encode$n_unique))
+      ncols <- params$token_dim * (dim(phase1_t)[2] + 1) + length(phase2_vars)
+    }else{
+      ncols <- ncols
+    }
+  }else{
+    ncols <- ncols
+  }
+  tensor_list <- list(data_mask, phase1_t, phase2_t)
   
-  g_solver <- torch::optim_adam(gnet$parameters, lr = lr_g, betas = g_betas, weight_decay = g_weight_decay)
-  d_solver <- torch::optim_adam(dnet$parameters, lr = lr_d, betas = d_betas, weight_decay = d_weight_decay)
+  gnet <- do.call(paste("generator", type_g, sep = "."), 
+                  args = list(n_g_layers, params, 
+                              ncols, length(phase2_vars)))$to(device = device)
+  dnet <- do.call(paste("discriminator", type_d, sep = "."), 
+                  args = list(n_d_layers, params, ncols))$to(device = device)
+  
+  g_solver <- torch::optim_adam(gnet$parameters, lr = lr_g, 
+                                betas = g_betas, weight_decay = g_weight_decay)
+  d_solver <- torch::optim_adam(dnet$parameters, lr = lr_d, 
+                                betas = d_betas, weight_decay = d_weight_decay)
   
   nn_utils_clip_grad_norm_(gnet$parameters, max_norm = 10)
   training_loss <- matrix(0, nrow = epochs, ncol = 2)
@@ -109,15 +130,10 @@ mmer.impute.cwgangp <- function(data, m = 5,
     step_result <- list()
     p <- 1
   } 
-  alpha_init <- params$alpha
-  beta_init <- params$beta
   for (i in 1:epochs){
-    if (params$zeta > 0){
-      params$alpha <- 1e-10 + (alpha_init - 1e-10) * 1 / (1 + exp(params$zeta/epochs * (i - 1/10 * epochs)))
-      #params$beta <- 1e-10 + (beta_init - 1e-10) * 1 / (1 + exp(params$zeta/epochs * (i - 1/10 * epochs)))
-    }
     for (d in 1:discriminator_steps){
-      batch <- samplebatches(data, data_training, list(data_mask, phase1_t, phase2_t), 
+      batch <- samplebatches(data, data_training, 
+                             tensor_list, 
                              phase1_rows, phase2_rows, 
                              phase1_vars, phase2_vars, 
                              num_vars, data_encode$new_col_names, 
@@ -129,14 +145,22 @@ mmer.impute.cwgangp <- function(data, m = 5,
       
       fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), g_dim))$to(device = device)
       
-      fakez_C <- torch_cat(list(fakez, C), dim = 2)
+      if (tokenize){
+        C <- tokenizer(C[, num_inds_p1, drop = F], 
+                             C[, cat_inds_p1, drop = F])
+        C <- C$reshape(c(C$size(1), C$size(2) * C$size(3)))
+        fakez_C <- torch_cat(list(fakez, C), dim = 2)
+      }else{
+        fakez_C <- torch_cat(list(fakez, C), dim = 2)
+      }
+      
       fake <- gnet(fakez_C)
       
       fake_I <- fake[I, ]
       C_I <- C[I, ]
       true_I <- X[I, ]
       
-      fake_I <- activation_fun(fake_I, data_encode, phase2_vars)
+      fake_I <- activation_fun(fake_I, data_encode, phase2_vars, tau = tau, hard = hard)
       
       fake_C_I <- torch_cat(list(fake_I, C_I), dim = 2)
       true_C_I <- torch_cat(list(true_I, C_I), dim = 2)
@@ -148,7 +172,7 @@ mmer.impute.cwgangp <- function(data, m = 5,
       d_solver$step()
     }
     
-    batch <- samplebatches(data, data_training, list(data_mask, phase1_t, phase2_t),
+    batch <- samplebatches(data, data_training, tensor_list,
                            phase1_rows, phase2_rows, 
                            phase1_vars, phase2_vars, 
                            num_vars, data_encode$new_col_names, 
@@ -159,18 +183,26 @@ mmer.impute.cwgangp <- function(data, m = 5,
     I <- M[, 1] == 1
     
     fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), g_dim))$to(device = device)
-    fakez_C <- torch_cat(list(fakez, C), dim = 2)
+    if (tokenize){
+      C <- tokenizer(C[, num_inds_p1, drop = F], 
+                     C[, cat_inds_p1, drop = F])
+      C <- C$reshape(c(C$size(1), C$size(2) * C$size(3)))
+      fakez_C <- torch_cat(list(fakez, C), dim = 2)
+    }else{
+      fakez_C <- torch_cat(list(fakez, C), dim = 2)
+    }
     fake <- gnet(fakez_C)
     
     fake_I <- fake[I, ]
     C_I <- C[I, ]
     true_I <- X[I, ]
     
-    fake_I_act <- activation_fun(fake_I, data_encode, phase2_vars)
+    fake_I_act <- activation_fun(fake_I, data_encode, phase2_vars, tau = tau, hard = hard)
     fake_act_C_I <- torch_cat(list(fake_I_act, C_I), dim = 2)
     
     y_fake <- dnet(fake_act_C_I)
-    g_loss <- g_loss(y_fake, fake_act_C_I, true_I, data_encode, phase2_vars, params, num_inds)
+    g_loss <- g_loss(y_fake, fake_act_C_I, true_I, data_encode, 
+                     phase2_vars, params, num_inds, cat_inds)
     
     g_solver$zero_grad()
     g_loss$backward()
@@ -186,11 +218,17 @@ mmer.impute.cwgangp <- function(data, m = 5,
     
     if (save.step > 0){
       if (i %% save.step == 0){
+        if (tokenize){
+          tokenizer_list <- list(tokenizer = tokenizer, cat_inds_p1 = cat_inds_p1, num_inds_p1 = num_inds_p1)
+        }else{
+          tokenizer_list <- NULL
+        }
         result <- generateImpute(gnet, m = 1, 
                                  data, data_norm, 
-                                 data_encode, data_training, data_mask,
-                                 phase2_vars, num_vars, num.normalizing, cat.encoding, 
-                                 batch_size, g_dim, device, phase1_t, phase2_t)
+                                 data_encode, data_training,
+                                 phase1_vars, phase2_vars, num_vars, num.normalizing, cat.encoding, 
+                                 batch_size, g_dim, device, params, tensor_list, 
+                                 tokenizer_list)#, phase1_rows, phase2_rows, vars_to_pmm)
         step_result[[p]] <- result$gsample
         p <- p + 1
       }
@@ -198,18 +236,26 @@ mmer.impute.cwgangp <- function(data, m = 5,
   }
   training_loss <- data.frame(training_loss)
   names(training_loss) <- c("G Loss", "D Loss")
+  if (tokenize){
+    tokenizer_list <- list(tokenizer = tokenizer, cat_inds_p1 = cat_inds_p1, num_inds_p1 = num_inds_p1)
+  }else{
+    tokenizer_list <- NULL
+  }
   result <- generateImpute(gnet, m = m, 
                            data, data_norm, 
-                           data_encode, data_training, data_mask,
-                           phase2_vars, num_vars, num.normalizing, cat.encoding, 
-                           batch_size, g_dim, device, phase1_t, phase2_t)
+                           data_encode, data_training,
+                           phase1_vars, phase2_vars, num_vars, 
+                           num.normalizing, cat.encoding, 
+                           batch_size, g_dim, device, params, tensor_list, 
+                           tokenizer_list)#, phase1_rows, phase2_rows, vars_to_pmm)
   if (save.model){
     current_time <- Sys.time()
     formatted_time <- format(current_time, "%d-%m-%Y.%S-%M-%H")
     save(gnet, dnet, params, data, data_norm, 
          data_encode, data_training, data_mask,
-         phase2_vars, num.normalizing, cat.encoding, 
-         batch_size, g_dim, device, phase1_t, phase2_t, file = paste0("mmer.impute.cwgangp_", formatted_time, ".RData"))
+         phase1_vars, phase2_vars, num.normalizing, cat.encoding, 
+         batch_size, g_dim, device, phase1_t, phase2_t, 
+         file = paste0("mmer.impute.cwgangp_", formatted_time, ".RData"))
   }
   
   return (list(imputation = result$imputation, 

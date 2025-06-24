@@ -18,12 +18,12 @@ generateSample <- function(data, proportion, seed){
                   W = 1,
                   across(all_of(p2vars), ~ ifelse(R == 0, NA, .)))
   # Balanced Sampling
-  time_cut <- cut(data$T_I_STAR, breaks = c(-Inf, seq(3, 24, by = 3), Inf), 
-                  labels = 1:8) # Cut by every 3 months
+  time_cut <- cut(data$T_I_STAR, breaks = c(-Inf, 6, 12, 18, 24, Inf), 
+                  labels = 1:5) # Cut by every 3 months
   hba1c_cut <- as.numeric(cut(data$HbA1c_STAR, breaks = c(-Inf, 64, 75, Inf), 
                    labels = 1:3))
-  hba1c_cut <- as.numeric(data$URBAN)
   strata <- interaction(data$EVENT_STAR, time_cut, hba1c_cut, drop = TRUE)
+  data$STRATA <- strata
   k <- nlevels(strata)
   per_strat <- floor(n_phase2 / k)
   ids_by_str <- split(seq_len(nRow), strata)
@@ -42,8 +42,7 @@ generateSample <- function(data, proportion, seed){
   balanced_ind <- c(balanced_ind, remaining_ind)
   balanced_weights <- table(strata) / table(strata[balanced_ind])
   samp_balance <- data %>%
-    dplyr::mutate(R = ifelse(1:nRow %in% balanced_ind, 1, 0),
-                  STRATA = strata, 
+    dplyr::mutate(R = ifelse(1:nRow %in% balanced_ind, 1, 0), 
                   W = case_when(!!!lapply(names(balanced_weights), function(value){
                     expr(STRATA == !!value ~ !!balanced_weights[[value]])
                   })),
@@ -52,9 +51,23 @@ generateSample <- function(data, proportion, seed){
   ### Getting Influence Function by auxiliary variables
   mod.aux <- coxph(Surv(T_I_STAR, EVENT_STAR) ~ I((HbA1c_STAR - 50) / 5) + 
                      rs4506565_STAR + I((AGE - 50) / 5) + SEX + INSURANCE + 
-                     RACE + I(BMI / 5) + EXER_STAR, 
-                   data = data)
-  
+                     RACE + I(BMI / 5) + SMOKE_STAR, 
+                   data = data, y = T, x = T)
+  inf <- residuals(mod.aux, type = "dfbeta")[, 2]
+  data$inf <- inf
+  neyman_alloc <- exactAllocation(data, stratum_variable = "STRATA", 
+                                  target_variable = "inf", 
+                                  sample_size = n_phase2)
+  neyman_ind <- unlist(lapply(names(ids_by_str), function(i){
+      sample(ids_by_str[[i]], neyman_alloc[i])
+  }))
+  neyman_weights <- table(strata) / neyman_alloc
+  samp_neyman <- data %>%
+    dplyr::mutate(R = ifelse(1:nRow %in% neyman_ind, 1, 0), 
+                  W = case_when(!!!lapply(names(neyman_weights), function(value){
+                    expr(STRATA == !!value ~ !!neyman_weights[[value]])
+                  })),
+                  across(all_of(p2vars), ~ ifelse(R == 0, NA, .)))
   
   return (list(samp_srs = samp_srs,
                samp_balance = samp_balance,
@@ -73,6 +86,8 @@ for (i in 1:replicate){
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))
   samp_result <- generateSample(data, 0.05, seed)
+  write.csv(samp_result$samp_srs, 
+            file = paste0("./data/Sample/SRS/", digit, ".csv"))
   write.csv(samp_result$samp_balance, 
             file = paste0("./data/Sample/Balance/", digit, ".csv"))
   write.csv(samp_result$samp_neyman, 

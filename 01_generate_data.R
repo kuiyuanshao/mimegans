@@ -70,7 +70,7 @@ generateData <- function(n, seed){
   data$ALP <- pmax(14, data$ALP)
   data$GGT <- pmax(3, data$GGT)
   data$BILIRUBIN <- pmax(0, data$BILIRUBIN)
-  # DIABETE MEASUREMENTS: GLUCOSE & HbA1c are in inv-norm scale
+  # DIABETE MEASUREMENTS:
   data <- cbind(data, simCovs(data, covarInfo$formu$DIABETE, 
                               covarInfo$betas$DIABETE, covarInfo$type$DIABETE, covarInfo$sigma$DIABETE))
   data$GLUCOSE <- pmax(4, data$GLUCOSE)
@@ -182,16 +182,16 @@ generateData <- function(n, seed){
   data$INSULIN_STAR <- selfReport(data$INSULIN, 12.5, 12.5)
   
   # T_I: Self-Reported Time Interval between Treatment Initiation SGLT2 and T2D Diagnosis (Months)
-  mm_T_I <- model.matrix(~ I((HbA1c - 50) / 5) + rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
-                           RACE + I(BMI / 5) + EXER, data = data)
+  mm_T_I <- model.matrix(~ I((HbA1c - 50) / 5) + rs4506565 + I((AGE - 50) / 5) + 
+                           SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE, data = data)
   betas_T_I <- log(c(1, 1.25, 1.05, 1.10, 1.10, 1.1, 0.75, 
-                     0.90, 0.90, 1, 0.95, 1.1, 1.15, 0.9))
+                     0.90, 0.90, 1, 0.95, 1.1, 0.85, 0.9))
   eta_I <- as.vector(mm_T_I %*% betas_T_I)
   k <- 1.2
   lambda <- log(2) / (60 ^ k)
   T_I <- (-log(runif(n)) / (lambda*exp(eta_I)))^(1/k) + 1
   
-  C_drop <- rexp(n, rate = 0.1)
+  C_drop <- rexp(n, rate = 0.07)
   C_drop_star <- C_drop + rnorm(n, 0, 2)
   
   C <- pmin(24.001, C_drop)

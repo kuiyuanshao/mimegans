@@ -66,17 +66,35 @@ data_info <- list(weight_var = "W",
 
 output_list <- list()
 for (i in 1:10){
-  output_list[[i]] <- mmer.impute.cwgangp(nutri, m = 5, 
-                                     num.normalizing = "mode", 
-                                     cat.encoding = "token", 
-                                     device = "cpu", epochs = 10000, 
-                                     params = list(lr_d = 1e-4, lr_g = 5e-4), 
-                                     data_info = data_info, save.step = 500)
+  out <- mmer.impute.cwgangp(nutri, m = 5, 
+                             num.normalizing = "mode", 
+                             cat.encoding = "token", 
+                             device = "cpu", epochs = 5000, 
+                             params = list(lr_d = 1e-4, lr_g = 1e-4, 
+                                           pac = 5, n_g_layers = 1, 
+                                           n_d_layers = 3, alpha = 1,
+                                           discriminator_steps = 1), 
+                             data_info = data_info, save.step = 500)
 }
+
+binomial_mat <- linear_mat <- NULL
+for (i in 1:10){
+  for (j in 1:5){
+    mod.1 <- glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + 
+                   usborn + female + bkg_o + bkg_pr, output_list[[i]]$imputation[[j]], family = binomial())
+    mod.2 <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + 
+                   usborn + female + bkg_o + bkg_pr, output_list[[i]]$imputation[[j]], family = gaussian())
+    binomial_mat <- rbind(binomial_mat, coef(mod.1))
+    linear_mat <- rbind(linear_mat, coef(mod.2))
+  }
+}
+colMeans(binomial_mat) - coef(mod.3)
+colMeans(linear_mat) - coef(mod.4)
+
 mod.1 <- glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + 
-             usborn + female + bkg_o + bkg_pr, nuri_megans$imputation[[1]], family = binomial())
+             usborn + female + bkg_o + bkg_pr, out$step_result[[10]][[1]], family = binomial())
 mod.2 <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + 
-               usborn + female + bkg_o + bkg_pr, nuri_megans$imputation[[1]], family = gaussian())
+               usborn + female + bkg_o + bkg_pr, out$step_result[[10]][[1]], family = gaussian())
 mod.3 <- glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + 
                usborn + female + bkg_o + bkg_pr, pop, family = binomial())
 mod.4 <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + 
@@ -85,18 +103,32 @@ coef(mod.1) - coef(mod.3)
 coef(mod.2) - coef(mod.4)
 ggplot(nutri) + 
   geom_density(aes(x = c_ln_na_true)) + 
-  geom_density(data = nuri_megans$step_result[[20]][[1]],
+  geom_density(data = out$step_result[[10]][[1]],
                aes(x = c_ln_na_true), colour = "red") +
   geom_density(data = pop,
                aes(x = c_ln_na_true), colour = "blue") 
 
+ggplot(data = pop) + 
+  geom_point(aes(x = c_ln_na_true, y = sbp), colour = "blue", alpha = 0.2) + 
+  geom_point(data = out$step_result[[i]][[1]], 
+             aes(x = c_ln_na_true, y = sbp), colour = "red", alpha = 0.2)
 
+lapply(1:10, function(i){sd(out$step_result[[i]][[1]]$c_ln_na_true)})
+lm(sbp ~ c_ln_na_true, data = pop)
+lm(sbp ~ c_ln_na_true, data = out$step_result[[9]][[1]])
 library(survival)
 load("./data/Complete/0001.RData")
-mod.imp <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
-                   rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
-                   RACE + I(BMI / 5) + SMOKE, 
-                 data = match_types(megans_imp.balance$imputation[[1]], data))
+cox_mat <- NULL
+for (i in 1:10){
+  for (j in 1:5){
+    mod.imp <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
+                       rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
+                       RACE + I(BMI / 5) + SMOKE, 
+                     data = match_types(output_list_surv[[i]]$imputation[[j]], data))
+    cox_mat <- rbind(cox_mat, exp(coef(mod.imp)))
+  }
+}
+colMeans(cox_mat) - exp(coef(mod.true))
 mod.true <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
                     rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
                     RACE + I(BMI / 5) + SMOKE, data = data)

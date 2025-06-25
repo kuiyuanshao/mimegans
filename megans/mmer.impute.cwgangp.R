@@ -1,7 +1,7 @@
 pacman::p_load(progress, torch)
 
 cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10, 
-                            alpha = 0, beta = 1, at_least_p = 1/2, 
+                            alpha = 0, beta = 1, zeta = 10, at_least_p = 1/2, 
                             lr_g = 1e-4, lr_d = 5e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
                             g_weight_decay = 1e-6, d_weight_decay = 1e-6, 
                             g_dim = 256, d_dim = 256, pac = 5, 
@@ -11,7 +11,7 @@ cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10,
                             type_g = "attn", type_d = "mlp"){
   
   list(
-    batch_size = batch_size, gamma = gamma, lambda = lambda, alpha = alpha, beta = beta, 
+    batch_size = batch_size, gamma = gamma, lambda = lambda, alpha = alpha, beta = beta, zeta = zeta, 
     at_least_p = at_least_p, lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 
     g_weight_decay = g_weight_decay, d_weight_decay = d_weight_decay, 
     g_dim = g_dim, d_dim = d_dim, pac = pac, n_g_layers = n_g_layers, n_d_layers = n_d_layers, 
@@ -130,7 +130,11 @@ mmer.impute.cwgangp <- function(data, m = 5,
     step_result <- list()
     p <- 1
   } 
+  
+  alpha_init <- params$alpha
   for (i in 1:epochs){
+    #params$alpha <- 0.1 * alpha_init + (alpha_init - 0.1 * alpha_init) * 
+    #  1 / (1 + exp(params$zeta/epochs * (i - 1/2 * epochs)))
     for (d in 1:discriminator_steps){
       batch <- samplebatches(data, data_training, 
                              tensor_list, 

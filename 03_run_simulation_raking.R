@@ -26,8 +26,10 @@ for (i in 1:replicate){
     mutate(across(all_of(data_info_neyman$cat_vars), as.factor, .names = "{.col}"),
            across(all_of(data_info_neyman$num_vars), as.numeric, .names = "{.col}"))
   
-  
-  
+  raking.balance <- calibrateFun(samp_balance)
+  save(raking.balance, file = paste0("./simulations/Balance/raking/", digit, ".RData"))
+  raking.neyman <- calibrateFun(samp_neyman)
+  save(raking.neyman, file = paste0("./simulations/Neyman/raking/", digit, ".RData"))
 }
 
 

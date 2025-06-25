@@ -22,11 +22,11 @@ Tokenizer <- nn_module(
     
     self$register_buffer("category_offsets", torch_tensor(category_offsets, dtype = torch_long()))
     self$category_embeddings <- nn_embedding(sum(n_unique) + 1, token_dim)
-    self$category_embeddings$weight$requires_grad <- F
+    self$category_embeddings$weight$requires_grad <- T
     nn_init_kaiming_uniform_(self$category_embeddings$weight, a = sqrt(5))
     
     self$weight <- nn_parameter(torch_empty(ncols - length(cat_inds) + 1, token_dim))
-    self$weight$requires_grad <- F
+    self$weight$requires_grad <- T
     
     nn_init_kaiming_uniform_(self$weight, a = sqrt(5))
     

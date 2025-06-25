@@ -1,3 +1,5 @@
+
+
 calibrateFun <- function(samp){
   twophase_des <- twophase(id = list(~1, ~1), strata = list(NULL, ~STRATA), 
                            subset = ~as.logical(R), data = samp)

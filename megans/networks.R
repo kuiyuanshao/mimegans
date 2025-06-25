@@ -70,8 +70,8 @@ Encoder <- torch::nn_module(
   initialize = function(embed_dim, num_heads){
     self$attn <- nn_multihead_attention(embed_dim, num_heads, batch_first = T)
     
-    self$dropout1 <- nn_dropout()
-    self$dropout2 <- nn_dropout()
+    self$dropout1 <- nn_dropout(0.5)
+    self$dropout2 <- nn_dropout(0.5)
     
     self$norm1 <- nn_layer_norm(embed_dim)
     self$norm2 <- nn_layer_norm(embed_dim)

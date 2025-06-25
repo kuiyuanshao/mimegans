@@ -64,17 +64,54 @@ data_info <- list(weight_var = "W",
                   num_vars = names(nutri)[!names(nutri) %in% c("W", "usborn", "high_chol", "female", "bkg_pr", 
                                                                "bkg_o", "hypertension", "R", "idx")])
 
-output_list <- list()
+output_list_2500 <- list()
 for (i in 1:10){
-  out <- mmer.impute.cwgangp(nutri, m = 5, 
+  output_list_2500[[i]] <- mmer.impute.cwgangp(nutri, m = 5, 
                              num.normalizing = "mode", 
                              cat.encoding = "token", 
-                             device = "cpu", epochs = 5000, 
-                             params = list(lr_d = 1e-4, lr_g = 1e-4, 
+                             device = "cpu", epochs = 2500, 
+                             params = list(lr_d = 1e-4, lr_g = 5e-4, 
                                            pac = 5, n_g_layers = 1, 
                                            n_d_layers = 3, alpha = 1,
                                            discriminator_steps = 1), 
                              data_info = data_info, save.step = 500)
+}
+output_list_surv_2500 <- list()
+for (i in 1:10){
+  output_list_surv_2500[[i]] <- mmer.impute.cwgangp(samp_balance, m = 5, 
+                                               num.normalizing = "mode", 
+                                               cat.encoding = "token", 
+                                               device = "cpu", epochs = 2500,
+                                               params = list(lr_d = 1e-4, lr_g = 5e-4, 
+                                                             pac = 5, n_g_layers = 1, 
+                                                             n_d_layers = 3, alpha = 1,
+                                                             discriminator_steps = 1),
+                                               data_info = data_info_balance, save.step = 500)
+}
+
+output_list_10000 <- list()
+for (i in 1:10){
+  output_list_10000[[i]] <- mmer.impute.cwgangp(nutri, m = 5, 
+                                          num.normalizing = "mode", 
+                                          cat.encoding = "token", 
+                                          device = "cpu", epochs = 10000, 
+                                          params = list(lr_d = 1e-4, lr_g = 5e-4, 
+                                                        pac = 5, n_g_layers = 1, 
+                                                        n_d_layers = 3, alpha = 1,
+                                                        discriminator_steps = 1), 
+                                          data_info = data_info, save.step = 500)
+}
+output_list_surv_10000 <- list()
+for (i in 1:10){
+  output_list_surv_10000[[i]] <- mmer.impute.cwgangp(samp_balance, m = 5, 
+                                               num.normalizing = "mode", 
+                                               cat.encoding = "token", 
+                                               device = "cpu", epochs = 10000,
+                                               params = list(lr_d = 1e-4, lr_g = 5e-4, 
+                                                             pac = 5, n_g_layers = 1, 
+                                                             n_d_layers = 3, alpha = 1,
+                                                             discriminator_steps = 1),
+                                               data_info = data_info_balance, save.step = 500)
 }
 
 binomial_mat <- linear_mat <- NULL
@@ -92,9 +129,9 @@ colMeans(binomial_mat) - coef(mod.3)
 colMeans(linear_mat) - coef(mod.4)
 
 mod.1 <- glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + 
-             usborn + female + bkg_o + bkg_pr, out$step_result[[10]][[1]], family = binomial())
+             usborn + female + bkg_o + bkg_pr, out$imputation[[1]], family = binomial())
 mod.2 <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + 
-               usborn + female + bkg_o + bkg_pr, out$step_result[[10]][[1]], family = gaussian())
+               usborn + female + bkg_o + bkg_pr, out$imputation[[1]], family = gaussian())
 mod.3 <- glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + 
                usborn + female + bkg_o + bkg_pr, pop, family = binomial())
 mod.4 <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + 
@@ -103,14 +140,14 @@ coef(mod.1) - coef(mod.3)
 coef(mod.2) - coef(mod.4)
 ggplot(nutri) + 
   geom_density(aes(x = c_ln_na_true)) + 
-  geom_density(data = out$step_result[[10]][[1]],
+  geom_density(data = out$step_result[[5]][[1]],
                aes(x = c_ln_na_true), colour = "red") +
   geom_density(data = pop,
                aes(x = c_ln_na_true), colour = "blue") 
 
 ggplot(data = pop) + 
   geom_point(aes(x = c_ln_na_true, y = sbp), colour = "blue", alpha = 0.2) + 
-  geom_point(data = out$step_result[[i]][[1]], 
+  geom_point(data = out$step_result[[5]][[1]], 
              aes(x = c_ln_na_true, y = sbp), colour = "red", alpha = 0.2)
 
 lapply(1:10, function(i){sd(out$step_result[[i]][[1]]$c_ln_na_true)})

@@ -36,7 +36,7 @@ samplebatches <- function(data_original, data_training, tensor_list,
   sample_by_level <- function(phase_rows, col, desired_counts) {
     # Get the values for the provided column in the phase
     values <- data_training[phase_rows, col]
-    unique_levels <- sample(unique(values), 2)
+    unique_levels <- unique(values)#sample(unique(values), 2)
 
     # Get indices for each binary level.
     group1 <- phase_rows[which(values == unique_levels[1])]

@@ -1,19 +1,18 @@
-encode.token <- function(data, cat_vars, phase1_vars, type_g, ...) {
+encode.token <- function(data, cat_vars, phase1_vars, ...) {
   new_data <- data[, !names(data) %in% cat_vars, drop = F]
   cat_data <- data[, names(data) %in% cat_vars, drop = F]
   binary_col_indices <- list()
   binary_col_names <- list()
   n_unique <- list()
   for (col in cat_vars) {
-    if (type_g == "attn"){
-      if (col %in% phase1_vars){
-        new_data[[col]] <- as.numeric(as.factor(cat_data[[col]]))
-        binary_col_indices[[col]] <- which(names(new_data) %in% col)
-        binary_col_names[[col]] <- names(new_data)[binary_col_indices[[col]]]
-        n_unique[[col]] <- length(unique(new_data[[col]]))
-        next
-      }
+    if (col %in% phase1_vars){
+      new_data[[col]] <- as.numeric(as.factor(cat_data[[col]]))
+      binary_col_indices[[col]] <- which(names(new_data) %in% col)
+      binary_col_names[[col]] <- names(new_data)[binary_col_indices[[col]]]
+      n_unique[[col]] <- length(unique(new_data[[col]]))
+      next
     }
+    
     unique_categories <- unique(na.omit(cat_data[[col]]))
     new_cols <- vector()
     for (category in unique_categories) {

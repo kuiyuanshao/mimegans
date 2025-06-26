@@ -80,7 +80,7 @@ generateImpute <- function(gnet, m = 5,
         fakez_C <- torch_cat(list(fakez, C), dim = 2)
       }
       gsample <- gnet(fakez_C)
-      gsample <- activation_fun(gsample, data_encode, phase2_vars, tau = 0.2, hard = T, gen = F)
+      gsample <- activation_fun(gsample, data_encode, phase2_vars, gen = T)
       gsample <- torch_cat(list(gsample, C), dim = 2)
       output_list[[i]] <- as.matrix(gsample$detach()$cpu())
     }

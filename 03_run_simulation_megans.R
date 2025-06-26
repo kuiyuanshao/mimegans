@@ -58,11 +58,13 @@ for (i in 1:replicate){
 
 load("NutritionalData_0001.RData")
 nutri <- read.csv("SRS_0001.csv")
+nutri$R <- NULL
+nutri$X <- NULL
 data_info <- list(weight_var = "W",
                   cat_vars = c("usborn", "high_chol", "female", "bkg_pr", 
-                               "bkg_o", "hypertension", "R", "W", "idx"),
+                               "bkg_o", "hypertension", "W", "idx"),
                   num_vars = names(nutri)[!names(nutri) %in% c("W", "usborn", "high_chol", "female", "bkg_pr", 
-                                                               "bkg_o", "hypertension", "R", "idx")])
+                                                               "bkg_o", "hypertension", "idx")])
 
 output_list_2500 <- list()
 for (i in 1:10){
@@ -131,25 +133,33 @@ colMeans(linear_mat) - coef(mod.4)
 
 out <- mmer.impute.cwgangp(nutri, m = 5, 
                            num.normalizing = "mode", 
-                           cat.encoding = "onehot", 
+                           cat.encoding = "token", 
                            device = "cpu", epochs = 3000, 
-                           params = list(batch_size = 500, lr_d = 1e-4, lr_g = 1e-4, 
-                                         g_dim = 256, d_dim = 256, 
-                                         pac = 5, n_g_layers = 3, 
-                                         n_d_layers = 2, alpha = 0,
+                           params = list(batch_size = 500, lr_d = 1e-4, lr_g = 5e-4, 
+                                         pac = 5, n_g_layers = 1, 
+                                         n_d_layers = 3, alpha = 1, beta = 1, 
                                          discriminator_steps = 1, at_least_p = 0.5,
-                                         type_g = "mlp", tokenize = F), 
+                                         type_g = "attn", tokenize = T), 
                            data_info = data_info, save.step = 500)
-mod.1 <- glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + 
-             usborn + female + bkg_o + bkg_pr, out$imputation[[1]], family = binomial())
-mod.2 <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + 
-               usborn + female + bkg_o + bkg_pr, out$imputation[[1]], family = gaussian())
+
+binomial_mat <- linear_mat <- NULL
+for (j in 1:5){
+  mod.1 <- glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + 
+                 usborn + female + bkg_o + bkg_pr, out$imputation[[j]], family = binomial())
+  mod.2 <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + 
+                 usborn + female + bkg_o + bkg_pr, out$imputation[[j]], family = gaussian())
+  binomial_mat <- rbind(binomial_mat, coef(mod.1))
+  linear_mat <- rbind(linear_mat, coef(mod.2))
+}
+colMeans(binomial_mat) - coef(mod.3)
+colMeans(linear_mat) - coef(mod.4)
+
 mod.3 <- glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + 
                usborn + female + bkg_o + bkg_pr, pop, family = binomial())
 mod.4 <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + 
                usborn + female + bkg_o + bkg_pr, pop, family = gaussian())
-coef(mod.1) - coef(mod.3)
-coef(mod.2) - coef(mod.4)
+coef(mod.1)
+coef(mod.2)
 ggplot(nutri) + 
   geom_density(aes(x = c_ln_na_true)) + 
   geom_density(data = out$gsample[[1]],

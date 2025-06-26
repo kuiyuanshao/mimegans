@@ -6,7 +6,7 @@ cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10,
                             g_weight_decay = 1e-7, d_weight_decay = 1e-7, 
                             g_dim = 256, d_dim = 256, pac = 5, 
                             n_g_layers = 1, n_d_layers = 3, discriminator_steps = 1,
-                            tau = 1, hard = F, 
+                            tau = 0.2, hard = F, 
                             tokenize = T, token_dim = 8, 
                             type_g = "attn", type_d = "mlp"){
   
@@ -24,7 +24,7 @@ cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10,
 mmer.impute.cwgangp <- function(data, m = 5, 
                                 num.normalizing = "mode", cat.encoding = "onehot", 
                                 device = "cpu",
-                                epochs = 10000, 
+                                epochs = 2500, 
                                 params = list(), data_info = list(),
                                 save.model = FALSE, save.step = 500){
   params <- do.call("cwgangp_default", params)
@@ -120,7 +120,7 @@ mmer.impute.cwgangp <- function(data, m = 5,
   d_solver <- torch::optim_adam(dnet$parameters, lr = lr_d, 
                                 betas = d_betas, weight_decay = d_weight_decay)
   
-  nn_utils_clip_grad_norm_(gnet$parameters, max_norm = 10)
+  #nn_utils_clip_grad_norm_(gnet$parameters, max_norm = 10)
   training_loss <- matrix(0, nrow = epochs, ncol = 2)
   pb <- progress_bar$new(
     format = paste0("Running :what [:bar] :percent eta: :eta | G Loss: :g_loss | D Loss: :d_loss"),

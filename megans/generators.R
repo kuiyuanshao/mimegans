@@ -24,7 +24,7 @@ generator.attn <- torch::nn_module(
     dim2 <- params$g_dim
     self$proj_layer <- torch::nn_sequential(
       nn_linear(dim1, dim2),
-      nn_batch_norm1d(dim2),
+      nn_layer_norm(dim2),
       nn_relu()
     )
     
@@ -34,7 +34,7 @@ generator.attn <- torch::nn_module(
     }
     
     self$output_layer <- torch::nn_sequential(
-      nn_batch_norm1d(dim2),
+      nn_layer_norm(dim2),
       nn_relu(),
       nn_linear(dim2, nphase2)
     )

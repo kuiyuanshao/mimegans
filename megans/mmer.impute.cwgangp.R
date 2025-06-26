@@ -3,7 +3,7 @@ pacman::p_load(progress, torch)
 cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10, 
                             alpha = 0, beta = 1, zeta = 10, at_least_p = 1/2, 
                             lr_g = 1e-4, lr_d = 5e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
-                            g_weight_decay = 1e-6, d_weight_decay = 1e-6, 
+                            g_weight_decay = 1e-7, d_weight_decay = 1e-7, 
                             g_dim = 256, d_dim = 256, pac = 5, 
                             n_g_layers = 1, n_d_layers = 3, discriminator_steps = 1,
                             tau = 1, hard = F, 
@@ -131,7 +131,7 @@ mmer.impute.cwgangp <- function(data, m = 5,
     p <- 1
   } 
   
-  alpha_init <- params$alpha
+  #alpha_init <- params$alpha
   for (i in 1:epochs){
     #params$alpha <- 0.1 * alpha_init + (alpha_init - 0.1 * alpha_init) * 
     #  1 / (1 + exp(params$zeta/epochs * (i - 1/2 * epochs)))
@@ -151,7 +151,7 @@ mmer.impute.cwgangp <- function(data, m = 5,
       
       if (tokenize){
         C <- tokenizer(C[, num_inds_p1, drop = F], 
-                             C[, cat_inds_p1, drop = F])
+                       C[, cat_inds_p1, drop = F])
         C <- C$reshape(c(C$size(1), C$size(2) * C$size(3)))
         fakez_C <- torch_cat(list(fakez, C), dim = 2)
       }else{
@@ -165,6 +165,9 @@ mmer.impute.cwgangp <- function(data, m = 5,
       true_I <- X[I, ]
       
       fake_I <- activation_fun(fake_I, data_encode, phase2_vars, tau = tau, hard = hard)
+      
+      fake_I_noise <- fake_I + torch_randn_like(fake_I) * 0.05
+      true_I_noise <- true_I + torch_randn_like(true_I) * 0.05
       
       fake_C_I <- torch_cat(list(fake_I, C_I), dim = 2)
       true_C_I <- torch_cat(list(true_I, C_I), dim = 2)
@@ -201,11 +204,11 @@ mmer.impute.cwgangp <- function(data, m = 5,
     C_I <- C[I, ]
     true_I <- X[I, ]
     
-    fake_I_act <- activation_fun(fake_I, data_encode, phase2_vars, tau = tau, hard = hard)
-    fake_act_C_I <- torch_cat(list(fake_I_act, C_I), dim = 2)
+    fake_I <- activation_fun(fake_I, data_encode, phase2_vars, tau = tau, hard = hard)
+    fake_C_I <- torch_cat(list(fake_I, C_I), dim = 2)
     
-    y_fake <- dnet(fake_act_C_I)
-    g_loss <- g_loss(y_fake, fake_act_C_I, true_I, data_encode, 
+    y_fake <- dnet(fake_C_I)
+    g_loss <- g_loss(y_fake, fake_I, true_I, data_encode, 
                      phase2_vars, params, num_inds, cat_inds)
     
     g_solver$zero_grad()

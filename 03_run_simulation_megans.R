@@ -69,11 +69,12 @@ for (i in 1:10){
   output_list_2500[[i]] <- mmer.impute.cwgangp(nutri, m = 5, 
                              num.normalizing = "mode", 
                              cat.encoding = "token", 
-                             device = "cpu", epochs = 2500, 
-                             params = list(lr_d = 1e-4, lr_g = 5e-4, 
-                                           pac = 5, n_g_layers = 1, 
+                             device = "cpu", epochs = 3000, 
+                             params = list(batch_size = 500, lr_d = 1e-4, lr_g = 5e-4, 
+                                           g_dim = 256, d_dim = 256, 
+                                           pac = 10, n_g_layers = 1, 
                                            n_d_layers = 3, alpha = 1,
-                                           discriminator_steps = 1), 
+                                           discriminator_steps = 1, at_least_p = 0.5), 
                              data_info = data_info, save.step = 500)
 }
 output_list_surv_2500 <- list()
@@ -118,9 +119,9 @@ binomial_mat <- linear_mat <- NULL
 for (i in 1:10){
   for (j in 1:5){
     mod.1 <- glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + 
-                   usborn + female + bkg_o + bkg_pr, output_list[[i]]$imputation[[j]], family = binomial())
+                   usborn + female + bkg_o + bkg_pr, output_list_2500[[i]]$imputation[[j]], family = binomial())
     mod.2 <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + 
-                   usborn + female + bkg_o + bkg_pr, output_list[[i]]$imputation[[j]], family = gaussian())
+                   usborn + female + bkg_o + bkg_pr, output_list_2500[[i]]$imputation[[j]], family = gaussian())
     binomial_mat <- rbind(binomial_mat, coef(mod.1))
     linear_mat <- rbind(linear_mat, coef(mod.2))
   }
@@ -128,6 +129,17 @@ for (i in 1:10){
 colMeans(binomial_mat) - coef(mod.3)
 colMeans(linear_mat) - coef(mod.4)
 
+out <- mmer.impute.cwgangp(nutri, m = 5, 
+                           num.normalizing = "mode", 
+                           cat.encoding = "onehot", 
+                           device = "cpu", epochs = 3000, 
+                           params = list(batch_size = 500, lr_d = 1e-4, lr_g = 1e-4, 
+                                         g_dim = 256, d_dim = 256, 
+                                         pac = 5, n_g_layers = 3, 
+                                         n_d_layers = 2, alpha = 0,
+                                         discriminator_steps = 1, at_least_p = 0.5,
+                                         type_g = "mlp", tokenize = F), 
+                           data_info = data_info, save.step = 500)
 mod.1 <- glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + 
              usborn + female + bkg_o + bkg_pr, out$imputation[[1]], family = binomial())
 mod.2 <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + 
@@ -140,19 +152,25 @@ coef(mod.1) - coef(mod.3)
 coef(mod.2) - coef(mod.4)
 ggplot(nutri) + 
   geom_density(aes(x = c_ln_na_true)) + 
-  geom_density(data = out$step_result[[5]][[1]],
+  geom_density(data = out$gsample[[1]],
                aes(x = c_ln_na_true), colour = "red") +
   geom_density(data = pop,
                aes(x = c_ln_na_true), colour = "blue") 
 
 ggplot(data = pop) + 
-  geom_point(aes(x = c_ln_na_true, y = sbp), colour = "blue", alpha = 0.2) + 
-  geom_point(data = out$step_result[[5]][[1]], 
-             aes(x = c_ln_na_true, y = sbp), colour = "red", alpha = 0.2)
+  geom_point(aes(x = sbp, y = c_ln_na_true), colour = "blue", alpha = 0.6) + 
+  geom_point(data = out$gsample[[1]], 
+             aes(x = sbp, y = c_ln_na_true), colour = "red", alpha = 0.2)
+ggplot() +
+  geom_line(aes(x = 1:dim(out$loss)[1], 
+                y = out$loss$`G Loss`), colour = "red") +
+  geom_line(aes(x = 1:dim(out$loss)[1], 
+                y = out$loss$`D Loss`), colour = "blue")
 
-lapply(1:10, function(i){sd(out$step_result[[i]][[1]]$c_ln_na_true)})
-lm(sbp ~ c_ln_na_true, data = pop)
-lm(sbp ~ c_ln_na_true, data = out$step_result[[9]][[1]])
+
+lapply(1:5, function(i){sd(out$step_result[[i]][[1]]$c_ln_na_true)})
+vcov(lm(sbp ~ c_ln_na_true, data = pop))[2, 2]
+vcov(lm(sbp ~ c_ln_na_true, data = out$step_result[[5]][[1]]))[2, 2]
 library(survival)
 load("./data/Complete/0001.RData")
 cox_mat <- NULL
@@ -161,7 +179,7 @@ for (i in 1:10){
     mod.imp <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
                        rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
                        RACE + I(BMI / 5) + SMOKE, 
-                     data = match_types(output_list_surv[[i]]$imputation[[j]], data))
+                     data = match_types(output_list_surv_10000[[i]]$imputation[[j]], data))
     cox_mat <- rbind(cox_mat, exp(coef(mod.imp)))
   }
 }

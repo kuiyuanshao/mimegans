@@ -70,8 +70,8 @@ Encoder <- torch::nn_module(
   initialize = function(embed_dim, num_heads){
     self$attn <- nn_multihead_attention(embed_dim, num_heads, batch_first = T)
     
-    self$dropout1 <- nn_dropout(0.5)
-    self$dropout2 <- nn_dropout(0.5)
+    self$dropout1 <- nn_dropout()
+    self$dropout2 <- nn_dropout()
     
     self$norm1 <- nn_layer_norm(embed_dim)
     self$norm2 <- nn_layer_norm(embed_dim)
@@ -93,7 +93,6 @@ Encoder <- torch::nn_module(
 )
 
 gradient_penalty <- function(D, real_samples, fake_samples, pac, device) {
-  # Generate alpha for each pack (here batch_size/pac groups)
   alp <- torch_rand(c(ceiling(real_samples$size(1) / pac), 1, 1))$to(device = device)
   pac <- torch_tensor(as.integer(pac), device = device)
   size <- torch_tensor(real_samples$size(2), device = device)

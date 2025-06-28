@@ -2,14 +2,14 @@ lapply(c("mixgb", "dplyr", "stringr"), require, character.only = T)
 lapply(paste0("./comparisons/mixgb/", list.files("./comparisons/mixgb/")), source)
 source("00_utils_functions.R")
 
-if(!dir.exists('./simulations')){system('mkdir ./simulations')}
-if(!dir.exists('./simulations/SRS')){system('mkdir ./simulations/SRS')}
-if(!dir.exists('./simulations/Balance')){system('mkdir ./simulations/Balance')}
-if(!dir.exists('./simulations/Neyman')){system('mkdir ./simulations/Neyman')}
+if(!dir.exists('./simulations')){dir.create('./simulations')}
+if(!dir.exists('./simulations/SRS')){dir.create('./simulations/SRS')}
+if(!dir.exists('./simulations/Balance')){dir.create('./simulations/Balance')}
+if(!dir.exists('./simulations/Neyman')){dir.create('./simulations/Neyman')}
 
-if(!dir.exists('./simulations/SRS/mixgb')){system('mkdir ./simulations/SRS/mixgb')}
-if(!dir.exists('./simulations/Balance/mixgb')){system('mkdir ./simulations/Balance/mixgb')}
-if(!dir.exists('./simulations/Neyman/mixgb')){system('mkdir ./simulations/Neyman/mixgb')}
+if(!dir.exists('./simulations/SRS/mixgb')){dir.create('./simulations/SRS/mixgb')}
+if(!dir.exists('./simulations/Balance/mixgb')){dir.create('./simulations/Balance/mixgb')}
+if(!dir.exists('./simulations/Neyman/mixgb')){dir.create('./simulations/Neyman/mixgb')}
 
 
 replicate <- 1000

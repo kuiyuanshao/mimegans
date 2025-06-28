@@ -587,7 +587,8 @@ transform_betas <- function(input_vector) {
 
 
 ####### STARTING SIMULATION.  SAVING FILES ########
-if(!dir.exists('./data/Complete')){system('mkdir ./data/Complete')}
+if(!dir.exists('./data')){dir.create("./data")}
+if(!dir.exists('./data/Complete')){dir.create("./data/Complete")}
 replicate <- 1
 n <- 2e4
 seed <- 1

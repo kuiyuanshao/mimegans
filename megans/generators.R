@@ -30,7 +30,8 @@ generator.attn <- torch::nn_module(
     
     self$seq <- torch::nn_sequential()
     for (i in 1:n_g_layers){
-      self$seq$add_module(paste0("Encoder_", i), Encoder(dim2, 8))
+      self$seq$add_module(paste0("Encoder_", i), nn_transformer_encoder_layer(dim2, nhead = 8,
+                                                                              batch_first = T))
     }
     
     self$output_layer <- torch::nn_sequential(
@@ -40,9 +41,11 @@ generator.attn <- torch::nn_module(
     )
   },
   forward = function(input){
-    out <- input %>% 
+    out <- input %>%
       self$proj_layer() %>% 
+      torch_unsqueeze(2) %>%
       self$seq() %>%
+      torch_squeeze(2) %>%
       self$output_layer()
     return (out)
   }

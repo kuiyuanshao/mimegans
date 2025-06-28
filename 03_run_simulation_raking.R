@@ -2,13 +2,13 @@ lapply(c("survey", "svyVGAM", "dplyr", "stringr"), require, character.only = T)
 lapply(paste0("./comparisons/raking/", list.files("./comparisons/raking/")), source)
 source("00_utils_functions.R")
 
-if(!dir.exists('./simulations')){system('mkdir ./simulations')}
-if(!dir.exists('./simulations/SRS')){system('mkdir ./simulations/SRS')}
-if(!dir.exists('./simulations/Balance')){system('mkdir ./simulations/Balance')}
-if(!dir.exists('./simulations/Neyman')){system('mkdir ./simulations/Neyman')}
+if(!dir.exists('./simulations')){dir.create('./simulations')}
+if(!dir.exists('./simulations/SRS')){dir.create('./simulations/SRS')}
+if(!dir.exists('./simulations/Balance')){dir.create('./simulations/Balance')}
+if(!dir.exists('./simulations/Neyman')){dir.create('./simulations/Neyman')}
 
-if(!dir.exists('./simulations/Balance/raking')){system('mkdir ./simulations/Balance/raking')}
-if(!dir.exists('./simulations/Neyman/raking')){system('mkdir ./simulations/Neyman/raking')}
+if(!dir.exists('./simulations/Balance/raking')){dir.create('./simulations/Balance/raking')}
+if(!dir.exists('./simulations/Neyman/raking')){dir.create('./simulations/Neyman/raking')}
 
 
 replicate <- 1000

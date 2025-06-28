@@ -2,14 +2,14 @@ lapply(c("dplyr", "stringr"), require, character.only = T)
 lapply(paste0("./comparisons/gain/", list.files("./comparisons/gain/")), source)
 source("00_utils_functions.R")
 
-if(!dir.exists('./simulations')){system('mkdir ./simulations')}
-if(!dir.exists('./simulations/SRS')){system('mkdir ./simulations/SRS')}
-if(!dir.exists('./simulations/Balance')){system('mkdir ./simulations/Balance')}
-if(!dir.exists('./simulations/Neyman')){system('mkdir ./simulations/Neyman')}
+if(!dir.exists('./simulations')){dir.create('./simulations')}
+if(!dir.exists('./simulations/SRS')){dir.create('./simulations/SRS')}
+if(!dir.exists('./simulations/Balance')){dir.create('./simulations/Balance')}
+if(!dir.exists('./simulations/Neyman')){dir.create('./simulations/Neyman')}
 
-if(!dir.exists('./simulations/SRS/gain')){system('mkdir ./simulations/SRS/gain')}
-if(!dir.exists('./simulations/Balance/gain')){system('mkdir ./simulations/Balance/gain')}
-if(!dir.exists('./simulations/Neyman/gain')){system('mkdir ./simulations/Neyman/gain')}
+if(!dir.exists('./simulations/SRS/gain')){dir.create('./simulations/SRS/gain')}
+if(!dir.exists('./simulations/Balance/gain')){dir.create('./simulations/Balance/gain')}
+if(!dir.exists('./simulations/Neyman/gain')){dir.create('./simulations/Neyman/gain')}
 
 
 replicate <- 1000

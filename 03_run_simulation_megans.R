@@ -2,14 +2,14 @@ lapply(c("mice", "dplyr", "stringr"), require, character.only = T)
 lapply(paste0("./megans/", list.files("./megans")), source)
 source("00_utils_functions.R")
 
-if(!dir.exists('./simulations')){system('mkdir ./simulations')}
-if(!dir.exists('./simulations/SRS')){system('mkdir ./simulations/SRS')}
-if(!dir.exists('./simulations/Balance')){system('mkdir ./simulations/Balance')}
-if(!dir.exists('./simulations/Neyman')){system('mkdir ./simulations/Neyman')}
+if(!dir.exists('./simulations')){dir.create('./simulations')}
+if(!dir.exists('./simulations/SRS')){dir.create('./simulations/SRS')}
+if(!dir.exists('./simulations/Balance')){dir.create('./simulations/Balance')}
+if(!dir.exists('./simulations/Neyman')){dir.create('./simulations/Neyman')}
 
-if(!dir.exists('./simulations/SRS/megans')){system('mkdir ./simulations/SRS/megans')}
-if(!dir.exists('./simulations/Balance/megans')){system('mkdir ./simulations/Balance/megans')}
-if(!dir.exists('./simulations/Neyman/megans')){system('mkdir ./simulations/Neyman/megans')}
+if(!dir.exists('./simulations/SRS/megans')){dir.create('./simulations/SRS/megans')}
+if(!dir.exists('./simulations/Balance/megans')){dir.create('./simulations/Balance/megans')}
+if(!dir.exists('./simulations/Neyman/megans')){dir.create('./simulations/Neyman/megans')}
 
 
 replicate <- 1000
@@ -38,16 +38,15 @@ for (i in 1:replicate){
                                         device = "cpu", epochs = 5000, , 
                                         data_info = data_info_srs, save.step = 1000)
   save(megans_imp.srs, file = paste0("./simulations/SRS/megans/", digit, ".RData"))
-  output_list_surv <- list()
-  for (i in 1:10){
-    output_list_surv[[i]] <- mmer.impute.cwgangp(samp_balance, m = 5, 
+  
+  megans_imp.balance <- mmer.impute.cwgangp(samp_balance, m = 5, 
                                             num.normalizing = "mode", 
                                             cat.encoding = "token", 
-                                            device = "cpu", epochs = 10000,
+                                            device = "cpu", epochs = 2500,
                                             params = list(beta = 1),
                                             data_info = data_info_balance, save.step = 500)
-  }
   save(megans_imp.balance, file = paste0("./simulations/Balance/megans/", digit, ".RData"))
+  
   megans_imp.neyman <- mmer.impute.cwgangp(samp_neyman, m = 20, 
                                            num.normalizing = "mode", 
                                            cat.encoding = "onehot", 
@@ -56,131 +55,7 @@ for (i in 1:replicate){
   save(megans_imp.neyman, file = paste0("./simulations/Neyman/megans/", digit, ".RData"))
 }
 
-load("NutritionalData_0001.RData")
-nutri <- read.csv("SRS_0001.csv")
-nutri$R <- NULL
-nutri$X <- NULL
-data_info <- list(weight_var = "W",
-                  cat_vars = c("usborn", "high_chol", "female", "bkg_pr", 
-                               "bkg_o", "hypertension", "W", "idx"),
-                  num_vars = names(nutri)[!names(nutri) %in% c("W", "usborn", "high_chol", "female", "bkg_pr", 
-                                                               "bkg_o", "hypertension", "idx")])
 
-output_list_2500 <- list()
-for (i in 1:10){
-  output_list_2500[[i]] <- mmer.impute.cwgangp(nutri, m = 5, 
-                             num.normalizing = "mode", 
-                             cat.encoding = "token", 
-                             device = "cpu", epochs = 3000, 
-                             params = list(batch_size = 500, lr_d = 1e-4, lr_g = 5e-4, 
-                                           g_dim = 256, d_dim = 256, 
-                                           pac = 10, n_g_layers = 1, 
-                                           n_d_layers = 3, alpha = 1,
-                                           discriminator_steps = 1, at_least_p = 0.5), 
-                             data_info = data_info, save.step = 500)
-}
-output_list_surv_2500 <- list()
-for (i in 1:10){
-  output_list_surv_2500[[i]] <- mmer.impute.cwgangp(samp_balance, m = 5, 
-                                               num.normalizing = "mode", 
-                                               cat.encoding = "token", 
-                                               device = "cpu", epochs = 2500,
-                                               params = list(lr_d = 1e-4, lr_g = 5e-4, 
-                                                             pac = 5, n_g_layers = 1, 
-                                                             n_d_layers = 3, alpha = 1,
-                                                             discriminator_steps = 1),
-                                               data_info = data_info_balance, save.step = 500)
-}
-
-output_list_10000 <- list()
-for (i in 1:10){
-  output_list_10000[[i]] <- mmer.impute.cwgangp(nutri, m = 5, 
-                                          num.normalizing = "mode", 
-                                          cat.encoding = "token", 
-                                          device = "cpu", epochs = 10000, 
-                                          params = list(lr_d = 1e-4, lr_g = 5e-4, 
-                                                        pac = 5, n_g_layers = 1, 
-                                                        n_d_layers = 3, alpha = 1,
-                                                        discriminator_steps = 1), 
-                                          data_info = data_info, save.step = 500)
-}
-output_list_surv_10000 <- list()
-for (i in 1:10){
-  output_list_surv_10000[[i]] <- mmer.impute.cwgangp(samp_balance, m = 5, 
-                                               num.normalizing = "mode", 
-                                               cat.encoding = "token", 
-                                               device = "cpu", epochs = 10000,
-                                               params = list(lr_d = 1e-4, lr_g = 5e-4, 
-                                                             pac = 5, n_g_layers = 1, 
-                                                             n_d_layers = 3, alpha = 1,
-                                                             discriminator_steps = 1),
-                                               data_info = data_info_balance, save.step = 500)
-}
-
-binomial_mat <- linear_mat <- NULL
-for (i in 1:10){
-  for (j in 1:5){
-    mod.1 <- glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + 
-                   usborn + female + bkg_o + bkg_pr, output_list_2500[[i]]$imputation[[j]], family = binomial())
-    mod.2 <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + 
-                   usborn + female + bkg_o + bkg_pr, output_list_2500[[i]]$imputation[[j]], family = gaussian())
-    binomial_mat <- rbind(binomial_mat, coef(mod.1))
-    linear_mat <- rbind(linear_mat, coef(mod.2))
-  }
-}
-colMeans(binomial_mat) - coef(mod.3)
-colMeans(linear_mat) - coef(mod.4)
-
-out <- mmer.impute.cwgangp(nutri, m = 5, 
-                           num.normalizing = "mode", 
-                           cat.encoding = "token", 
-                           device = "cpu", epochs = 3000, 
-                           params = list(batch_size = 500, lr_d = 1e-4, lr_g = 5e-4, 
-                                         pac = 5, n_g_layers = 1, 
-                                         n_d_layers = 3, alpha = 1, beta = 1, 
-                                         discriminator_steps = 1, at_least_p = 0.5,
-                                         type_g = "attn", tokenize = T), 
-                           data_info = data_info, save.step = 500)
-
-binomial_mat <- linear_mat <- NULL
-for (j in 1:5){
-  mod.1 <- glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + 
-                 usborn + female + bkg_o + bkg_pr, out$imputation[[j]], family = binomial())
-  mod.2 <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + 
-                 usborn + female + bkg_o + bkg_pr, out$imputation[[j]], family = gaussian())
-  binomial_mat <- rbind(binomial_mat, coef(mod.1))
-  linear_mat <- rbind(linear_mat, coef(mod.2))
-}
-colMeans(binomial_mat) - coef(mod.3)
-colMeans(linear_mat) - coef(mod.4)
-
-mod.3 <- glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + 
-               usborn + female + bkg_o + bkg_pr, pop, family = binomial())
-mod.4 <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + 
-               usborn + female + bkg_o + bkg_pr, pop, family = gaussian())
-coef(mod.1)
-coef(mod.2)
-ggplot(nutri) + 
-  geom_density(aes(x = c_ln_na_true)) + 
-  geom_density(data = out$gsample[[1]],
-               aes(x = c_ln_na_true), colour = "red") +
-  geom_density(data = pop,
-               aes(x = c_ln_na_true), colour = "blue") 
-
-ggplot(data = pop) + 
-  geom_point(aes(x = sbp, y = c_ln_na_true), colour = "blue", alpha = 0.6) + 
-  geom_point(data = out$gsample[[1]], 
-             aes(x = sbp, y = c_ln_na_true), colour = "red", alpha = 0.2)
-ggplot() +
-  geom_line(aes(x = 1:dim(out$loss)[1], 
-                y = out$loss$`G Loss`), colour = "red") +
-  geom_line(aes(x = 1:dim(out$loss)[1], 
-                y = out$loss$`D Loss`), colour = "blue")
-
-
-lapply(1:5, function(i){sd(out$step_result[[i]][[1]]$c_ln_na_true)})
-vcov(lm(sbp ~ c_ln_na_true, data = pop))[2, 2]
-vcov(lm(sbp ~ c_ln_na_true, data = out$step_result[[5]][[1]]))[2, 2]
 library(survival)
 load("./data/Complete/0001.RData")
 cox_mat <- NULL
@@ -227,9 +102,6 @@ ggplot() +
   geom_line(aes(x = 1:dim(megans_imp.balance$loss)[1], y = megans_imp.balance$loss$`G Loss`), colour = "red") +
   geom_line(aes(x = 1:dim(megans_imp.balance$loss)[1], y = megans_imp.balance$loss$`D Loss`), colour = "blue")
 
-### Once we set the start to zero, everyone would have different censoring time.
-### Neyman allocation: influence function A ~ Z, to do neyman allocation.
-### Tong's github.
 
 
 

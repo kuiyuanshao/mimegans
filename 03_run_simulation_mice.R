@@ -2,14 +2,14 @@ lapply(c("mice", "dplyr", "stringr"), require, character.only = T)
 lapply(paste0("./comparisons/mice/", list.files("./comparisons/mice/")), source)
 source("00_utils_functions.R")
 
-if(!dir.exists('./simulations')){system('mkdir ./simulations')}
-if(!dir.exists('./simulations/SRS')){system('mkdir ./simulations/SRS')}
-if(!dir.exists('./simulations/Balance')){system('mkdir ./simulations/Balance')}
-if(!dir.exists('./simulations/Neyman')){system('mkdir ./simulations/Neyman')}
+if(!dir.exists('./simulations')){dir.create('./simulations')}
+if(!dir.exists('./simulations/SRS')){dir.create('./simulations/SRS')}
+if(!dir.exists('./simulations/Balance')){dir.create('./simulations/Balance')}
+if(!dir.exists('./simulations/Neyman')){dir.create('./simulations/Neyman')}
 
-if(!dir.exists('./simulations/SRS/mice')){system('mkdir ./simulations/SRS/mice')}
-if(!dir.exists('./simulations/Balance/mice')){system('mkdir ./simulations/Balance/mice')}
-if(!dir.exists('./simulations/Neyman/mice')){system('mkdir ./simulations/Neyman/mice')}
+if(!dir.exists('./simulations/SRS/mice')){dir.create('./simulations/SRS/mice')}
+if(!dir.exists('./simulations/Balance/mice')){dir.create('./simulations/Balance/mice')}
+if(!dir.exists('./simulations/Neyman/mice')){dir.create('./simulations/Neyman/mice')}
 
 replicate <- 1000
 for (i in 1:replicate){

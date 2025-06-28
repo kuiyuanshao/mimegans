@@ -1,17 +1,17 @@
 pacman::p_load(progress, torch)
 
 cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10, 
-                            alpha = 0, beta = 1, zeta = 10, at_least_p = 1/2, 
+                            alpha = 0, beta = 1, at_least_p = 1/2, 
                             lr_g = 1e-4, lr_d = 5e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
                             g_weight_decay = 1e-7, d_weight_decay = 1e-7, 
-                            g_dim = 256, d_dim = 256, pac = 5, 
+                            g_dim = 256, d_dim = 256, pac = 10, 
                             n_g_layers = 1, n_d_layers = 3, discriminator_steps = 1,
                             tau = 0.2, hard = F, 
                             tokenize = T, token_dim = 8, 
                             type_g = "attn", type_d = "mlp"){
   
   list(
-    batch_size = batch_size, gamma = gamma, lambda = lambda, alpha = alpha, beta = beta, zeta = zeta, 
+    batch_size = batch_size, gamma = gamma, lambda = lambda, alpha = alpha, beta = beta, 
     at_least_p = at_least_p, lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 
     g_weight_decay = g_weight_decay, d_weight_decay = d_weight_decay, 
     g_dim = g_dim, d_dim = d_dim, pac = pac, n_g_layers = n_g_layers, n_d_layers = n_d_layers, 

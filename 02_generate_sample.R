@@ -1,5 +1,5 @@
 #################################### Generate Sample ####################################
-lapply(c("BalancedSampling", "dplyr"), require, character.only = T)
+lapply(c("dplyr", "survival"), require, character.only = T)
 source("00_utils_functions.R")
 generateSample <- function(data, proportion, seed){
   set.seed(seed)
@@ -75,10 +75,10 @@ generateSample <- function(data, proportion, seed){
 }
 
 ####### STARTING SIMULATION.  SAVING FILES ########
-if(!dir.exists('./data/Sample')){system('mkdir ./data/Sample')}
-if(!dir.exists('./data/Sample/SRS')){system('mkdir ./data/Sample/SRS')}
-if(!dir.exists('./data/Sample/Balance')){system('mkdir ./data/Sample/Balance')}
-if(!dir.exists('./data/Sample/Neyman')){system('mkdir ./data/Sample/Neyman')}
+if(!dir.exists('./data/Sample')){dir.create('./data/Sample')}
+if(!dir.exists('./data/Sample/SRS')){dir.create('./data/Sample/SRS')}
+if(!dir.exists('./data/Sample/Balance')){dir.create('./data/Sample/Balance')}
+if(!dir.exists('./data/Sample/Neyman')){dir.create('./data/Sample/Neyman')}
 replicate <- 1
 seed <- 1
 for (i in 1:replicate){

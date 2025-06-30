@@ -12,6 +12,7 @@ discriminator.mlp <- torch::nn_module(
       dim <- params$d_dim
     }
     self$seq$add_module("Linear", nn_linear(dim, 1))
+    
   },
   forward = function(input) {
     input <- input$reshape(c(-1, self$pacdim))

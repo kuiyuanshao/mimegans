@@ -1,4 +1,4 @@
-lapply(c("mice", "dplyr", "stringr"), require, character.only = T)
+lapply(c("mice", "dplyr", "stringr", "torch"), require, character.only = T)
 lapply(paste0("./megans/", list.files("./megans")), source)
 source("00_utils_functions.R")
 
@@ -32,64 +32,96 @@ for (i in 1:replicate){
            across(all_of(data_info_neyman$num_vars), as.numeric, .names = "{.col}"))
   
   # MEGANs:
-  megans_imp.srs <- mmer.impute.cwgangp(samp_srs, m = 20, 
+  megans_imp <- mmer.impute.cwgangp(samp_srs, m = 20, 
                                         num.normalizing = "mode", 
                                         cat.encoding = "onehot", 
-                                        device = "cpu", epochs = 5000, , 
+                                        device = "cpu", epochs = 5000,
                                         data_info = data_info_srs, save.step = 1000)
-  save(megans_imp.srs, file = paste0("./simulations/SRS/megans/", digit, ".RData"))
+  save(megans_imp, file = paste0("./simulations/SRS/megans/", digit, ".RData"))
   
-  megans_imp.balance <- mmer.impute.cwgangp(samp_balance, m = 5, 
+  megans_imp <- mmer.impute.cwgangp(samp_balance, m = 5, 
                                             num.normalizing = "mode", 
-                                            cat.encoding = "token", 
-                                            device = "cpu", epochs = 2500,
-                                            params = list(beta = 1),
+                                            cat.encoding = "onehot", 
+                                            device = "cpu", epochs = 3000,
+                                            params = list(alpha = 1, beta = 1, 
+                                                          n_g_layers = 3, lr_g = 1e-4, lr_d = 5e-4,
+                                                          type_g = "mmer"),
                                             data_info = data_info_balance, save.step = 500)
-  save(megans_imp.balance, file = paste0("./simulations/Balance/megans/", digit, ".RData"))
+  save(megans_imp, file = paste0("./simulations/Balance/megans/", digit, ".RData"))
   
-  megans_imp.neyman <- mmer.impute.cwgangp(samp_neyman, m = 20, 
+  megans_imp <- mmer.impute.cwgangp(samp_neyman, m = 20, 
                                            num.normalizing = "mode", 
                                            cat.encoding = "onehot", 
                                            device = "cpu", epochs = 5000, 
                                            data_info = data_info_balance, save.step = 1000)
-  save(megans_imp.neyman, file = paste0("./simulations/Neyman/megans/", digit, ".RData"))
+  save(megans_imp, file = paste0("./simulations/Neyman/megans/", digit, ".RData"))
 }
 
 
 library(survival)
 load("./data/Complete/0001.RData")
-cox_mat <- NULL
-for (i in 1:10){
-  for (j in 1:5){
-    mod.imp <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
-                       rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
-                       RACE + I(BMI / 5) + SMOKE, 
-                     data = match_types(output_list_surv_10000[[i]]$imputation[[j]], data))
-    cox_mat <- rbind(cox_mat, exp(coef(mod.imp)))
-  }
-}
-colMeans(cox_mat) - exp(coef(mod.true))
-mod.true <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
+mod.imp <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
                     rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
-                    RACE + I(BMI / 5) + SMOKE, data = data)
-exp(coef(mod.imp)) - exp(coef(mod.true))
+                    RACE + I(BMI / 5) + SMOKE, data = match_types(megans_imp$imputation[[1]], data))
 
-table(megans_imp.balance$imputation[[5]]$EVENT)
+mod.true <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
+                   rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
+                   RACE + I(BMI / 5) + SMOKE, data = data)
+exp(coef(mod.true)) - exp(coef(mod.imp))
+
+nutri_samp <- read.csv("SRS_0001.csv")
+nutri_samp$W <- 4
+data_info <- list(weight_var = "W", 
+                  cat_vars = c("idx", "usborn", "high_chol", "bkg_pr", "bkg_o", "hypertension", "R", "female"),
+                  num_vars = names(nutri_samp)[!(names(nutri_samp) %in% c("idx", "usborn", "high_chol", 
+                                                                          "female", "bkg_pr", "bkg_o", 
+                                                                          "hypertension", "R", "W"))],
+                  phase2_vars = c("c_ln_na_true", "c_ln_k_true", "c_ln_kcal_true", "c_ln_protein_true"),
+                  phase1_vars = c("c_ln_na_bio1", "c_ln_k_bio1", "c_ln_kcal_bio1", "c_ln_protein_bio1"))
+load("NutritionalData_0001.RData")
+true.lm <- glm(sbp ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn +
+                 female + bkg_pr + bkg_o, family = gaussian(), pop)
+true.bn <- glm(hypertension ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn +
+                 female + bkg_pr + bkg_o, family = binomial(), pop)
+megans_nutri <- mmer.impute.cwgangp(nutri_samp, m = 20, 
+                                    num.normalizing = "mode", 
+                                    cat.encoding = "onehot", 
+                                    device = "cpu", epochs = 5000,
+                                    params = list(alpha = 0.01, beta = 1, 
+                                                  n_g_layers = 3, lr_g = 2e-4, lr_d = 2e-4,
+                                                  type_g = "mmer", pac = 10, lambda = 20),
+                                    AIPW = F, 
+                                    data_info = data_info, save.step = 500)
+imp.mids <- as.mids(megans_nutri$imputation)
+fit.lm <- with(data = imp.mids, 
+               exp = glm(sbp ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn +
+                           female + bkg_pr + bkg_o, family = gaussian()))
+fit.bn <- with(data = imp.mids, 
+               exp = glm(hypertension ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn +
+                           female + bkg_pr + bkg_o, family = binomial()))
+pooled.lm <- mice::pool(fit.lm)
+pooled.bn <- mice::pool(fit.bn)
+sumry.lm <- summary(pooled.lm, conf.int = TRUE)
+sumry.bn <- summary(pooled.bn, conf.int = TRUE)
+sum(abs(sumry.lm$std.error - sqrt(diag(vcov(true.lm)))))
+sum(abs(sumry.bn$std.error - sqrt(diag(vcov(true.bn)))))
+sumry.lm$estimate - coef(true.lm)
+sumry.bn$estimate - coef(true.bn)
 
 library(ggplot2)
-ggplot(samp_balance) + 
-  geom_density(aes(x = HbA1c)) + 
-  geom_density(data = megans_imp.balance$gsample[[1]],
-               aes(x = HbA1c), colour = "red") +
-  geom_density(data = data, 
-               aes(x = HbA1c), colour = "blue") +
-  geom_vline(xintercept = 77.08)
+ggplot(nutri_samp) + 
+  geom_density(aes(x = c_ln_na_true)) + 
+  geom_density(data = megans_nutri$imputation[[1]],
+               aes(x = c_ln_na_true), colour = "red") +
+  geom_density(data = pop, 
+               aes(x = c_ln_na_true), colour = "blue")
 ggplot(samp_balance) + 
   geom_density(aes(x = T_I)) + 
-  geom_density(data = megans_imp.balance$imputation[[1]],
+  geom_density(data = megans_imp$imputation[[1]],
                aes(x = T_I), colour = "red") +
   geom_density(data = data, 
                aes(x = T_I), colour = "blue")
+
 
 
 
@@ -99,8 +131,8 @@ ggplot(samp_balance) +
                aes(x = HbA1c, y = T_I), colour = "red", alpha = 0.05)
 
 ggplot() +
-  geom_line(aes(x = 1:dim(megans_imp.balance$loss)[1], y = megans_imp.balance$loss$`G Loss`), colour = "red") +
-  geom_line(aes(x = 1:dim(megans_imp.balance$loss)[1], y = megans_imp.balance$loss$`D Loss`), colour = "blue")
+  geom_line(aes(x = 1:dim(megans_nutri$loss)[1], y = megans_nutri$loss$`G Loss`), colour = "red") +
+  geom_line(aes(x = 1:dim(megans_nutri$loss)[1], y = megans_nutri$loss$`D Loss`), colour = "blue")
 
 
 

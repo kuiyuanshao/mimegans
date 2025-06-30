@@ -31,17 +31,17 @@ for (i in 1:replicate){
            across(all_of(data_info_neyman$num_vars), as.numeric, .names = "{.col}"))
   
   # MICE:
-  mice_imp.srs <- mice(samp_srs, m = 20, print = F, maxit = 50, 
+  mice_imp <- mice(samp_srs, m = 20, print = F, maxit = 50, 
                        maxcor = 1.0001, ls.meth = "ridge", ridge = 0.01, 
                        predictorMatrix = quickpred(samp_srs))
-  save(mice_imp.srs, file = paste0("./simulations/SRS/mice/", digit, ".RData"))
-  mice_imp.balance <- mice(samp_balance, m = 20, print = F, maxit = 50, 
+  save(mice_imp, file = paste0("./simulations/SRS/mice/", digit, ".RData"))
+  mice_imp <- mice(samp_balance, m = 20, print = F, maxit = 50, 
                            maxcor = 1.0001, ls.meth = "ridge", ridge = 0.01, 
                            predictorMatrix = quickpred(samp_balance))
-  save(mice_imp.balance, file = paste0("./simulations/Balance/mice/", digit, ".RData"))
-  mice_imp.neyman <- mice(samp_neyman, m = 20, print = F, maxit = 50, 
+  save(mice_imp, file = paste0("./simulations/Balance/mice/", digit, ".RData"))
+  mice_imp <- mice(samp_neyman, m = 20, print = F, maxit = 50, 
                           maxcor = 1.0001, ls.meth = "ridge", ridge = 0.01, 
                           predictorMatrix = quickpred(samp_neyman))
-  save(mice_imp.neyman, file = paste0("./simulations/Neyman/mice/", digit, ".RData"))
+  save(mice_imp, file = paste0("./simulations/Neyman/mice/", digit, ".RData"))
   
 }

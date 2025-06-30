@@ -1,4 +1,4 @@
-normalize.mode <- function(data, num_vars, ...) {
+normalize.mode <- function(data, num_vars, phase1_vars, phase2_vars) {
   count_modes <- function(x, adjust = 1.5, tol = 0,
                           min_dist = 0, prop_drop = 0.10,
                           ...) {
@@ -49,26 +49,45 @@ normalize.mode <- function(data, num_vars, ...) {
   }
   data_norm <- data
   mode_params <- list()
+  shared_model <- list()
+  pairs <- which(phase1_vars %in% num_vars)
+  
+  for (k in pairs){
+    v1 <- phase1_vars[k]
+    v2 <- phase2_vars[k]
+    pooled <- c(data[[v1]], data[[v2]])
+    pooled <- pooled[!is.na(pooled)]
+    if (length(unique(pooled)) == 1) {
+      G_pair <- 1
+    } else {
+      G_pair <- min(5, count_modes(pooled))
+    }
+    mc_pair <- Mclust(pooled, G = G_pair)
+    shared_model[[v1]] <- mc_pair
+    shared_model[[v2]] <- mc_pair
+  }
   
   for (col in num_vars) {
     curr_col <- data[[col]]
     curr_col_obs <- curr_col[!is.na(curr_col)]
-    if (length(unique(curr_col)) == 1){
-      mc <- Mclust(curr_col_obs, G = 1)
-    }else{
-      mc <- Mclust(curr_col_obs, 
-                   G = min(c(5, count_modes(curr_col_obs, ...))))
+    if (!is.null(shared_model[[col]])) {
+      mc <- shared_model[[col]]
+    } else {
+      if (length(unique(curr_col_obs)) == 1) {
+        G_use <- 1
+      } else {
+        G_use <- min(5, count_modes(curr_col_obs))
+      }
+      mc <- mclust::Mclust(curr_col_obs, G = G_use)
     }
     pred <- predict(mc, newdata = curr_col_obs)
     mode_labels <- as.numeric(as.factor(pred$classification))
-    mode_means <- numeric(length(unique(mode_labels)))
-    mode_sds <- numeric(length(unique(mode_labels)))
+    mode_means <- mc$parameters$mean + 1e-6
+    mode_sds <- sqrt(mc$parameters$variance$sigmasq) + 1e-6
     
     curr_col_norm <- rep(NA, length(curr_col_obs))
     for (mode in sort(unique(mode_labels))) {
       idx <- which(mode_labels == mode)
-      mode_means[mode] <- mean(curr_col_obs[idx]) + 1e-6
-      mode_sds[mode] <- sd(curr_col_obs[idx]) + 1e-6
       if (is.na(mode_sds[mode])){
         curr_col_norm[idx] <- (curr_col_obs[idx] - mode_means[mode])
       }else{

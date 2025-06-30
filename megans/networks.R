@@ -92,6 +92,21 @@ Encoder <- torch::nn_module(
   }
 )
 
+m_net <- nn_module(
+  initialize = function(input_dim, params, hidden = 64){
+    self$pacdim <- input_dim * params$pac
+    self$seq <- nn_sequential(
+      nn_linear(self$pacdim, hidden),
+      nn_relu(),
+      nn_linear(hidden, 1)
+    )
+  },
+  forward = function(input){
+    input <- input$reshape(c(-1, self$pacdim))
+    self$seq(input)
+  }
+)
+
 gradient_penalty <- function(D, real_samples, fake_samples, pac, device) {
   alp <- torch_rand(c(ceiling(real_samples$size(1) / pac), 1, 1))$to(device = device)
   pac <- torch_tensor(as.integer(pac), device = device)

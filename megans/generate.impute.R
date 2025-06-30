@@ -65,12 +65,14 @@ generateImpute <- function(gnet, m = 5,
     output_list <- vector("list", length(batchforimpute))
     for (i in 1:length(batchforimpute)){
       batch <- batchforimpute[[i]]
+      X_star_num <- batch[[5]]
+      X_star_cat <- batch[[4]]
       X <- batch[[3]]
       C <- batch[[2]]
       M <- batch[[1]]
 
       fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), g_dim))$to(device = device)
-      if (params$tokenize){
+      if (cat.encoding == "token"){
         C_token <- tokenizer_list$tokenizer(C[, tokenizer_list$num_inds_p1, drop = F], 
                                             C[, tokenizer_list$cat_inds_p1, drop = F])
         C_token <- C_token$reshape(c(C_token$size(1), 
@@ -79,7 +81,11 @@ generateImpute <- function(gnet, m = 5,
       }else{
         fakez_C <- torch_cat(list(fakez, C), dim = 2)
       }
-      gsample <- gnet(fakez_C)
+      if (params$type_g == "mmer"){
+        gsample <- gnet(fakez_C, X_star_num, X_star_cat)[[4]]
+      }else{
+        gsample <- gnet(fakez_C, X_star_num, X_star_cat)
+      }
       gsample <- activation_fun(gsample, data_encode, phase2_vars, gen = T)
       gsample <- torch_cat(list(gsample, C), dim = 2)
       output_list[[i]] <- as.matrix(gsample$detach()$cpu())

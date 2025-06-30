@@ -31,8 +31,9 @@ g_loss <- function(y_fake, fake, true, encode_result, vars, params, num_inds, ca
 d_loss <- function(dnet, true, fake, params, device){
   y_fake <- dnet(fake)
   y_true <- dnet(true)
-  gradient_penalty<- gradient_penalty(dnet, true, fake, pac = params$pac, device = device)
-  d_loss <- -(torch_mean(y_true) - torch_mean(y_fake)) + params$lambda * gradient_penalty
+  
+  gp <- gradient_penalty(dnet, true, fake, pac = params$pac, device = device)
+  d_loss <- -(torch_mean(y_true) - torch_mean(y_fake)) + params$lambda * gp
   return (d_loss)
 }
 
@@ -56,6 +57,7 @@ activation_fun <- function(fake, encode_result, vars, tau = 1, hard = F, gen = F
   cats <- encode_result$binary_indices[which(sapply(encode_result$new_col_names, function(col_names) {
     any(col_names %in% vars)
   }))]
+  nums <- (1:(dim(fake)[2]))[!(1:(dim(fake)[2]) %in% unlist(cats))]
   if (!gen){
     for (cat in cats){
       fake[, cat] <- nnf_gumbel_softmax(fake[, cat], tau = tau, hard = hard)
@@ -68,6 +70,7 @@ activation_fun <- function(fake, encode_result, vars, tau = 1, hard = F, gen = F
       fake[, cat] <- onehot
     }
   }
+  #fake[, nums] <- (fake[, nums] - fake[, nums]$mean()) / fake[, nums]$std()
   return (fake)
 }
 

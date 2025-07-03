@@ -42,10 +42,10 @@ for (i in 1:replicate){
   megans_imp <- mmer.impute.cwgangp(samp_balance, m = 5, 
                                             num.normalizing = "mode", 
                                             cat.encoding = "onehot", 
-                                            device = "cpu", epochs = 3000,
-                                            params = list(alpha = 1, beta = 1, 
-                                                          n_g_layers = 3, lr_g = 1e-4, lr_d = 5e-4,
-                                                          type_g = "mmer"),
+                                            device = "cpu", epochs = 5000,
+                                            params = list(alpha = 0, beta = 1, 
+                                                          n_g_layers = 3, lr_g = 2e-4, lr_d = 2e-4,
+                                                          type_g = "mmer", pac = 10, lambda = 10),
                                             data_info = data_info_balance, save.step = 500)
   save(megans_imp, file = paste0("./simulations/Balance/megans/", digit, ".RData"))
   
@@ -83,16 +83,33 @@ true.lm <- glm(sbp ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn +
                  female + bkg_pr + bkg_o, family = gaussian(), pop)
 true.bn <- glm(hypertension ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn +
                  female + bkg_pr + bkg_o, family = binomial(), pop)
-megans_nutri <- mmer.impute.cwgangp(nutri_samp, m = 20, 
-                                    num.normalizing = "mode", 
-                                    cat.encoding = "onehot", 
-                                    device = "cpu", epochs = 5000,
-                                    params = list(alpha = 0.01, beta = 1, 
-                                                  n_g_layers = 3, lr_g = 2e-4, lr_d = 2e-4,
-                                                  type_g = "mmer", pac = 10, lambda = 20),
-                                    AIPW = F, 
-                                    data_info = data_info, save.step = 500)
-imp.mids <- as.mids(megans_nutri$imputation)
+megans_nutri_AIPW <- list()
+for (i in 1:10){
+  megans_nutri_AIPW[[i]] <- mmer.impute.cwgangp(nutri_samp, m = 20, 
+                                      num.normalizing = "mode", 
+                                      cat.encoding = "onehot", 
+                                      device = "cpu", epochs = 3000,
+                                      params = list(alpha = 1, beta = 1, 
+                                                    n_g_layers = 3, lr_g = 2e-4, lr_d = 2e-4,
+                                                    type_g = "mmer", pac = 5, lambda = 10),
+                                      AIPW = T, 
+                                      data_info = data_info, save.step = 500)
+}
+
+megans_nutri_N <- list()
+for (i in 1:10){
+  megans_nutri_N <- mmer.impute.cwgangp(nutri_samp, m = 20, 
+                                           num.normalizing = "mode", 
+                                           cat.encoding = "onehot", 
+                                           device = "cpu", epochs = 5000,
+                                           params = list(alpha = 0, beta = 1, 
+                                                         n_g_layers = 3, lr_g = 2e-4, lr_d = 2e-4,
+                                                         type_g = "mmer", pac = 10, lambda = 10),
+                                           AIPW = F, 
+                                           data_info = data_info, save.step = 500)
+}
+
+imp.mids <- as.mids(megans_nutri_N$imputation)
 fit.lm <- with(data = imp.mids, 
                exp = glm(sbp ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn +
                            female + bkg_pr + bkg_o, family = gaussian()))
@@ -103,21 +120,72 @@ pooled.lm <- mice::pool(fit.lm)
 pooled.bn <- mice::pool(fit.bn)
 sumry.lm <- summary(pooled.lm, conf.int = TRUE)
 sumry.bn <- summary(pooled.bn, conf.int = TRUE)
-sum(abs(sumry.lm$std.error - sqrt(diag(vcov(true.lm)))))
-sum(abs(sumry.bn$std.error - sqrt(diag(vcov(true.bn)))))
-sumry.lm$estimate - coef(true.lm)
-sumry.bn$estimate - coef(true.bn)
+sumry.lm$estimate
+sumry.bn$estimate
+
+step.lm <- glm(sbp ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn +
+                 female + bkg_pr + bkg_o, family = gaussian(), data = megans_nutri_N$step_result[[10]][[1]])
+step.bn <- glm(hypertension ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn +
+                 female + bkg_pr + bkg_o, family = binomial(), data = megans_nutri_N$step_result[[1]][[1]])
+
+step.lm
+step.bn
+
+
+
+
+
+
+
+
+
+
+
+
+
+stderror.lm <- c()
+stderror.bn <- c()
+estimate.lm <- NULL
+estimate.bn <- NULL
+for (i in 1:10){
+  imp.mids <- as.mids(megans_nutri_N$imputation)
+  fit.lm <- with(data = imp.mids, 
+                 exp = glm(sbp ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn +
+                             female + bkg_pr + bkg_o, family = gaussian()))
+  fit.bn <- with(data = imp.mids, 
+                 exp = glm(hypertension ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn +
+                             female + bkg_pr + bkg_o, family = binomial()))
+  pooled.lm <- mice::pool(fit.lm)
+  pooled.bn <- mice::pool(fit.bn)
+  sumry.lm <- summary(pooled.lm, conf.int = TRUE)
+  sumry.bn <- summary(pooled.bn, conf.int = TRUE)
+  stderror.lm <- c(stderror.lm, sum(abs(sumry.lm$std.error - sqrt(diag(vcov(true.lm))))))
+  stderror.bn <- c(stderror.bn, sum(abs(sumry.bn$std.error - sqrt(diag(vcov(true.bn))))))
+  estimate.lm <- rbind(estimate.lm, sumry.lm$estimate - coef(true.lm))
+  estimate.bn <- rbind(estimate.bn, sumry.bn$estimate - coef(true.bn))
+}
+
+
+d_out <- megans_imp$d_out
+ggplot() +
+  geom_line(aes(x = 1:dim(megans_imp$loss)[1], y = d_out[, 1]), colour = "red") +
+  geom_line(aes(x = 1:dim(megans_imp$loss)[1], y = d_out[, 2]), colour = "blue")
+
+ggplot() +
+  geom_line(aes(x = 1:dim(megans_imp$loss)[1], y = d_out[, 3]), colour = "red") +
+  geom_line(aes(x = 1:dim(megans_imp$loss)[1], y = d_out[, 4]), colour = "blue")
+
+
 
 library(ggplot2)
 ggplot(nutri_samp) + 
   geom_density(aes(x = c_ln_na_true)) + 
-  geom_density(data = megans_nutri$imputation[[1]],
+  geom_density(data = megans_nutri_N$imputation[[1]],
                aes(x = c_ln_na_true), colour = "red") +
   geom_density(data = pop, 
                aes(x = c_ln_na_true), colour = "blue")
 ggplot(samp_balance) + 
-  geom_density(aes(x = T_I)) + 
-  geom_density(data = megans_imp$imputation[[1]],
+  geom_density(data = megans_imp$imputation[[4]],
                aes(x = T_I), colour = "red") +
   geom_density(data = data, 
                aes(x = T_I), colour = "blue")
@@ -127,13 +195,10 @@ ggplot(samp_balance) +
 
 
 ggplot(samp_balance) + 
-  geom_point(data = megans_imp.balance$step_result[[17]][[1]],
+  geom_point(data = megans_imp.balance$step_result[[20]][[1]],
                aes(x = HbA1c, y = T_I), colour = "red", alpha = 0.05)
 
 ggplot() +
-  geom_line(aes(x = 1:dim(megans_nutri$loss)[1], y = megans_nutri$loss$`G Loss`), colour = "red") +
-  geom_line(aes(x = 1:dim(megans_nutri$loss)[1], y = megans_nutri$loss$`D Loss`), colour = "blue")
-
-
-
+  geom_line(aes(x = 1:dim(megans_imp$loss)[1], y = megans_imp$loss$`G Loss`), colour = "red") +
+  geom_line(aes(x = 1:dim(megans_imp$loss)[1], y = megans_imp$loss$`D Loss`), colour = "blue")
 

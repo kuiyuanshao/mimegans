@@ -107,31 +107,35 @@ m_net <- nn_module(
   }
 )
 
-gradient_penalty <- function(D, real_samples, fake_samples, pac, device) {
-  alp <- torch_rand(c(ceiling(real_samples$size(1) / pac), 1, 1))$to(device = device)
-  pac <- torch_tensor(as.integer(pac), device = device)
-  size <- torch_tensor(real_samples$size(2), device = device)
+LinearSN <- nn_module(
+  "LinearSN",
+  initialize = function(in_f, out_f, n_power = 1, eps = 1e-12) {
+    self$linear  <- nn_linear(in_f, out_f, bias = TRUE)
+    u0 <- torch_randn(out_f)
+    self$u <- nn_buffer(u0 / (torch_norm(u0) + eps))
+    self$n_power <- n_power
+    self$eps     <- eps
+  },
   
-  alp <- alp$repeat_interleave(pac, dim = 2)$repeat_interleave(size, dim = 3)
-  alp <- alp$reshape(c(-1, real_samples$size(2)))
+  compute_weight = function() {
+    w <- self$linear$weight
+    u_est <- self$u$clone() 
+    for (i in 1:self$n_power) {
+      v <- torch_mv(torch_t(w), u_est)
+      v <- v / (torch_norm(v) + self$eps)
+      
+      u_est <- torch_mv(w, v)
+      u_est <- u_est / (torch_norm(u_est) + self$eps)
+    }
+    sigma <- torch_dot(u_est, torch_mv(w, v)) 
+    with_no_grad({
+      self$u$copy_(u_est) 
+    })
+    w / sigma 
+  },
   
-  interpolates <- (alp * real_samples + (1 - alp) * fake_samples)$requires_grad_(TRUE)
-  d_interpolates <- D(interpolates)
-  
-  fake <- torch_ones(d_interpolates$size(), device = device)
-  fake$requires_grad <- FALSE
-  
-  gradients <- torch::autograd_grad(
-    outputs = d_interpolates,
-    inputs = interpolates,
-    grad_outputs = fake,
-    create_graph = TRUE,
-    retain_graph = TRUE
-  )[[1]]
-  
-  # Reshape gradients to group the pac samples together
-  gradients <- gradients$reshape(c(-1, pac$item() * size$item()))
-  gradient_penalty <- torch_mean((torch_norm(gradients, p = 2, dim = 2) - 1) ^ 2)
-  
-  return (gradient_penalty)
-}
+  forward = function(x) {
+    w_bar <- self$compute_weight()
+    nnf_linear(x, w_bar, self$linear$bias)
+  }
+)

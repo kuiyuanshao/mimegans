@@ -31,9 +31,8 @@ g_loss <- function(y_fake, fake, true, encode_result, vars, params, num_inds, ca
 d_loss <- function(dnet, true, fake, params, device){
   y_fake <- dnet(fake)
   y_true <- dnet(true)
-  
-  gp <- gradient_penalty(dnet, true, fake, pac = params$pac, device = device)
-  d_loss <- -(torch_mean(y_true) - torch_mean(y_fake)) + params$lambda * gp
+  gradient_penalty<- gradient_penalty(dnet, true, fake, pac = params$pac, device = device)
+  d_loss <- -(torch_mean(y_true) - torch_mean(y_fake)) + params$lambda * gradient_penalty
   return (d_loss)
 }
 
@@ -64,6 +63,9 @@ activation_fun <- function(fake, encode_result, vars, tau = 1, hard = F, gen = F
     }
   }else{
     for (cat in cats){
+      if (length(cat) == 1){
+        next
+      }
       p <- nnf_softmax(fake[, cat], dim = 2)
       idx <- torch_multinomial(p, 1)
       onehot <- nnf_one_hot(idx, num_classes = length(cat))$squeeze(2)$float()
@@ -72,5 +74,36 @@ activation_fun <- function(fake, encode_result, vars, tau = 1, hard = F, gen = F
   }
   #fake[, nums] <- (fake[, nums] - fake[, nums]$mean()) / fake[, nums]$std()
   return (fake)
+}
+
+gradient_penalty <- function(D, real_samples, fake_samples, pac, device) {
+  alp <- torch_rand(c(ceiling(real_samples$size(1) / pac), 1, 1))$to(device = device)
+  pac <- torch_tensor(as.integer(pac), device = device)
+  size <- torch_tensor(real_samples$size(2), device = device)
+  
+  alp <- alp$repeat_interleave(pac, dim = 2)$repeat_interleave(size, dim = 3)
+  alp <- alp$reshape(c(-1, real_samples$size(2)))
+  
+  interpolates <- (alp * real_samples + (1 - alp) * fake_samples)$requires_grad_(TRUE)
+  d_interpolates <- D(interpolates)
+  
+  fake <- torch_ones(d_interpolates$size(), device = device)
+  fake$requires_grad <- FALSE
+  
+  gradients <- torch::autograd_grad(
+    outputs = d_interpolates,
+    inputs = interpolates,
+    grad_outputs = fake,
+    create_graph = TRUE,
+    retain_graph = TRUE
+  )[[1]]
+  
+  # Reshape gradients to group the pac samples together
+  if (pac$item() > 1){
+    gradients <- gradients$reshape(c(-1, pac$item() * size$item()))
+  }
+  gradient_penalty <- torch_mean((torch_norm(gradients, p = 2, dim = 2) - 1) ^ 2)
+  
+  return (gradient_penalty)
 }
 

@@ -1,94 +1,32 @@
 normalize.mode <- function(data, num_vars, phase1_vars, phase2_vars) {
-  count_modes <- function(x, adjust = 1.5, tol = 0,
-                          min_dist = 0, prop_drop = 0.10,
-                          ...) {
-    d <- density(x, adjust = adjust, ...)
-    y <- d$y;  xs <- d$x
-
-    idx <- which(diff(sign(diff(y))) == -2) + 1
-
-    if (tol > 0)
-      idx <- idx[y[idx] > tol]
-
-    if (min_dist > 0 && length(idx) > 1) {
-      keep <- c(TRUE, diff(xs[idx]) >= min_dist)
-      idx  <- idx[keep]
-    }
-    if (length(idx) > 1) {
-      peak_h <- y[idx]
-
-      left  <- c(1, idx[-length(idx)])
-      right <- c(idx[-1], length(y))
-      valley <- mapply(function(l, r) min(y[l:r]), left, right)
-
-      prominence <- peak_h - valley
-      keep <- prominence >= prop_drop * max(y)
-      idx <- idx[keep]
-    }
-    length(idx)
-  }
-  # count_modes <- function(x,
-  #                         adjust   = 1,
-  #                         tol      = 0,
-  #                         min_dist = 0,
-  #                         ...) {
-  #   d <- density(x, adjust = adjust, ...)
-  #   y  <- d$y
-  #   idx <- which(diff(sign(diff(y))) == -2) + 1
-  #   if (tol > 0)
-  #     idx <- idx[y[idx] > tol]
-  #   if (min_dist > 0 && length(idx) > 1) {
-  #     keep <- c(TRUE, diff(d$x[idx]) >= min_dist)
-  #     idx  <- idx[keep]
-  #   }
-  #   length(idx)
-  # }
   if (!require(mclust, quietly = TRUE)) {
     install.packages("mclust")
     library(mclust)
   }
   data_norm <- data
   mode_params <- list()
-  shared_model <- list()
-  pairs <- which(phase1_vars %in% num_vars)
   
-  for (k in pairs){
-    v1 <- phase1_vars[k]
-    v2 <- phase2_vars[k]
-    pooled <- c(data[[v1]], data[[v2]])
-    pooled <- pooled[!is.na(pooled)]
-    if (length(unique(pooled)) == 1) {
-      G_pair <- 1
-    } else {
-      G_pair <- min(5, count_modes(pooled))
-    }
-    mc_pair <- Mclust(pooled, G = G_pair)
-    shared_model[[v1]] <- mc_pair
-    shared_model[[v2]] <- mc_pair
-  }
   
   for (col in num_vars) {
     curr_col <- data[[col]]
     curr_col_obs <- curr_col[!is.na(curr_col)]
-    if (!is.null(shared_model[[col]])) {
-      mc <- shared_model[[col]]
+    if (length(unique(curr_col_obs)) == 1) {
+      mc <- mclust::Mclust(curr_col_obs, G = 1)
     } else {
-      if (length(unique(curr_col_obs)) == 1) {
-        G_use <- 1
-      } else {
-        G_use <- min(5, count_modes(curr_col_obs))
-      }
-      mc <- mclust::Mclust(curr_col_obs, G = G_use)
+      mc <- mclust::Mclust(curr_col_obs, G = 1:5, modelNames = "E")
     }
     pred <- predict(mc, newdata = curr_col_obs)
     mode_labels <- as.numeric(as.factor(pred$classification))
     mode_means <- mc$parameters$mean + 1e-6
-    mode_sds <- sqrt(mc$parameters$variance$sigmasq) + 1e-6
+    mode_sds <- c() + 1e-6
     
     curr_col_norm <- rep(NA, length(curr_col_obs))
     for (mode in sort(unique(mode_labels))) {
+      mode <- as.numeric(mode)
       idx <- which(mode_labels == mode)
-      if (is.na(mode_sds[mode])){
+      # mode_means <- c(mode_means, mean(curr_col_obs[idx]))
+      mode_sds <- c(mode_sds, sd(curr_col_obs[idx]))
+      if (is.na(mode_sds[mode]) | mode_sds[mode] == 0){
         curr_col_norm[idx] <- (curr_col_obs[idx] - mode_means[mode])
       }else{
         curr_col_norm[idx] <- (curr_col_obs[idx] - mode_means[mode]) / (mode_sds[mode])

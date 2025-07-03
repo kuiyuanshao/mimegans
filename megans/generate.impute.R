@@ -81,12 +81,10 @@ generateImpute <- function(gnet, m = 5,
       }else{
         fakez_C <- torch_cat(list(fakez, C), dim = 2)
       }
-      if (params$type_g == "mmer"){
-        gsample <- gnet(fakez_C, X_star_num, X_star_cat)[[4]]
-      }else{
-        gsample <- gnet(fakez_C, X_star_num, X_star_cat)
-      }
-      gsample <- activation_fun(gsample, data_encode, phase2_vars, gen = T)
+      
+      gsample <- gnet(fakez_C)
+      
+      gsample <- activation_fun(gsample, data_encode, phase2_vars)
       gsample <- torch_cat(list(gsample, C), dim = 2)
       output_list[[i]] <- as.matrix(gsample$detach()$cpu())
     }
@@ -111,7 +109,11 @@ generateImpute <- function(gnet, m = 5,
     gsamples[, which(names(gsamples) %in% phase1_vars)] <- 
       data_original[, which(names(gsamples) %in% phase1_vars)]
     
-    
+    if (params$type_g == "mmer"){
+      gsamples[, match(phase2_vars[phase2_vars %in% num_vars], names(gsamples))] <- 
+        gsamples[, match(phase1_vars[phase1_vars %in% num_vars], names(gsamples))] + 
+        gsamples[, match(phase2_vars[phase2_vars %in% num_vars], names(gsamples))]
+    }
     # vars_to_pmm <- "T_I"
     # if (!is.null(vars_to_pmm)){
     #   for (i in vars_to_pmm){

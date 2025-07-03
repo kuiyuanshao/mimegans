@@ -12,7 +12,6 @@ encode.token <- function(data, cat_vars, phase1_vars, ...) {
       n_unique[[col]] <- length(unique(new_data[[col]]))
       next
     }
-    
     unique_categories <- unique(na.omit(cat_data[[col]]))
     new_cols <- vector()
     for (category in unique_categories) {
@@ -53,7 +52,7 @@ encode.onehot <- function(data, cat_vars, phase1_vars, ...) {
   binary_col_names <- list()
   n_unique <- list()
   for (col in cat_vars) {
-    unique_categories <- unique(na.omit(cat_data[[col]]))
+    unique_categories <- na.omit(unique(cat_data[[col]]))
     new_cols <- vector()
     for (category in unique_categories) {
       new_col_name <- paste0(col, "_", category)

@@ -38,18 +38,10 @@ generator.mmer <- nn_module(
 
   forward = function(input, x_star_num, x_star_cat, ...) {
     h <- self$trunk(input)
-    delta_num <- self$head_num(h)
-    delta_cat <- self$head_cat(h)
-
-    raw_residual <- torch_cat(list(delta_num, delta_cat), dim = 2)
-
-    x_hat_num <- x_star_num + delta_num
-    base_logits <- x_star_cat * 3
-    logits_hat <- base_logits + delta_cat
-
-    x_hat <- torch_cat(list(x_hat_num, logits_hat), dim = 2)
-
-    return(list(delta_num, delta_cat, logits_hat, x_hat = x_hat))
+    num <- self$head_num(h)
+    cat <- self$head_cat(h)
+    out <- torch_cat(list(num, cat), dim = 2)
+    return(out)
   }
 )
 

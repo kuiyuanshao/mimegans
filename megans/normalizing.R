@@ -1,31 +1,29 @@
-normalize.mode <- function(data, num_vars, phase1_vars, phase2_vars) {
+normalize.mode <- function(data, num_vars, cond_vars, phase2_vars) {
   if (!require(mclust, quietly = TRUE)) {
     install.packages("mclust")
     library(mclust)
   }
   data_norm <- data
   mode_params <- list()
-  
-  
   for (col in num_vars) {
     curr_col <- data[[col]]
     curr_col_obs <- curr_col[!is.na(curr_col)]
-    if (length(unique(curr_col_obs)) == 1) {
+    if (length(unique(curr_col_obs)) == 1 | col %in% cond_vars) {
       mc <- mclust::Mclust(curr_col_obs, G = 1)
     } else {
-      mc <- mclust::Mclust(curr_col_obs, G = 1:5, modelNames = "E")
+      mc <- mclust::Mclust(curr_col_obs, G = 1:3, modelNames = "V")
     }
     pred <- predict(mc, newdata = curr_col_obs)
     mode_labels <- as.numeric(as.factor(pred$classification))
     mode_means <- mc$parameters$mean + 1e-6
-    mode_sds <- c() + 1e-6
+    mode_sds <- sqrt(mc$parameters$variance$sigmasq) + 1e-6
     
     curr_col_norm <- rep(NA, length(curr_col_obs))
     for (mode in sort(unique(mode_labels))) {
       mode <- as.numeric(mode)
       idx <- which(mode_labels == mode)
-      # mode_means <- c(mode_means, mean(curr_col_obs[idx]))
-      mode_sds <- c(mode_sds, sd(curr_col_obs[idx]))
+      #mode_means <- c(mode_means, mean(curr_col_obs[idx]))
+      #mode_sds <- c(mode_sds, sd(curr_col_obs[idx]))
       if (is.na(mode_sds[mode]) | mode_sds[mode] == 0){
         curr_col_norm[idx] <- (curr_col_obs[idx] - mode_means[mode])
       }else{
@@ -100,9 +98,14 @@ denormalize.minmax <- function(data, num_vars, norm_obj){
 }
 
 
-normalize.zscore <- function(data, num_vars, ...){
+normalize.zscore <- function(data, num_vars, phase1_vars, phase2_vars){
   means <- apply(data[, num_vars, drop = F], 2, mean, na.rm = T)
   sds <- apply(data[, num_vars, drop = F], 2, sd, na.rm = T)
+  names(means) <- names(sds) <- num_vars 
+  
+  means[phase2_vars] <- means[phase1_vars]
+  sds [phase2_vars] <- sds [phase1_vars] 
+  
   data_norm <- as.data.frame(do.call(cbind, lapply(names(data), function(i){
     if (i %in% num_vars){
       normalized <- (data[, i] - means[i] + 1e-6) / ((sds[i] + 1e-6))
@@ -123,8 +126,6 @@ denormalize.zscore <- function(data, num_vars, norm_obj){
   data_denorm <- as.data.frame(do.call(cbind, lapply(names(data), function(i){
     if (i %in% num_vars){
       return (data[, i] * ((sds[i] + 1e-6)) + (means[i] - 1e-6))
-    }else{
-      return (ifelse(data[, i] >= 0.5, 1, 0))
     }
   })))
   names(data_denorm) <- names(data)

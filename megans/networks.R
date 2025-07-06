@@ -114,7 +114,7 @@ LinearSN <- nn_module(
     u0 <- torch_randn(out_f)
     self$u <- nn_buffer(u0 / (torch_norm(u0) + eps))
     self$n_power <- n_power
-    self$eps     <- eps
+    self$eps <- eps
   },
   
   compute_weight = function() {
@@ -139,3 +139,5 @@ LinearSN <- nn_module(
     nnf_linear(x, w_bar, self$linear$bias)
   }
 )
+
+

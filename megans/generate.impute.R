@@ -51,7 +51,7 @@ generateImpute <- function(gnet, m = 5,
                            phase1_vars, phase2_vars, 
                            num_vars, num.normalizing, cat.encoding, 
                            batch_size, g_dim, device, params,
-                           tensor_list, tokenizer_list){ #, phase1_rows, phase2_rows, vars_to_pmm){
+                           tensor_list){
   imputed_data_list <- vector("list", m)
   gsample_data_list <- vector("list", m)
   batchforimpute <- create_bfi(data_original, batch_size, tensor_list)
@@ -65,27 +65,18 @@ generateImpute <- function(gnet, m = 5,
     output_list <- vector("list", length(batchforimpute))
     for (i in 1:length(batchforimpute)){
       batch <- batchforimpute[[i]]
-      X_star_num <- batch[[5]]
-      X_star_cat <- batch[[4]]
+      A <- batch[[4]]
       X <- batch[[3]]
       C <- batch[[2]]
       M <- batch[[1]]
 
       fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), g_dim))$to(device = device)
-      if (cat.encoding == "token"){
-        C_token <- tokenizer_list$tokenizer(C[, tokenizer_list$num_inds_p1, drop = F], 
-                                            C[, tokenizer_list$cat_inds_p1, drop = F])
-        C_token <- C_token$reshape(c(C_token$size(1), 
-                                     C_token$size(2) * C_token$size(3)))
-        fakez_C <- torch_cat(list(fakez, C_token), dim = 2)
-      }else{
-        fakez_C <- torch_cat(list(fakez, C), dim = 2)
-      }
+      fakez_C <- torch_cat(list(fakez, A, C), dim = 2)
       
       gsample <- gnet(fakez_C)
       
       gsample <- activation_fun(gsample, data_encode, phase2_vars)
-      gsample <- torch_cat(list(gsample, C), dim = 2)
+      gsample <- torch_cat(list(gsample, A, C), dim = 2)
       output_list[[i]] <- as.matrix(gsample$detach()$cpu())
     }
     output_mat <- as.data.frame(do.call(rbind, output_list))
@@ -111,8 +102,12 @@ generateImpute <- function(gnet, m = 5,
     
     if (params$type_g == "mmer"){
       gsamples[, match(phase2_vars[phase2_vars %in% num_vars], names(gsamples))] <- 
-        gsamples[, match(phase1_vars[phase1_vars %in% num_vars], names(gsamples))] + 
+        gsamples[, match(phase1_vars[phase1_vars %in% num_vars], names(gsamples))] - 
         gsamples[, match(phase2_vars[phase2_vars %in% num_vars], names(gsamples))]
+      
+      # data_original[, match((phase2_vars[phase2_vars %in% num_vars]), names(data_original))] <- 
+      #   data_original[, match((phase1_vars[phase1_vars %in% num_vars]), names(data_original))] - 
+      #   data_original[, match((phase2_vars[phase2_vars %in% num_vars]), names(data_original))]
     }
     # vars_to_pmm <- "T_I"
     # if (!is.null(vars_to_pmm)){

@@ -28,18 +28,26 @@ samplebatches <- function(data_original, data_training, tensor_list,
   samp_idx <- c()
   w1 <- weights[phase1_rows]
   w2 <- weights[phase2_rows]
+  new_weights <- c()
   m <- 1
   for (i in unique(values)){
-    samp_idx <- c(samp_idx, sample(phase1_rows[p1 == i], phase1_total[m],
-                                   replace = phase1_total[m] > sum(p1 == i), 
-                                   prob = w1[p1 == i] / sum(w1[p1 == i])))
-    samp_idx <- c(samp_idx, sample(phase2_rows[p2 == i], phase2_total[m],
-                                   replace = phase2_total[m] > sum(p2 == i), 
-                                   prob = w2[p2 == i] / sum(w2[p2 == i])))
+    curr_p1rows <- phase1_rows[p1 == i]
+    sampled <- sample(1:length(curr_p1rows), phase1_total[m],
+                      replace = phase1_total[m] > sum(p1 == i), 
+                      prob = w1[p1 == i] / sum(w1[p1 == i]))
+    samp_idx <- c(samp_idx, curr_p1rows[sampled])
+    new_weights <- c(new_weights, (sum(w1[p1 == i]) / w1[p1 == i])[sampled] / phase1_total[m])
+    
+    curr_p2rows <- phase2_rows[p2 == i]
+    sampled <- sample(1:length(curr_p2rows), phase2_total[m],
+                      replace = phase2_total[m] > sum(p2 == i), 
+                      prob = w2[p2 == i] / sum(w2[p2 == i]))
+    samp_idx <- c(samp_idx, curr_p2rows[sampled])
+    new_weights <- c(new_weights, (sum(w2[p2 == i]) / w2[p2 == i])[sampled] / phase2_total[m])
     m <- m + 1
   }
-  
   batches <- lapply(tensor_list, function(tensor) tensor[samp_idx, , drop = FALSE])
+  batches[[length(batches) + 1]] <- torch_tensor(as.matrix(new_weights), device = tensor_list[[1]]$device)
   return(batches)
 }
 

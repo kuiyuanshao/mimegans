@@ -1,30 +1,45 @@
-g_loss <- function(y_fake, fake, true, encode_result, vars, params, num_inds, cat_inds, ...){
-  ## ── always compute the GAN term ───────────────────────────────
-  gan_term <- params$gamma * -torch_mean(y_fake)
-  
-  ## ── optionally compute MSE ────────────────────────────────────
-  mse_term <- torch_tensor(0, dtype = gan_term$dtype, device = gan_term$device)
+recon_loss <- function(fake, true, I, W, encode_result, vars, params, num_inds, cat_inds, p, HT){
+  mm_term <- torch_tensor(0, dtype = fake$dtype, device = fake$device)
   if (length(num_inds) > 0){
-    if (params$alpha != 0) {
-      mse_term <- params$alpha *
-        nnf_mse_loss(
-          fake[, num_inds, drop = FALSE],
-          true[, num_inds, drop = FALSE]
-        )
+    if (params$alpha != 0){
+      if (HT){
+        w <- (W[I] / p) / sum(W[I] / p)
+      }else{
+        w <- 1
+      }
+      # mm_term <- params$alpha * 
+      #   sum((w * nnf_mse_loss(fake[I, num_inds, drop = FALSE],
+      #                         true[I, num_inds, drop = FALSE], reduction = "none"))) / length(num_inds)
+      
+      mm_term <- params$alpha * 
+        nnf_mse_loss(fake[I, num_inds, drop = FALSE],
+                     true[I, num_inds, drop = FALSE], reduction = "mean")
+      
+      # mm_term <- params$alpha * moment_penalty(true[I, num_inds, drop = FALSE], 
+      #                                          fake[I, num_inds, drop = FALSE])
     }
   }
-  
-  ## ── optionally compute cross-entropy ──────────────────────────
-  ce_term <- torch_tensor(0, dtype = gan_term$dtype, device = gan_term$device)
+  ce_term <- torch_tensor(0, dtype = fake$dtype, device = fake$device)
   if (length(cat_inds) > 0){
     if (params$beta != 0) {
+      if (HT){
+        w <- W / sum(W)
+      }else{
+        w <- 1
+      }
       ce_term <- params$beta *
-        cross_entropy_loss(fake, true, encode_result, vars)
+        cross_entropy_loss(fake, true, encode_result, vars, w)
     }
   }
-  ## ── aggregate and return ─────────────────────────────────────
-  total_loss <- gan_term + mse_term + ce_term
-  return(total_loss)
+  return (mm_term + ce_term)
+}
+
+moment_penalty <- function(x_real, x_fake, eps = 1e-6) {
+  mu_f <- x_fake$mean(dim = 1, keepdim = TRUE)
+  mu_r <- x_real$mean(dim = 1, keepdim = TRUE)
+  mu_loss <- (mu_r - mu_f)$pow(2)$mean() 
+  # var_loss <- ((x_fake - mu_f)$pow(2)$mean(dim = 1) - x_real$std(dim = 1))$pow(2)$mean()
+  mu_loss # + var_loss
 }
 
 
@@ -36,19 +51,22 @@ d_loss <- function(dnet, true, fake, params, device){
   return (d_loss)
 }
 
-cross_entropy_loss <- function(fake, true, encode_result, vars){
+cross_entropy_loss <- function(fake, true, encode_result, vars, w){
   cats <- encode_result$binary_indices[which(sapply(encode_result$new_col_names, function(col_names) {
     any(col_names %in% vars)
   }))]
   loss <- list()
   i <- 1
   for (cat in cats){
+    # loss[[i]] <- sum((w$squeeze(2) * nnf_cross_entropy(fake[, cat, drop = F], 
+    #                                     torch_argmax(true[, cat, drop = F], dim = 2), 
+    #                                     reduction = "none")))
     loss[[i]] <- nnf_cross_entropy(fake[, cat, drop = F], 
                                    torch_argmax(true[, cat, drop = F], dim = 2), 
                                    reduction = "mean")
     i <- i + 1
   }
-  loss_t <- torch_stack(loss, dim = 1)$sum()
+  loss_t <- torch_stack(loss, dim = 1)$mean()
   return (loss_t)
 }
 

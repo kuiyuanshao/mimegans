@@ -1,7 +1,7 @@
 generator.mlp <- torch::nn_module(
   "Generator",
   initialize = function(n_g_layers, params, ncols, nphase2, ...){
-    dim1 <- params$g_dim + ncols - nphase2
+    dim1 <- params$noise_dim + ncols - nphase2
     dim2 <- params$g_dim
     self$seq <- torch::nn_sequential()
     for (i in 1:n_g_layers){
@@ -16,40 +16,11 @@ generator.mlp <- torch::nn_module(
   }
 )
 
-generator.mmer <- nn_module(
-  "Generator",
-  initialize = function(n_g_layers, params, ncols, nphase2,
-                        num_ind, cat_ind, ...) {
-
-    self$num_ind <- num_ind
-    self$cat_ind <- cat_ind
-
-    dim1 <- params$g_dim + ncols - nphase2      # z + fully-observed C
-    dim2 <- params$g_dim
-
-    self$trunk <- nn_sequential()
-    for (i in 1:n_g_layers) {
-      self$trunk$add_module(paste0("Residual_", i), Residual(dim1, dim2))
-      dim1 <- dim1 + dim2
-    }
-    self$head_num <- nn_linear(dim1, length(num_ind)) # Δ numeric
-    self$head_cat <- nn_linear(dim1, length(cat_ind)) # Δ logits
-  },
-
-  forward = function(input, x_star_num, x_star_cat, ...) {
-    h <- self$trunk(input)
-    num <- self$head_num(h)
-    cat <- self$head_cat(h)
-    out <- torch_cat(list(num, cat), dim = 2)
-    return(out)
-  }
-)
-
 generator.attn <- torch::nn_module(
   "Generator",
-  initialize = function(n_g_layers, params, ncols, nphase2, ...){
+  initialize = function(n_g_layers, params, ncols, nphase2, num_ind, cat_ind){
     self$params <- params
-    dim1 <- params$g_dim + (ncols - nphase2)
+    dim1 <- params$noise_dim + (ncols - nphase2)
     dim2 <- params$g_dim
     self$proj_layer <- torch::nn_sequential(
       nn_linear(dim1, dim2),
@@ -68,6 +39,11 @@ generator.attn <- torch::nn_module(
       nn_relu(),
       nn_linear(dim2, nphase2)
     )
+    # self$output_layer_cat <- torch::nn_sequential(
+    #   nn_layer_norm(dim2),
+    #   nn_relu(),
+    #   nn_linear(dim2, length(cat_ind))
+    # )
   },
   forward = function(input, ...){
     out <- input %>%
@@ -76,6 +52,9 @@ generator.attn <- torch::nn_module(
       self$seq() %>%
       torch_squeeze(2) %>%
       self$output_layer()
+    # num <- h %>% self$output_layer_num()
+    # cat <- h %>% self$output_layer_cat()
+    # out <- torch_cat(list(num, cat), dim = 2)
     return (out)
   }
 )

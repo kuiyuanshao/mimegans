@@ -10,7 +10,7 @@ generateSample <- function(data, proportion, seed){
               "rs10811661", "rs7756992", "rs11708067", "rs17036101", "rs17584499",
               "rs1111875", "rs4402960", "rs4607103", "rs7754840", "rs9300039",
               "rs5015480", "rs9465871", "rs4506565", "rs5219", "rs358806",
-              "GLUCOSE", "F_GLUCOSE", "HbA1c", "INSULIN", "T_I", "EVENT", "C")
+              "Glucose", "F_Glucose", "HbA1c", "T_I", "EVENT", "C")
   # Simple Random Sampling
   srs_ind <- sample(nRow, n_phase2)
   samp_srs <- data %>%
@@ -67,7 +67,8 @@ generateSample <- function(data, proportion, seed){
                   W = case_when(!!!lapply(names(neyman_weights), function(value){
                     expr(STRATA == !!value ~ !!neyman_weights[[value]])
                   })),
-                  across(all_of(p2vars), ~ ifelse(R == 0, NA, .)))
+                  across(all_of(p2vars), ~ ifelse(R == 0, NA, .))) %>%
+    select(-inf)
   
   return (list(samp_srs = samp_srs,
                samp_balance = samp_balance,
@@ -79,20 +80,24 @@ if(!dir.exists('./data/Sample')){dir.create('./data/Sample')}
 if(!dir.exists('./data/Sample/SRS')){dir.create('./data/Sample/SRS')}
 if(!dir.exists('./data/Sample/Balance')){dir.create('./data/Sample/Balance')}
 if(!dir.exists('./data/Sample/Neyman')){dir.create('./data/Sample/Neyman')}
-replicate <- 1
-seed <- 1
+replicate <- 500
+if (file.exists("./data/data_sampling_seed.RData")){
+  load("./data/data_sampling_seed.RData")
+}else{
+  seed <- sample(1:100000, 500)
+  save(seed, file = "./data/data_sampling_seed.RData")
+}
 for (i in 1:replicate){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))
-  samp_result <- generateSample(data, 0.05, seed)
+  samp_result <- generateSample(data, 0.05, seed[i])
   write.csv(samp_result$samp_srs, 
             file = paste0("./data/Sample/SRS/", digit, ".csv"))
   write.csv(samp_result$samp_balance, 
             file = paste0("./data/Sample/Balance/", digit, ".csv"))
   write.csv(samp_result$samp_neyman, 
             file = paste0("./data/Sample/Neyman/", digit, ".csv"))
-  seed <- seed + 1
 }
 
 

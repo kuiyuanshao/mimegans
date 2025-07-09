@@ -1,4 +1,4 @@
-lapply(c("mice", "dplyr", "stringr", "torch"), require, character.only = T)
+lapply(c("dplyr", "stringr", "torch"), require, character.only = T)
 lapply(paste0("./megans/", list.files("./megans")), source)
 source("00_utils_functions.R")
 
@@ -33,28 +33,27 @@ for (i in 1:replicate){
   
   # MEGANs:
   megans_imp <- mmer.impute.cwgangp(samp_srs, m = 20, 
-                                        num.normalizing = "mode", 
-                                        cat.encoding = "onehot", 
-                                        device = "cpu", epochs = 5000,
-                                        data_info = data_info_srs, save.step = 1000)
+                                    num.normalizing = "mode", 
+                                    cat.encoding = "onehot", 
+                                    device = "cpu", epochs = 7500,
+                                    params = list(lambda = 50), 
+                                    data_info = data_info_srs, save.step = 1000)
   save(megans_imp, file = paste0("./simulations/SRS/megans/", digit, ".RData"))
   
-  megans_imp <- mmer.impute.cwgangp(samp_balance, m = 5, 
-                                            num.normalizing = "mode", 
-                                            cat.encoding = "onehot", 
-                                            device = "cpu", epochs = 15000,
-                                            params = list(alpha = 0, beta = 1, 
-                                                          n_g_layers = 3, lr_g = 2e-4, lr_d = 2e-4,
-                                                          type_g = "mmer", pac = 10, lambda = 10),
-                                            HT = F, 
-                                            data_info = data_info_balance, save.step = 500)
+  megans_imp <- mmer.impute.cwgangp(samp_balance, m = 20, 
+                                    num.normalizing = "mode", 
+                                    cat.encoding = "onehot", 
+                                    device = "cpu", epochs = 7500,
+                                    params = list(lambda = 50),
+                                    data_info = data_info_balance, save.step = 1000)
   save(megans_imp, file = paste0("./simulations/Balance/megans/", digit, ".RData"))
   
-  megans_imp <- mmer.impute.cwgangp(samp_neyman, m = 20, 
-                                           num.normalizing = "mode", 
-                                           cat.encoding = "onehot", 
-                                           device = "cpu", epochs = 5000, 
-                                           data_info = data_info_balance, save.step = 1000)
+  megans_imp <- mmer.impute.cwgangp(samp_neyman, m = 1, 
+                                    num.normalizing = "mode", 
+                                    cat.encoding = "onehot", 
+                                    device = "cpu", epochs = 1, 
+                                    params = list(lambda = 50),
+                                    data_info = data_info_neyman, save.step = 1000)
   save(megans_imp, file = paste0("./simulations/Neyman/megans/", digit, ".RData"))
 }
 
@@ -76,6 +75,22 @@ mod.true <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +
                    RACE + I(BMI / 5) + SMOKE, data = data)
 exp(coef(mod.true)) - exp(sumry.lm$estimate)
 
+data_original <- samp_balance
+gsamples <- megans_imp$gsample[[1]]
+imp <- megans_imp$imputation[[1]]
+vars_to_pmm <- "T_I"
+if (!is.null(vars_to_pmm)){
+  for (i in vars_to_pmm){
+      pmm_matched <- pmm(gsamples[data_original$R == 1, i],
+                         gsamples[data_original$R == 0, i],
+                         data_original[data_original$R == 1, i], 5)
+      imp[data_original$R == 0, i] <- pmm_matched
+  }
+}
+mod.gsamp <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
+                    rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
+                    RACE + I(BMI / 5) + SMOKE, data = match_types(imp, data))
+exp(coef(mod.gsamp)) - exp(coef(mod.true))
 ggplot(samp_balance) + 
   geom_density(aes(x = HbA1c_STAR - HbA1c)) + 
   geom_density(data = megans_imp$imputation[[2]],
@@ -99,7 +114,7 @@ ggplot(samp_balance) +
 
 ggplot(samp_balance) + 
   geom_point(aes(x = T_I, y = HbA1c)) + 
-  geom_point(data = megans_imp$imputation[[2]],
+  geom_point(data = megans_imp$imputation[[1]],
                aes(x = T_I, y = HbA1c), colour = "red") +
   geom_point(data = data, 
                aes(x = T_I, y = HbA1c), colour = "blue")
@@ -122,14 +137,15 @@ true.bn <- glm(hypertension ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn 
 megans_nutri_N <- list()
 for (i in 1:10){
   megans_imp <- mmer.impute.cwgangp(nutri_samp, m = 20, 
-                                           num.normalizing = "mode", 
-                                           cat.encoding = "onehot", 
-                                           device = "cpu", epochs = 5000,
-                                           params = list(alpha = 0, beta = 1, 
-                                                         n_g_layers = 3, lr_g = 2e-4, lr_d = 2e-4,
-                                                         type_g = "mmer", pac = 10, lambda = 10),
-                                           HT = F, 
-                                           data_info = data_info, save.step = 500)
+                                    num.normalizing = "mode", 
+                                    cat.encoding = "onehot", 
+                                    device = "cpu", epochs = 5000,
+                                    params = list(alpha = 0, beta = 1, noise_dim = 256, 
+                                                  n_g_layers = 3, n_d_layers = 3, 
+                                                  lr_g = 2e-4, lr_d = 2e-4,
+                                                  type_g = "mlp", type_d = "mlp", 
+                                                  pac = 10, lambda = 0),
+                                    data_info = data_info, save.step = 500)
 }
 
 imp.mids <- as.mids(megans_imp$imputation)
@@ -147,7 +163,8 @@ sumry.lm$estimate - coef(true.lm)
 sumry.bn$estimate - coef(true.bn)
 
 step.lm <- glm(sbp ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn +
-                 female + bkg_pr + bkg_o, family = gaussian(), data = megans_imp$step_result[[7]][[1]])
+                 female + bkg_pr + bkg_o, family = gaussian(), 
+               data = megans_imp$step_result[[20]][[1]])
 coef(step.lm) - coef(true.lm)
 
 
@@ -155,7 +172,7 @@ coef(step.lm) - coef(true.lm)
 library(ggplot2)
 ggplot(nutri_samp) + 
   geom_density(aes(x = c_ln_na_true)) + 
-  geom_density(data = megans_imp$imputation[[2]],
+  geom_density(data = megans_imp$imputation[[5]],
                aes(x = c_ln_na_true), colour = "red") +
   geom_density(data = pop, 
                aes(x = c_ln_na_true), colour = "blue")

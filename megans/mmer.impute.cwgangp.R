@@ -3,29 +3,25 @@ pacman::p_load(progress, torch)
 cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10, 
                             alpha = 0, beta = 1, at_least_p = 1/2, 
                             lr_g = 2e-4, lr_d = 2e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
-                            g_weight_decay = 1e-7, d_weight_decay = 1e-7, 
+                            g_weight_decay = 1e-6, d_weight_decay = 1e-6, noise_dim = 64, 
                             g_dim = 256, d_dim = 256, pac = 10, 
                             n_g_layers = 3, n_d_layers = 3, discriminator_steps = 1,
                             tau = 0.2, hard = F, 
-                            type_g = "mmer", type_d = "mlp"){
+                            type_g = "mlp", type_d = "mlp"){
   
-  list(
-    batch_size = batch_size, gamma = gamma, lambda = lambda, alpha = alpha, beta = beta, 
-    at_least_p = at_least_p, lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 
-    g_weight_decay = g_weight_decay, d_weight_decay = d_weight_decay, 
-    g_dim = g_dim, d_dim = d_dim, pac = pac, n_g_layers = n_g_layers, n_d_layers = n_d_layers, 
-    discriminator_steps = discriminator_steps, tau = tau, hard = hard,
-    type_g = type_g, type_d = type_d
-  )
+  list(batch_size = batch_size, gamma = gamma, lambda = lambda, alpha = alpha, beta = beta, 
+       at_least_p = at_least_p, lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 
+       g_weight_decay = g_weight_decay, d_weight_decay = d_weight_decay, noise_dim = noise_dim,
+       g_dim = g_dim, d_dim = d_dim, pac = pac, n_g_layers = n_g_layers, n_d_layers = n_d_layers, 
+       discriminator_steps = discriminator_steps, tau = tau, hard = hard,
+       type_g = type_g, type_d = type_d)
 }
 
 mmer.impute.cwgangp <- function(data, m = 5, 
-                                num.normalizing = "mode", 
-                                cat.encoding = "onehot", 
-                                device = "cpu",
-                                epochs = 2500, 
+                                num.normalizing = "mode", cat.encoding = "onehot", 
+                                device = "cpu", epochs = 2500, 
                                 params = list(), data_info = list(),
-                                HT = F,
+                                HT = F, type = "mmer", 
                                 save.model = FALSE, save.step = 500){
   params <- do.call("cwgangp_default", params)
   device <- torch_device(device)
@@ -46,10 +42,12 @@ mmer.impute.cwgangp <- function(data, m = 5,
   weights <- as.numeric(as.character(data[, names(data) %in% weight_var]))
   
   data_original <- data
-  if (type_g == "mmer"){
+  if (type == "mmer"){
+    log_shift <- pmax(0, -apply(data[, match((phase1_vars[phase1_vars %in% num_vars]), names(data))], 
+                                2, min, na.rm = TRUE)) + 1e-6
     data[, match((phase2_vars[phase2_vars %in% num_vars]), names(data))] <- 
-      data[, match((phase1_vars[phase1_vars %in% num_vars]), names(data))] - 
-      data[, match((phase2_vars[phase2_vars %in% num_vars]), names(data))]
+      log(sweep(data[, match((phase1_vars[phase1_vars %in% num_vars]), names(data))], 2, log_shift, "+")) - 
+      log(sweep(data[, match((phase2_vars[phase2_vars %in% num_vars]), names(data))], 2, log_shift, "+"))
   }
   
   data_norm <- do.call(normalize, args = list(
@@ -60,21 +58,20 @@ mmer.impute.cwgangp <- function(data, m = 5,
   
   if (num.normalizing == "mode"){
     mode_cat_vars <- c(cat_vars, setdiff(names(data_norm$data), names(data)))
-    phase1_vars <- c(phase1_vars, names(data_norm$data)[
+    phase1_vars_mode <- c(phase1_vars, names(data_norm$data)[
       !names(data_norm$data) %in% names(data) &
         names(data_norm$data) %in% paste0(phase1_vars, sep = "_mode")])
-    phase2_vars <- c(phase2_vars, names(data_norm$data)[
+    phase2_vars_mode <- c(phase2_vars, names(data_norm$data)[
       !names(data_norm$data) %in% names(data) &
         names(data_norm$data) %in% paste0(phase2_vars, sep = "_mode")])
-    conditions_vars <- c(conditions_vars, names(data_norm$data)[
+    conditions_vars_mode <- c(conditions_vars, names(data_norm$data)[
       !names(data_norm$data) %in% names(data) &
         names(data_norm$data) %in% paste0(conditions_vars, sep = "_mode")])
   }
   
   data_encode <- do.call(encode, args = list(
-    data = data_norm$data,
-    cat_vars = mode_cat_vars, 
-    c(conditions_vars, phase1_vars), type_g
+    data = data_norm$data, mode_cat_vars, 
+    cat_vars, phase1_vars, phase2_vars
   ))
   nrows <- nrow(data_encode$data)
   ncols <- ncol(data_encode$data)
@@ -82,12 +79,12 @@ mmer.impute.cwgangp <- function(data, m = 5,
   data_training <- data_encode$data
   
   
-  phase1_vars_encode <- c(phase1_vars[!phase1_vars %in% mode_cat_vars], 
-                          unlist(data_encode$new_col_names[phase1_vars]))
-  phase2_vars_encode <- c(phase2_vars[!phase2_vars %in% mode_cat_vars], 
-                          unlist(data_encode$new_col_names[phase2_vars]))
-  conditions_vars_encode <- c(conditions_vars[!conditions_vars %in% mode_cat_vars], 
-                              unlist(data_encode$new_col_names[conditions_vars]))
+  phase1_vars_encode <- c(phase1_vars[!phase1_vars_mode %in% mode_cat_vars], 
+                          unlist(data_encode$new_col_names[phase1_vars_mode]))
+  phase2_vars_encode <- c(phase2_vars[!phase2_vars_mode %in% mode_cat_vars], 
+                          unlist(data_encode$new_col_names[phase2_vars_mode]))
+  conditions_vars_encode <- c(conditions_vars[!conditions_vars_mode %in% mode_cat_vars], 
+                              unlist(data_encode$new_col_names[conditions_vars_mode]))
   
   num_inds_p1 <- which(phase1_vars_encode %in% num_vars)
   cat_inds_p1 <- which(phase1_vars_encode %in% unlist(data_encode$new_col_names))
@@ -114,14 +111,19 @@ mmer.impute.cwgangp <- function(data, m = 5,
   phase1_m <- data_training[, names(data_training) %in% phase1_vars_encode, drop = F]
   phase1_t <- torch_tensor(as.matrix(phase1_m), device = device)
   
-  if (type_g == "mmer"){
-    phase1_cats <- unlist(data_encode$new_col_names[cat_vars[cat_vars %in% phase1_vars]])
-    phase2_cats <- unlist(data_encode$new_col_names[cat_vars[cat_vars %in% phase2_vars]])
+  if (type == "mmer"){
+    phase1_cats <- unlist(data_encode$new_col_names[phase1_vars[phase1_vars %in% cat_vars]])
+    phase2_cats <- unlist(data_encode$new_col_names[phase2_vars[phase2_vars %in% cat_vars]])
     if (length(phase2_cats) > 0){
       ind1 <- match(phase1_cats, names(data_training))
       ind2 <- match(phase2_cats, names(data_training))
-      confusmat <- lapply(1:length(ind1), function(i) prop.table(table(data_training[, ind2[i]], 
-                                                                       data_training[, ind1[i]]), 1))
+      confusmat <- lapply(1:length(ind1), function(i){
+        lv <- sort(unique(data_training[, ind1[i]]))
+        cm <- prop.table(table(factor(data_training[, ind2[i]], levels = lv),
+                               factor(data_training[, ind1[i]], levels = lv)), 1)
+        cm[is.na(cm)] <- 0 
+        return (cm)
+      })
       CM_tensors <- lapply(confusmat, function(cm) torch_tensor(cm, dtype = torch_float()))
       phase1_cats_inds <- match(phase1_cats, names(phase1_m))
       phase2_cats_inds <- match(phase2_cats, names(data_training))
@@ -132,6 +134,10 @@ mmer.impute.cwgangp <- function(data, m = 5,
   tensor_list <- list(data_mask, conditions_t, phase2_t, phase1_t)
   
   #mnet <- m_net(dim(conditions_t)[2], params)
+  # cnet <- do.call(paste("generator", type_g, sep = "."), 
+  #                 args = list(n_g_layers, params, 
+  #                             ncols, length(phase1_vars_encode),
+  #                             num_inds_p1, cat_inds_p1))$to(device = device)
   gnet <- do.call(paste("generator", type_g, sep = "."), 
                   args = list(n_g_layers, params, 
                               ncols, length(phase2_vars_encode),
@@ -140,6 +146,8 @@ mmer.impute.cwgangp <- function(data, m = 5,
                   args = list(n_d_layers, params, ncols))$to(device = device)
   
   #m_solver <- torch::optim_adam(mnet$parameters, lr = lr_d)
+  # c_solver <- torch::optim_adam(cnet$parameters, lr = lr_g, 
+  #                               betas = g_betas, weight_decay = g_weight_decay)
   g_solver <- torch::optim_adam(gnet$parameters, lr = lr_g, 
                                 betas = g_betas, weight_decay = g_weight_decay)
   d_solver <- torch::optim_adam(dnet$parameters, lr = lr_d, 
@@ -169,8 +177,14 @@ mmer.impute.cwgangp <- function(data, m = 5,
       I <- M[, 1] == 1
       #W <- W * I$unsqueeze(2)
       
-      fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), g_dim))$to(device = device)
-      
+      fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), noise_dim))$to(device = device)
+      # indc <- torch_randint(1, X$size(2), size = g_dim - X$size(2), dtype = torch_long(), device = X$device)
+      # indr <- torch_randint(1, X[I, ]$size(1), size = batch_size - X[I, ]$size(1), dtype = torch_long(), device = X$device)
+      # fakez <- torch_cat(list(X[I, ], X[I, ]$index_select(2, indc)), 2)
+      # fakez <- torch_cat(list(fakez, fakez$index_select(1, indr)), 1)
+      # fakez <- fakez$reshape(c(-1))[torch_randperm(fakez$numel(), device = X$device) + 
+      #                                 torch_tensor(1, dtype = torch_long(), device = device)]$reshape(fakez$size()) + 
+      #   torch_normal(mean = 0, std = 0.1, size = c(X$size(1), g_dim))$to(device = device)
       fakez_AC <- torch_cat(list(fakez, A, C), dim = 2)
       
       fake <- gnet(fakez_AC)
@@ -183,7 +197,11 @@ mmer.impute.cwgangp <- function(data, m = 5,
       x_fake_I <- dnet(fake_AC_I)
       x_true_I <- dnet(true_AC_I)
       
-      gp <- gradient_penalty(dnet, true_AC_I, fake_AC_I, pac = params$pac, device = device)
+      if (lambda > 0){
+        gp <- gradient_penalty(dnet, true_AC_I, fake_AC_I, pac = params$pac, device = device)
+      }else{
+        gp <- torch_tensor(0, dtype = fake$dtype, device = device)
+      }
       # if (AIPW){
       #   # NI for Phase-1 unselected samples
       #   fake_C_NI <- torch_cat(list(fake[I$logical_not(), , drop = F], 
@@ -234,17 +252,27 @@ mmer.impute.cwgangp <- function(data, m = 5,
     M <- batch[[1]]
     I <- M[, 1] == 1
     
-    fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), g_dim))$to(device = device)
+    fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), noise_dim))$to(device = device)
+    # indc <- torch_randint(1, X$size(2), size = g_dim - X$size(2), dtype = torch_long(), device = X$device)
+    # indr <- torch_randint(1, X[I, ]$size(1), size = batch_size - X[I, ]$size(1), dtype = torch_long(), device = X$device)
+    # fakez <- torch_cat(list(X[I, ], X[I, ]$index_select(2, indc)), 2)
+    # fakez <- torch_cat(list(fakez, fakez$index_select(1, indr)), 1)
+    # fakez <- fakez$reshape(c(-1))[torch_randperm(fakez$numel(), device = X$device) + 
+    #                               torch_tensor(1, dtype = torch_long(), device = device)]$reshape(fakez$size()) + 
+    #   torch_normal(mean = 0, std = 0.1, size = c(X$size(1), g_dim))$to(device = device)
     fakez_AC <- torch_cat(list(fakez, A, C), dim = 2)
 
     fake <- gnet(fakez_AC)
     fake <- activation_fun(fake, data_encode, phase2_vars_encode, 
                            tau = tau, hard = hard)
-    fake_C <- torch_cat(list(fake, A, C), dim = 2)
+    fake_AC <- torch_cat(list(fake, A, C), dim = 2)
     
-    x_fake <- dnet(fake_C)
+    # cycle <- cnet(torch_cat(list(fakez, fake, C), dim = 2))
+    # cycle <- activation_fun(cycle, data_encode, phase1_vars_encode, 
+    #                         tau = tau, hard = hard)
+    x_fake <- dnet(fake_AC)
     
-    if (type_g == "mmer"){
+    if (type == "mmer"){
       if (length(phase2_cats) > 0){
         A <- batch[[4]]
         A_cat <- A[, phase1_cats_inds, drop = F]
@@ -260,9 +288,11 @@ mmer.impute.cwgangp <- function(data, m = 5,
     #w <- W$reshape(c(-1, params$pac))$mean(dim = 2)
     #w <- W
     adv_term <- params$gamma * -(torch_mean(x_fake))
-    xrecon_loss <- recon_loss(fake, X, I, W, data_encode, phase2_vars_encode, 
-                              params, num_inds_p2, cat_inds_p2, phase2_p, HT)
-    g_loss <- adv_term + xrecon_loss 
+    xrecon_loss <- recon_loss(fake, X, I, data_encode, phase2_vars_encode, 
+                              params, num_inds_p2, cat_inds_p2, F)
+    # cycle_loss <- recon_loss(cycle, A, I, data_encode, phase1_vars_encode,
+    #                          params, num_inds_p1, cat_inds_p1, T)
+    g_loss <- adv_term + xrecon_loss # + 0.25 * cycle_loss
     
     g_solver$zero_grad()
     g_loss$backward()
@@ -274,7 +304,7 @@ mmer.impute.cwgangp <- function(data, m = 5,
       g_loss = sprintf("%.4f", g_loss$item()),
       d_loss = sprintf("%.4f", d_loss$item())
     ))
-    Sys.sleep(1 / 10000)
+    Sys.sleep(1 / 100000)
     
     if (save.step > 0){
       if (i %% save.step == 0){
@@ -283,7 +313,8 @@ mmer.impute.cwgangp <- function(data, m = 5,
                                  data_encode, data_training,
                                  phase1_vars_encode, phase2_vars_encode, 
                                  num_vars, num.normalizing, cat.encoding, 
-                                 batch_size, g_dim, device, params, tensor_list)
+                                 batch_size, device, params, tensor_list,
+                                 type, log_shift)
         step_result[[p]] <- result$gsample
         p <- p + 1
       }
@@ -298,7 +329,8 @@ mmer.impute.cwgangp <- function(data, m = 5,
                            data_encode, data_training,
                            phase1_vars_encode, phase2_vars_encode, num_vars, 
                            num.normalizing, cat.encoding, 
-                           batch_size, g_dim, device, params, tensor_list)
+                           batch_size, device, params, tensor_list,
+                           type, log_shift)
   if (save.model){
     current_time <- Sys.time()
     formatted_time <- format(current_time, "%d-%m-%Y.%S-%M-%H")

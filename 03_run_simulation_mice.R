@@ -1,5 +1,4 @@
 lapply(c("mice", "dplyr", "stringr"), require, character.only = T)
-lapply(paste0("./comparisons/mice/", list.files("./comparisons/mice/")), source)
 source("00_utils_functions.R")
 
 if(!dir.exists('./simulations')){dir.create('./simulations')}
@@ -32,16 +31,34 @@ for (i in 1:replicate){
   
   # MICE:
   mice_imp <- mice(samp_srs, m = 20, print = F, maxit = 50, 
-                       maxcor = 1.0001, ls.meth = "ridge", ridge = 0.01, 
-                       predictorMatrix = quickpred(samp_srs))
+                   maxcor = 1.0001, ls.meth = "ridge", ridge = 0.01, 
+                   predictorMatrix = quickpred(samp_srs, mincor = 0.15))
   save(mice_imp, file = paste0("./simulations/SRS/mice/", digit, ".RData"))
   mice_imp <- mice(samp_balance, m = 20, print = F, maxit = 50, 
-                           maxcor = 1.0001, ls.meth = "ridge", ridge = 0.01, 
-                           predictorMatrix = quickpred(samp_balance))
+                   maxcor = 1.0001, ls.meth = "ridge", ridge = 0.01, 
+                   predictorMatrix = quickpred(samp_balance, mincor = 0.15))
   save(mice_imp, file = paste0("./simulations/Balance/mice/", digit, ".RData"))
   mice_imp <- mice(samp_neyman, m = 20, print = F, maxit = 50, 
-                          maxcor = 1.0001, ls.meth = "ridge", ridge = 0.01, 
-                          predictorMatrix = quickpred(samp_neyman))
+                   maxcor = 1.0001, ls.meth = "ridge", ridge = 0.01, 
+                   predictorMatrix = quickpred(samp_neyman, mincor = 0.15))
   save(mice_imp, file = paste0("./simulations/Neyman/mice/", digit, ".RData"))
   
 }
+
+
+library(survival)
+load("./data/Complete/0001.RData")
+megans_imp$imputation <- lapply(megans_imp$imputation, function(i){
+  match_types(i, data)
+})
+imp.mids <- as.mids(megans_imp$imputation)
+fit.cox <- with(data = imp.mids, 
+                exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
+                              rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
+                              RACE + I(BMI / 5) + SMOKE))
+pooled.cox <- mice::pool(fit.cox)
+sumry.lm <- summary(pooled.cox, conf.int = TRUE)
+mod.true <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
+                    rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
+                    RACE + I(BMI / 5) + SMOKE, data = data)
+exp(coef(mod.true)) - exp(sumry.lm$estimate)

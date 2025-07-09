@@ -24,7 +24,7 @@ discriminator.mlp <- torch::nn_module(
 discriminator.attn <- torch::nn_module(
   "DiscriminatorAttn",
   initialize = function(n_d_layers, params, ncols) {
-    self$pacdim <- params$token_dim * (ncols + 1) * params$pac
+    self$pacdim <- ncols * params$pac
     
     self$proj_layer <- torch::nn_sequential(
       nn_linear(self$pacdim, params$d_dim),
@@ -34,7 +34,8 @@ discriminator.attn <- torch::nn_module(
     
     self$seq <- torch::nn_sequential()
     for (i in 1:n_d_layers) {
-      self$seq$add_module(paste0("Encoder_", i), Encoder(params$d_dim, 8))
+      self$seq$add_module(paste0("Encoder_", i), nn_transformer_encoder_layer(params$d_dim, nhead = 8,
+                                                                              batch_first = T))
     }
 
     self$output_layer <- torch::nn_sequential(
@@ -45,9 +46,12 @@ discriminator.attn <- torch::nn_module(
     )
   },
   forward = function(input) {
+    input <- input$reshape(c(-1, self$pacdim))
     out <- input %>%
       self$proj_layer() %>%
+      torch_unsqueeze(2) %>%
       self$seq() %>%
+      torch_squeeze(2) %>%
       self$output_layer()
     
     return(out)

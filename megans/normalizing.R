@@ -9,9 +9,9 @@ normalize.mode <- function(data, num_vars, cond_vars, phase2_vars) {
     curr_col <- data[[col]]
     curr_col_obs <- curr_col[!is.na(curr_col)]
     if (length(unique(curr_col_obs)) == 1 | col %in% cond_vars) {
-      mc <- mclust::Mclust(curr_col_obs, G = 1)
+      mc <- mclust::Mclust(curr_col_obs, G = 1, verbose = F)
     } else {
-      mc <- mclust::Mclust(curr_col_obs, G = 1:3, modelNames = "V")
+      mc <- mclust::Mclust(curr_col_obs, G = 1:3, modelNames = "V", verbose = F)
     }
     pred <- predict(mc, newdata = curr_col_obs)
     mode_labels <- as.numeric(as.factor(pred$classification))

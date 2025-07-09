@@ -49,6 +49,34 @@ exactAllocation <- function(data, stratum_variable, target_variable, sample_size
   return (alloc)
 }
 
+match_types <- function(new_df, orig_df) {
+  common <- intersect(names(orig_df), names(new_df))
+  out <- new_df
+  
+  for (nm in common) {
+    tmpl <- orig_df[[nm]]
+    col <- out[[nm]]
+    if (is.integer(tmpl))        out[[nm]] <- as.integer(col)
+    else if (is.numeric(tmpl))   out[[nm]] <- as.numeric(col)
+    else if (is.logical(tmpl))   out[[nm]] <- as.logical(col)
+    else if (is.factor(tmpl)) {
+      out[[nm]] <- factor(col,
+                          levels = levels(tmpl),
+                          ordered = is.ordered(tmpl))
+    }
+    else if (inherits(tmpl, "Date")) {
+      out[[nm]] <- as.Date(col)
+    } else if (inherits(tmpl, "POSIXct")) {
+      tz <- attr(tmpl, "tzone")
+      out[[nm]] <- as.POSIXct(col, tz = tz)
+    }
+    else {
+      out[[nm]] <- as.character(col)
+    }
+  }
+  out
+}
+
 data_info_srs <- list(weight_var = "W",
                       cat_vars = c("SEX", "RACE", "SMOKE", "EXER", "ALC", "INSURANCE", "REGION", 
                                    "URBAN", "INCOME", "MARRIAGE", 
@@ -61,27 +89,31 @@ data_info_srs <- list(weight_var = "W",
                                    "rs1111875_STAR", "rs4402960_STAR", "rs4607103_STAR", "rs7754840_STAR", "rs9300039_STAR",
                                    "rs5015480_STAR", "rs9465871_STAR", "rs4506565_STAR", "rs5219_STAR", "rs358806_STAR",
                                    "EVENT", "EVENT_STAR", "R", "W"),
-                      num_vars = c("X", "ID", "AGE", "EDU", "HEIGHT", "BMI", "WEIGHT", "CREATININE",
-                                   "BUN", "URIC_ACID", "HDL", "LDL", "TG", "WBC",
-                                   "RBC", "Hb", "HCT", "PLATELET", "PT", "Na_INTAKE",          
-                                   "K_INTAKE", "KCAL_INTAKE", "PROTEIN_INTAKE", "ALT", "AST", "ALP",                
-                                   "GGT", "BILIRUBIN", "GLUCOSE", "F_GLUCOSE", "HbA1c", "INSULIN",            
-                                   "ALBUMIN", "GLOBULIN", "FERRITIN", "CRP", "SBP", "DBP",                
-                                   "PULSE", "PP", "EDU_STAR", "Na_INTAKE_STAR", "K_INTAKE_STAR", "KCAL_INTAKE_STAR",    
-                                   "PROTEIN_INTAKE_STAR", "GLUCOSE_STAR", "F_GLUCOSE_STAR", "HbA1c_STAR", "INSULIN_STAR", "T_I",                
-                                   "T_I_STAR", "C", "C_STAR"),
+                      num_vars = c("X", "ID", "AGE", "EDU", "HEIGHT", "BMI", "MED_Count",
+                                   "Creatinine", "eGFR", "Urea", "Potassium", "Sodium",
+                                   "Chloride", "Bicarbonate", "Calcium", "Magnesium", "Phosphate",
+                                   "Triglyceride", "HDL", "LDL", "Hb", "HCT",
+                                   "RBC", "WBC", "Platelet", "MCV", "RDW",
+                                   "Neutrophils", "Lymphocytes", "Monocytes", "Eosinophils", "Basophils",
+                                   "Na_INTAKE", "K_INTAKE", "KCAL_INTAKE", "PROTEIN_INTAKE", "AST",
+                                   "ALT", "ALP", "GGT", "Bilirubin", "Albumin",
+                                   "Globulin", "Protein", "Glucose", "F_Glucose", "HbA1c",
+                                   "Insulin", "Ferritin", "SBP", "Temperature", "HR",
+                                   "SpO2", "WEIGHT", "EDU_STAR", "Na_INTAKE_STAR", "K_INTAKE_STAR",
+                                   "KCAL_INTAKE_STAR", "PROTEIN_INTAKE_STAR", "Glucose_STAR", "F_Glucose_STAR", "HbA1c_STAR",
+                                   "C", "C_STAR", "T_I", "T_I_STAR"),
                       phase2_vars = c("SMOKE", "ALC", "EXER", "INCOME", "EDU", 
                                       "Na_INTAKE", "K_INTAKE", "KCAL_INTAKE", "PROTEIN_INTAKE", 
                                       "rs10811661", "rs7756992", "rs11708067", "rs17036101", "rs17584499",
                                       "rs1111875", "rs4402960", "rs4607103", "rs7754840", "rs9300039",
                                       "rs5015480", "rs9465871", "rs4506565", "rs5219", "rs358806",
-                                      "GLUCOSE", "F_GLUCOSE", "HbA1c", "INSULIN", "T_I", "EVENT", "C"),
+                                      "Glucose", "F_Glucose", "HbA1c", "T_I", "EVENT", "C"),
                       phase1_vars = c("SMOKE_STAR", "ALC_STAR", "EXER_STAR", "INCOME_STAR", "EDU_STAR", 
                                       "Na_INTAKE_STAR", "K_INTAKE_STAR", "KCAL_INTAKE_STAR", "PROTEIN_INTAKE_STAR", 
                                       "rs10811661_STAR", "rs7756992_STAR", "rs11708067_STAR", "rs17036101_STAR", "rs17584499_STAR",
                                       "rs1111875_STAR", "rs4402960_STAR", "rs4607103_STAR", "rs7754840_STAR", "rs9300039_STAR",
                                       "rs5015480_STAR", "rs9465871_STAR", "rs4506565_STAR", "rs5219_STAR", "rs358806_STAR",
-                                      "GLUCOSE_STAR", "F_GLUCOSE_STAR", "HbA1c_STAR", "INSULIN_STAR", "T_I_STAR", "EVENT_STAR", "C_STAR"))
+                                      "Glucose_STAR", "F_Glucose_STAR", "HbA1c_STAR", "T_I_STAR", "EVENT_STAR", "C_STAR"))
 
 data_info_balance <- list(weight_var = "W",
                           cat_vars = c("SEX", "RACE", "SMOKE", "EXER", "ALC", "INSURANCE", "REGION", 
@@ -95,27 +127,31 @@ data_info_balance <- list(weight_var = "W",
                                        "rs1111875_STAR", "rs4402960_STAR", "rs4607103_STAR", "rs7754840_STAR", "rs9300039_STAR",
                                        "rs5015480_STAR", "rs9465871_STAR", "rs4506565_STAR", "rs5219_STAR", "rs358806_STAR",
                                        "EVENT", "EVENT_STAR", "STRATA", "R", "W"),
-                          num_vars = c("X", "ID", "AGE", "EDU", "HEIGHT", "BMI", "WEIGHT", "CREATININE",
-                                       "BUN", "URIC_ACID", "HDL", "LDL", "TG", "WBC",
-                                       "RBC", "Hb", "HCT", "PLATELET", "PT", "Na_INTAKE",          
-                                       "K_INTAKE", "KCAL_INTAKE", "PROTEIN_INTAKE", "ALT", "AST", "ALP",                
-                                       "GGT", "BILIRUBIN", "GLUCOSE", "F_GLUCOSE", "HbA1c", "INSULIN",            
-                                       "ALBUMIN", "GLOBULIN", "FERRITIN", "CRP", "SBP", "DBP",                
-                                       "PULSE", "PP", "EDU_STAR", "Na_INTAKE_STAR", "K_INTAKE_STAR", "KCAL_INTAKE_STAR",    
-                                       "PROTEIN_INTAKE_STAR", "GLUCOSE_STAR", "F_GLUCOSE_STAR", "HbA1c_STAR", "INSULIN_STAR", "T_I",                
-                                       "T_I_STAR", "C", "C_STAR"),
+                          num_vars = c("X", "ID", "AGE", "EDU", "HEIGHT", "BMI", "MED_Count",
+                                       "Creatinine", "eGFR", "Urea", "Potassium", "Sodium",
+                                       "Chloride", "Bicarbonate", "Calcium", "Magnesium", "Phosphate",
+                                       "Triglyceride", "HDL", "LDL", "Hb", "HCT",
+                                       "RBC", "WBC", "Platelet", "MCV", "RDW",
+                                       "Neutrophils", "Lymphocytes", "Monocytes", "Eosinophils", "Basophils",
+                                       "Na_INTAKE", "K_INTAKE", "KCAL_INTAKE", "PROTEIN_INTAKE", "AST",
+                                       "ALT", "ALP", "GGT", "Bilirubin", "Albumin",
+                                       "Globulin", "Protein", "Glucose", "F_Glucose", "HbA1c",
+                                       "Insulin", "Ferritin", "SBP", "Temperature", "HR",
+                                       "SpO2", "WEIGHT", "EDU_STAR", "Na_INTAKE_STAR", "K_INTAKE_STAR",
+                                       "KCAL_INTAKE_STAR", "PROTEIN_INTAKE_STAR", "Glucose_STAR", "F_Glucose_STAR", "HbA1c_STAR",
+                                       "C", "C_STAR", "T_I", "T_I_STAR"),
                           phase2_vars = c("SMOKE", "ALC", "EXER", "INCOME", "EDU", 
                                           "Na_INTAKE", "K_INTAKE", "KCAL_INTAKE", "PROTEIN_INTAKE", 
                                           "rs10811661", "rs7756992", "rs11708067", "rs17036101", "rs17584499",
                                           "rs1111875", "rs4402960", "rs4607103", "rs7754840", "rs9300039",
                                           "rs5015480", "rs9465871", "rs4506565", "rs5219", "rs358806",
-                                          "GLUCOSE", "F_GLUCOSE", "HbA1c", "INSULIN", "T_I", "EVENT", "C"),
+                                          "Glucose", "F_Glucose", "HbA1c", "T_I", "EVENT", "C"),
                           phase1_vars = c("SMOKE_STAR", "ALC_STAR", "EXER_STAR", "INCOME_STAR", "EDU_STAR", 
                                           "Na_INTAKE_STAR", "K_INTAKE_STAR", "KCAL_INTAKE_STAR", "PROTEIN_INTAKE_STAR", 
                                           "rs10811661_STAR", "rs7756992_STAR", "rs11708067_STAR", "rs17036101_STAR", "rs17584499_STAR",
                                           "rs1111875_STAR", "rs4402960_STAR", "rs4607103_STAR", "rs7754840_STAR", "rs9300039_STAR",
                                           "rs5015480_STAR", "rs9465871_STAR", "rs4506565_STAR", "rs5219_STAR", "rs358806_STAR",
-                                          "GLUCOSE_STAR", "F_GLUCOSE_STAR", "HbA1c_STAR", "INSULIN_STAR", "T_I_STAR", "EVENT_STAR", "C_STAR"))
+                                          "Glucose_STAR", "F_Glucose_STAR", "HbA1c_STAR", "T_I_STAR", "EVENT_STAR", "C_STAR"))
 
 data_info_neyman <- list(weight_var = "W",
                          cat_vars = c("SEX", "RACE", "SMOKE", "EXER", "ALC", "INSURANCE", "REGION", 
@@ -129,24 +165,28 @@ data_info_neyman <- list(weight_var = "W",
                                       "rs1111875_STAR", "rs4402960_STAR", "rs4607103_STAR", "rs7754840_STAR", "rs9300039_STAR",
                                       "rs5015480_STAR", "rs9465871_STAR", "rs4506565_STAR", "rs5219_STAR", "rs358806_STAR",
                                       "EVENT", "EVENT_STAR", "STRATA", "R", "W"),
-                         num_vars = c("X", "ID", "AGE", "EDU", "HEIGHT", "BMI", "WEIGHT", "CREATININE",
-                                      "BUN", "URIC_ACID", "HDL", "LDL", "TG", "WBC",
-                                      "RBC", "Hb", "HCT", "PLATELET", "PT", "Na_INTAKE",          
-                                      "K_INTAKE", "KCAL_INTAKE", "PROTEIN_INTAKE", "ALT", "AST", "ALP",                
-                                      "GGT", "BILIRUBIN", "GLUCOSE", "F_GLUCOSE", "HbA1c", "INSULIN",            
-                                      "ALBUMIN", "GLOBULIN", "FERRITIN", "CRP", "SBP", "DBP",                
-                                      "PULSE", "PP", "EDU_STAR", "Na_INTAKE_STAR", "K_INTAKE_STAR", "KCAL_INTAKE_STAR",    
-                                      "PROTEIN_INTAKE_STAR", "GLUCOSE_STAR", "F_GLUCOSE_STAR", "HbA1c_STAR", "INSULIN_STAR", "T_I",                
-                                      "T_I_STAR", "C", "C_STAR", "inf"),
+                         num_vars = c("X", "ID", "AGE", "EDU", "HEIGHT", "BMI", "MED_Count",
+                                      "Creatinine", "eGFR", "Urea", "Potassium", "Sodium",
+                                      "Chloride", "Bicarbonate", "Calcium", "Magnesium", "Phosphate",
+                                      "Triglyceride", "HDL", "LDL", "Hb", "HCT",
+                                      "RBC", "WBC", "Platelet", "MCV", "RDW",
+                                      "Neutrophils", "Lymphocytes", "Monocytes", "Eosinophils", "Basophils",
+                                      "Na_INTAKE", "K_INTAKE", "KCAL_INTAKE", "PROTEIN_INTAKE", "AST",
+                                      "ALT", "ALP", "GGT", "Bilirubin", "Albumin",
+                                      "Globulin", "Protein", "Glucose", "F_Glucose", "HbA1c",
+                                      "Insulin", "Ferritin", "SBP", "Temperature", "HR",
+                                      "SpO2", "WEIGHT", "EDU_STAR", "Na_INTAKE_STAR", "K_INTAKE_STAR",
+                                      "KCAL_INTAKE_STAR", "PROTEIN_INTAKE_STAR", "Glucose_STAR", "F_Glucose_STAR", "HbA1c_STAR",
+                                      "C", "C_STAR", "T_I", "T_I_STAR"),
                          phase2_vars = c("SMOKE", "ALC", "EXER", "INCOME", "EDU", 
                                          "Na_INTAKE", "K_INTAKE", "KCAL_INTAKE", "PROTEIN_INTAKE", 
                                          "rs10811661", "rs7756992", "rs11708067", "rs17036101", "rs17584499",
                                          "rs1111875", "rs4402960", "rs4607103", "rs7754840", "rs9300039",
                                          "rs5015480", "rs9465871", "rs4506565", "rs5219", "rs358806",
-                                         "GLUCOSE", "F_GLUCOSE", "HbA1c", "INSULIN", "T_I", "EVENT", "C"),
+                                         "Glucose", "F_Glucose", "HbA1c", "T_I", "EVENT", "C"),
                          phase1_vars = c("SMOKE_STAR", "ALC_STAR", "EXER_STAR", "INCOME_STAR", "EDU_STAR", 
                                          "Na_INTAKE_STAR", "K_INTAKE_STAR", "KCAL_INTAKE_STAR", "PROTEIN_INTAKE_STAR", 
                                          "rs10811661_STAR", "rs7756992_STAR", "rs11708067_STAR", "rs17036101_STAR", "rs17584499_STAR",
                                          "rs1111875_STAR", "rs4402960_STAR", "rs4607103_STAR", "rs7754840_STAR", "rs9300039_STAR",
                                          "rs5015480_STAR", "rs9465871_STAR", "rs4506565_STAR", "rs5219_STAR", "rs358806_STAR",
-                                         "GLUCOSE_STAR", "F_GLUCOSE_STAR", "HbA1c_STAR", "INSULIN_STAR", "T_I_STAR", "EVENT_STAR", "C_STAR"))
+                                         "Glucose_STAR", "F_Glucose_STAR", "HbA1c_STAR", "T_I_STAR", "EVENT_STAR", "C_STAR"))

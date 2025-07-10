@@ -95,11 +95,12 @@ mmer.impute.cwgangp <- function(data, m = 5,
   
   num_inds_p2 <- which(phase2_vars_encode %in% num_vars) # all numeric inds
   cat_inds_p2 <- which(phase2_vars_encode %in% unlist(data_encode$new_col_names)) # all one hot inds, involving modes
-  
+
   new_order <- c(phase2_vars_encode[num_inds_p2], 
                  phase2_vars_encode[cat_inds_p2],
                  setdiff(names(data_training), phase2_vars_encode))
   data_training <- data_training[, new_order]
+  
   binary_indices_reordered <- lapply(data_encode$binary_indices, function(indices) {
     match(names(data_encode$data)[indices], names(data_training))
   })
@@ -145,7 +146,7 @@ mmer.impute.cwgangp <- function(data, m = 5,
   gnet <- do.call(paste("generator", type_g, sep = "."), 
                   args = list(n_g_layers, params, 
                               ncols, length(phase2_vars_encode),
-                              num_inds_p2, cat_inds_p2))$to(device = device)
+                              length(num_inds_p2), length(cat_inds_p2)))$to(device = device)
   dnet <- do.call(paste("discriminator", type_d, sep = "."), 
                   args = list(n_d_layers, params, ncols))$to(device = device)
   
@@ -182,13 +183,6 @@ mmer.impute.cwgangp <- function(data, m = 5,
       #W <- W * I$unsqueeze(2)
       
       fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), noise_dim))$to(device = device)
-      # indc <- torch_randint(1, X$size(2), size = g_dim - X$size(2), dtype = torch_long(), device = X$device)
-      # indr <- torch_randint(1, X[I, ]$size(1), size = batch_size - X[I, ]$size(1), dtype = torch_long(), device = X$device)
-      # fakez <- torch_cat(list(X[I, ], X[I, ]$index_select(2, indc)), 2)
-      # fakez <- torch_cat(list(fakez, fakez$index_select(1, indr)), 1)
-      # fakez <- fakez$reshape(c(-1))[torch_randperm(fakez$numel(), device = X$device) + 
-      #                                 torch_tensor(1, dtype = torch_long(), device = device)]$reshape(fakez$size()) + 
-      #   torch_normal(mean = 0, std = 0.1, size = c(X$size(1), g_dim))$to(device = device)
       fakez_AC <- torch_cat(list(fakez, A, C), dim = 2)
       
       fake <- gnet(fakez_AC)

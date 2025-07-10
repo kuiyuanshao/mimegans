@@ -81,61 +81,25 @@ generateData <- function(n, seed){
   
   # Adding Measurement Errors:
   # SMOKE:
-  SMOKE_M_list <- list(
-    `1` = matrix(c(0.85,0.10,0.05,
-                   0.02,0.96,0.02,
-                   0.07,0.03,0.90),3,3,byrow=TRUE),
-    `2` = matrix(c(0.88,0.08,0.04,
-                   0.01,0.98,0.01,
-                   0.05,0.02,0.93),3,3,byrow=TRUE),
-    `3` = matrix(c(0.90,0.06,0.04,
-                   0.01,0.99,0.00,
-                   0.06,0.02,0.92),3,3,byrow=TRUE),
-    `4` = matrix(c(0.92,0.05,0.03,
-                   0.00,0.99,0.01,
-                   0.04,0.01,0.95),3,3,byrow=TRUE),
-    `5` = matrix(c(0.95,0.03,0.02,
-                   0.00,0.99,0.01,
-                   0.03,0.01,0.96),3,3,byrow=TRUE)
-  )
-  data$SMOKE_STAR <- mapply(function(true_val, inc){
-    probs <- SMOKE_M_list[[as.character(inc)]][true_val,]
-    sample(as.character(1:3),1,prob=probs)
-  }, data$SMOKE, data$INCOME)
+  SMOKE_M <- matrix(c(0.85, 0.10, 0.05,
+                      0.02, 0.96, 0.02,
+                      0.07, 0.03, 0.90), 
+                    nrow = 3, byrow = TRUE,
+                    dimnames = list(1:3, 1:3))
+  data$SMOKE_STAR <- sapply(as.character(data$SMOKE), 
+                            function(true_val) {sample(as.character(1:3), 
+                                                       size = 1, 
+                                                       prob = SMOKE_M[true_val, ])})
   # ALC:
-  ALC_M_list <- list(
-    `1` = matrix(c(0.75, 0.10, 0.15,
-                   0.20, 0.70, 0.10,
-                   0.10, 0.10, 0.80),
-                 nrow = 3, byrow = TRUE,
-                 dimnames = list(1:3, 1:3)),
-    `2` = matrix(c(0.80, 0.08, 0.12,
-                   0.15, 0.75, 0.10,
-                   0.08, 0.08, 0.84),
-                 nrow = 3, byrow = TRUE,
-                 dimnames = list(1:3, 1:3)),
-    `3` = matrix(c(0.85, 0.05, 0.10,
-                   0.15, 0.80, 0.05,
-                   0.05, 0.05, 0.90),
-                 nrow = 3, byrow = TRUE,
-                 dimnames = list(1:3, 1:3)),
-    `4` = matrix(c(0.88, 0.04, 0.08,
-                   0.10, 0.85, 0.05,
-                   0.04, 0.04, 0.92),
-                 nrow = 3, byrow = TRUE,
-                 dimnames = list(1:3, 1:3)),
-    `5` = matrix(c(0.90, 0.03, 0.07,
-                   0.05, 0.90, 0.05,
-                   0.03, 0.03, 0.94),
-                 nrow = 3, byrow = TRUE,
-                 dimnames = list(1:3, 1:3))
-  )
-  
-  # inject measurement error based on ALC true value and INCOME
-  data$ALC_STAR <- mapply(function(true_val, inc) {
-    probs <- ALC_M_list[[as.character(inc)]][true_val, ]
-    sample(as.character(1:3), 1, prob = probs)
-  }, data$ALC, data$INCOME)
+  ALC_M <- matrix(c(0.75, 0.10, 0.15,
+                    0.20, 0.70, 0.10,
+                    0.10, 0.10, 0.80),
+                  nrow = 3, byrow = TRUE,
+                  dimnames = list(1:3, 1:3))
+  data$ALC_STAR <- sapply(as.character(data$ALC), 
+                          function(true_val) {sample(as.character(1:3), 
+                                                     size = 1, 
+                                                     prob = ALC_M[true_val, ])})
   # EXER:
   EXER_M <- matrix(
     c(0.93, 0.02, 0.05, # 93 % Normal (right), 2% Low, 5% High
@@ -236,7 +200,6 @@ generateData <- function(n, seed){
   data$EVENT <- T_I <= C
   data$T_I_STAR <- pmin(T_I, C_STAR)
   data$EVENT_STAR <- T_I <= C_STAR
-  ggplot(data) + geom_density(aes(x = T_I)) + geom_density(aes(x = T_I_STAR))
   return (data)
 }
 

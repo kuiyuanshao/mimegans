@@ -37,7 +37,7 @@ for (i in 1:replicate){
                                     cat.encoding = "onehot", 
                                     device = "cpu", epochs = 7500,
                                     params = list(lambda = 50), 
-                                    data_info = data_info_srs, save.step = 10000)
+                                    data_info = data_info_srs, save.step = 1000)
   save(megans_imp, file = paste0("./simulations/SRS/megans/", digit, ".RData"))
   
   megans_imp <- mmer.impute.cwgangp(samp_balance, m = 20, 
@@ -45,15 +45,15 @@ for (i in 1:replicate){
                                     cat.encoding = "onehot", 
                                     device = "cpu", epochs = 7500,
                                     params = list(lambda = 50),
-                                    data_info = data_info_balance, save.step = 10000)
+                                    data_info = data_info_balance, save.step = 1000)
   save(megans_imp, file = paste0("./simulations/Balance/megans/", digit, ".RData"))
   
   megans_imp <- mmer.impute.cwgangp(samp_neyman, m = 20, 
                                     num.normalizing = "mode", 
                                     cat.encoding = "onehot", 
                                     device = "cpu", epochs = 7500, 
-                                    params = list(lambda = 50),
-                                    data_info = data_info_neyman, save.step = 10000)
+                                    params = list(lambda = 100),
+                                    data_info = data_info_neyman, save.step = 1000)
   save(megans_imp, file = paste0("./simulations/Neyman/megans/", digit, ".RData"))
 }
 
@@ -73,7 +73,7 @@ sumry.lm <- summary(pooled.cox, conf.int = TRUE)
 mod.true <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
                    rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
                    RACE + I(BMI / 5) + SMOKE, data = data)
-exp(coef(mod.true)) - exp(sumry.lm$estimate)
+round(exp(coef(mod.true)) - exp(sumry.lm$estimate), 2)
 
 data_original <- samp_balance
 gsamples <- megans_imp$gsample[[1]]
@@ -117,5 +117,5 @@ ggplot(samp_balance) +
   geom_point(data = megans_imp$imputation[[1]],
                aes(x = T_I, y = HbA1c), colour = "red") +
   geom_point(data = data, 
-               aes(x = T_I, y = HbA1c), colour = "blue")
+               aes(x = T_I, y = HbA1c), colour = "blue", alpha = 0.5)
 

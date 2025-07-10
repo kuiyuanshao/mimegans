@@ -47,7 +47,7 @@ generateImpute <- function(gnet, m = 5,
   
   for (z in 1:m){
     output_list <- vector("list", length(batchforimpute))
-    noise_mat <- NULL
+    #noise_mat <- NULL
     for (i in 1:length(batchforimpute)){
       batch <- batchforimpute[[i]]
       A <- batch[[4]]
@@ -62,7 +62,7 @@ generateImpute <- function(gnet, m = 5,
       
       gsample <- activation_fun(gsample, data_encode, phase2_vars)
       gsample <- torch_cat(list(gsample, A, C), dim = 2)
-      noise_mat <- rbind(noise_mat, as.matrix(fakez$detach()$cpu()))
+      #noise_mat <- rbind(noise_mat, as.matrix(fakez$detach()$cpu()))
       output_list[[i]] <- as.matrix(gsample$detach()$cpu())
     }
     output_mat <- as.data.frame(do.call(rbind, output_list))
@@ -97,7 +97,7 @@ generateImpute <- function(gnet, m = 5,
       hi <- pmax(mat - rep(ub, each = nr), 0)
       lo <- pmax(rep(lb, each = nr) - mat, 0)
       worst <- apply(pmax(hi, lo), 1L, max)
-      exp(-8 * worst^2)
+      exp(-4 * worst^2)
     }
     M <- as.matrix(gsamples[ , match(phase2_vars[phase2_vars %in% num_vars], names(gsamples)), drop = FALSE])
     acc <- acc_prob(M)
@@ -106,8 +106,8 @@ generateImpute <- function(gnet, m = 5,
     while (length(todo) > 0 && iter < max_attempt) {
       iter <- iter + 1
       n_bad <- length(todo)
-      #z_bad <- torch_normal(mean = 0, std = 1, size = c(n_bad, params$noise_dim))$to(device = device)
-      z_bad <- torch_tensor(noise_mat[todo, ], device = device)
+      z_bad <- torch_normal(mean = 0, std = 1, size = c(n_bad, params$noise_dim))$to(device = device)
+      #z_bad <- torch_tensor(noise_mat[todo, ], device = device)
       fake_bad <- gnet(torch_cat(list(z_bad, A_t[todo,], C_t[todo, ]), dim = 2))
       fake_bad <- activation_fun(fake_bad, data_encode, phase2_vars)
       fake_bad <- torch_cat(list(fake_bad, A_t[todo,], C_t[todo, ]), dim = 2)
@@ -128,11 +128,11 @@ generateImpute <- function(gnet, m = 5,
       acc_new <- acc_prob(M[todo, , drop = FALSE])
       todo <- todo[runif(length(acc_new)) > acc_new]
     }
-    if (length(todo) > 0) {
-      warning("Reached max_attempt; remaining out-of-bound values clipped.")
-      M <- sweep(M, 2, ub, pmin)
-      M <- sweep(M, 2, lb, pmax)
-    }
+    # if (length(todo) > 0) {
+    #   warning("Reached max_attempt; remaining out-of-bound values clipped.")
+    #   M <- sweep(M, 2, ub, pmin)
+    #   M <- sweep(M, 2, lb, pmax)
+    # }
     gsamples[, match(phase2_vars[phase2_vars %in% num_vars], names(gsamples))] <- M
     # vars_to_pmm <- "T_I"
     # if (!is.null(vars_to_pmm)){

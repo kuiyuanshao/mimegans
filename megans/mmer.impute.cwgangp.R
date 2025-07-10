@@ -43,11 +43,15 @@ mmer.impute.cwgangp <- function(data, m = 5,
   
   data_original <- data
   if (type == "mmer"){
-    log_shift <- pmax(0, -apply(data[, match((phase1_vars[phase1_vars %in% num_vars]), names(data))], 
-                                2, min, na.rm = TRUE)) + 1e-6
-    data[, match((phase2_vars[phase2_vars %in% num_vars]), names(data))] <- 
-      log(sweep(data[, match((phase1_vars[phase1_vars %in% num_vars]), names(data))], 2, log_shift, "+")) - 
-      log(sweep(data[, match((phase2_vars[phase2_vars %in% num_vars]), names(data))], 2, log_shift, "+"))
+    log_shift <- 0
+    # log_shift <- pmax(0, -apply(data[, match((phase1_vars[phase1_vars %in% num_vars]), names(data))],
+    #                             2, min, na.rm = TRUE)) + 1e-6
+    # data[, match((phase2_vars[phase2_vars %in% num_vars]), names(data))] <-
+    #   log(sweep(data[, match((phase1_vars[phase1_vars %in% num_vars]), names(data))], 2, log_shift, "+")) -
+    #   log(sweep(data[, match((phase2_vars[phase2_vars %in% num_vars]), names(data))], 2, log_shift, "+"))
+    data[, match((phase2_vars[phase2_vars %in% num_vars]), names(data))] <-
+        data[, match((phase1_vars[phase1_vars %in% num_vars]), names(data))] -
+      data[, match((phase2_vars[phase2_vars %in% num_vars]), names(data))]
   }
   
   data_norm <- do.call(normalize, args = list(
@@ -133,7 +137,7 @@ mmer.impute.cwgangp <- function(data, m = 5,
   }
   tensor_list <- list(data_mask, conditions_t, phase2_t, phase1_t)
   
-  #mnet <- m_net(dim(conditions_t)[2], params)
+  # mnet <- m_net(dim(conditions_t)[2], params)
   # cnet <- do.call(paste("generator", type_g, sep = "."), 
   #                 args = list(n_g_layers, params, 
   #                             ncols, length(phase1_vars_encode),
@@ -145,7 +149,7 @@ mmer.impute.cwgangp <- function(data, m = 5,
   dnet <- do.call(paste("discriminator", type_d, sep = "."), 
                   args = list(n_d_layers, params, ncols))$to(device = device)
   
-  #m_solver <- torch::optim_adam(mnet$parameters, lr = lr_d)
+  # m_solver <- torch::optim_adam(mnet$parameters, lr = lr_d)
   # c_solver <- torch::optim_adam(cnet$parameters, lr = lr_g, 
   #                               betas = g_betas, weight_decay = g_weight_decay)
   g_solver <- torch::optim_adam(gnet$parameters, lr = lr_g, 
@@ -332,17 +336,31 @@ mmer.impute.cwgangp <- function(data, m = 5,
                            batch_size, device, params, tensor_list,
                            type, log_shift)
   if (save.model){
-    current_time <- Sys.time()
-    formatted_time <- format(current_time, "%d-%m-%Y.%S-%M-%H")
-    save(gnet, dnet, params, data, data_norm, 
-         data_encode, data_training, data_mask,
-         phase1_vars, phase2_vars, num.normalizing, cat.encoding, 
-         batch_size, g_dim, device, phase1_t, phase2_t, 
-         file = paste0("mmer.impute.cwgangp_", formatted_time, ".RData"))
+    # current_time <- Sys.time()
+    # formatted_time <- format(current_time, "%d-%m-%Y.%S-%M-%H")
+    model <- list(gnet = gnet, params = params, 
+                  data = data_original, data_norm = data_norm,
+                  data_encode = data_encode, data_training = data_training,
+                  phase1_vars_encode = phase1_vars_encode, 
+                  phase2_vars_encode = phase2_vars_encode, 
+                  num_vars = num_vars, num.normalizing = num.normalizing, 
+                  cat.encoding = cat.encoding, batch_size = batch_size, device = device, 
+                  params = params, tensor_list = tensor_list,
+                  type = type, log_shift = log_shift)
+    # save(gnet, dnet, params, data, data_norm, 
+    #      data_encode, data_training, data_mask,
+    #      phase1_vars, phase2_vars, num.normalizing, cat.encoding, 
+    #      batch_size, g_dim, device, phase1_t, phase2_t, 
+    #      file = paste0("mmer.impute.cwgangp_", formatted_time, ".RData"))
+    return (list(imputation = result$imputation, 
+                 gsample = result$gsample, 
+                 loss = training_loss,
+                 step_result = step_result,
+                 model = model))
+  }else{
+    return (list(imputation = result$imputation, 
+                 gsample = result$gsample, 
+                 loss = training_loss,
+                 step_result = step_result))
   }
-  
-  return (list(imputation = result$imputation, 
-               gsample = result$gsample, 
-               loss = training_loss,
-               step_result = step_result))
 }

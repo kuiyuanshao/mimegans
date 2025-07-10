@@ -29,34 +29,40 @@ generateImpute <- function(gnet, m = 5,
   batchforimpute <- create_bfi(data_original, batch_size, tensor_list)
   data_mask <- as.matrix(1 - is.na(data_original))
   
+  phase2_num_name <- intersect(phase2_vars, names(data_original))[intersect(phase2_vars, names(data_original)) %in% num_vars]
+  ub <- sapply(phase2_num_name, function(v) max(data_original[[v]], na.rm = T), 
+               simplify = TRUE, USE.NAMES = TRUE)
+  lb <- sapply(phase2_num_name, function(v) min(data_original[[v]], na.rm = T), 
+               simplify = TRUE, USE.NAMES = TRUE)
+  names(ub) <- phase2_num_name
+  names(lb) <- phase2_num_name
+  max_attempt <- 25
+  
   num_col <- sapply(data_original, is.numeric)
   phase2_num_idx <- which(num_col & names(data_original) %in% phase2_vars)
   data_original[which(is.na(data_original[, phase2_vars[1]])), phase2_num_idx] <- 0
-  
-  phase2_num_name <- intersect(phase2_vars, 
-                               names(data_original))[intersect(phase2_vars, names(data_original)) %in% num_vars]
-  ub <- sapply(phase2_num_name, function(v) max(data_original[[v]]), simplify = TRUE, USE.NAMES = TRUE)
-  names(ub) <- phase2_num_name
-  max_attempt <- 50
   
   A_t <- tensor_list[[4]]
   C_t <- tensor_list[[2]]
   
   for (z in 1:m){
     output_list <- vector("list", length(batchforimpute))
+    noise_mat <- NULL
     for (i in 1:length(batchforimpute)){
       batch <- batchforimpute[[i]]
       A <- batch[[4]]
       X <- batch[[3]]
       C <- batch[[2]]
 
-      fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), params$noise_dim))$to(device = device)
+      fakez <- torch_normal(mean = 0, std = 1, 
+                            size = c(X$size(1), params$noise_dim))$to(device = device)
       fakez_C <- torch_cat(list(fakez, A, C), dim = 2)
       
       gsample <- gnet(fakez_C)
       
       gsample <- activation_fun(gsample, data_encode, phase2_vars)
       gsample <- torch_cat(list(gsample, A, C), dim = 2)
+      noise_mat <- rbind(noise_mat, as.matrix(fakez$detach()$cpu()))
       output_list[[i]] <- as.matrix(gsample$detach()$cpu())
     }
     output_mat <- as.data.frame(do.call(rbind, output_list))
@@ -81,52 +87,53 @@ generateImpute <- function(gnet, m = 5,
       data_original[, which(names(gsamples) %in% phase1_vars)]
     
     if (type == "mmer"){
-      gsamples[, match(phase2_vars[phase2_vars %in% num_vars], names(gsamples))] <- 
-        sweep(exp(log(sweep(data[, match((phase1_vars[phase1_vars %in% num_vars]), 
-                                         names(data))], 2, log_shift, "+")) - 
-              gsamples[, match(phase2_vars[phase2_vars %in% num_vars], 
-                               names(gsamples))]), 2, log_shift, "-")
+      gsamples[, match(phase2_vars[phase2_vars %in% num_vars], names(gsamples))] <-
+        data_original[, match(phase1_vars[phase1_vars %in% num_vars], names(data_original))] -
+        gsamples[, match(phase2_vars[phase2_vars %in% num_vars], names(gsamples))]
     }
     
-    bad_mask <- gsamples[, match(phase2_vars[phase2_vars %in% num_vars], 
-                                 names(gsamples))] > rep(ub, each = nrow(gsamples))
+    acc_prob <- function(mat) {
+      nr <- nrow(mat)
+      hi <- pmax(mat - rep(ub, each = nr), 0)
+      lo <- pmax(rep(lb, each = nr) - mat, 0)
+      worst <- apply(pmax(hi, lo), 1L, max)
+      exp(-8 * worst^2)
+    }
+    M <- as.matrix(gsamples[ , match(phase2_vars[phase2_vars %in% num_vars], names(gsamples)), drop = FALSE])
+    acc <- acc_prob(M)
+    todo <- which(runif(length(acc)) > acc)
     iter <- 0
-    while (any(bad_mask) && iter < max_attempt) {
+    while (length(todo) > 0 && iter < max_attempt) {
       iter <- iter + 1
-      rows_bad <- which(rowSums(bad_mask) > 0)
-      n_bad <- length(rows_bad)
-      print(n_bad)
-      z_bad <- torch_normal(0, 1, size = c(as.integer(n_bad), params$noise_dim))$to(device)
-      
-      fake_bad <- gnet(torch_cat(list(z_bad, A_t[rows_bad,], C_t[rows_bad, ]), dim = 2))
+      n_bad <- length(todo)
+      #z_bad <- torch_normal(mean = 0, std = 1, size = c(n_bad, params$noise_dim))$to(device = device)
+      z_bad <- torch_tensor(noise_mat[todo, ], device = device)
+      fake_bad <- gnet(torch_cat(list(z_bad, A_t[todo,], C_t[todo, ]), dim = 2))
       fake_bad <- activation_fun(fake_bad, data_encode, phase2_vars)
-      
-      fake_bad_cpu <- as.matrix(fake_bad$cpu())
-      colnames(fake_bad_cpu) <- names(data_training)
-      
+      fake_bad <- torch_cat(list(fake_bad, A_t[todo,], C_t[todo, ]), dim = 2)
+      fake_bad_cpu <- as.data.frame(as.matrix(fake_bad$detach()$cpu()))
+      names(fake_bad_cpu) <- names(data_training)
+
       fake_bad_dec <- do.call(decode, list(data = fake_bad_cpu, encode_obj = data_encode))
       fake_bad_den <- do.call(denormalize, list(data = fake_bad_dec,
                                                 num_vars = num_vars,
                                                 norm_obj = data_norm))$data
-      
+
       if (type == "mmer") {
-        fake_bad_den[ , match(phase2_vars[phase2_vars %in% num_vars], names(gsamples))] <- 
-          sweep(exp(log(sweep(data[, match((phase1_vars[phase1_vars %in% num_vars]), 
-                                           names(data))], 2, log_shift, "+")) - 
-                      fake_bad_den[, match(phase2_vars[phase2_vars %in% num_vars], 
-                                           names(gsamples))]), 2, log_shift, "-")
+        fake_bad_den[, match(phase2_vars[phase2_vars %in% num_vars], names(fake_bad_den))] <-
+          data_original[todo, match(phase1_vars[phase1_vars %in% num_vars], names(data_original))] -
+          fake_bad_den[, match(phase2_vars[phase2_vars %in% num_vars], names(fake_bad_den))]
       }
-      ## ---- replace in gsamples and re-evaluate mask ----
-      gsamples[rows_bad, match(phase2_vars[phase2_vars %in% num_vars], names(gsamples))] <- 
-        fake_bad_den[, match(phase2_vars[phase2_vars %in% num_vars], names(gsamples))]
-      bad_mask[rows_bad, ] <- gsamples[rows_bad, match(phase2_vars[phase2_vars %in% num_vars], 
-                                                       names(gsamples))] > rep(ub, each = n_bad)
+      M[todo, ] <- as.matrix(fake_bad_den[, match(phase2_vars[phase2_vars %in% num_vars], names(fake_bad_den))])
+      acc_new <- acc_prob(M[todo, , drop = FALSE])
+      todo <- todo[runif(length(acc_new)) > acc_new]
     }
-    if (iter == max_attempt && any(bad_mask)) {
+    if (length(todo) > 0) {
       warning("Reached max_attempt; remaining out-of-bound values clipped.")
-      idx_bad <- which(bad_mask, arr.ind = TRUE)
-      gsamples[cbind(idx_bad[, 1], phase2_vars[idx_bad[,2]])] <- ub[phase2_vars[idx_bad[, 2]]]
+      M <- sweep(M, 2, ub, pmin)
+      M <- sweep(M, 2, lb, pmax)
     }
+    gsamples[, match(phase2_vars[phase2_vars %in% num_vars], names(gsamples))] <- M
     # vars_to_pmm <- "T_I"
     # if (!is.null(vars_to_pmm)){
     #   for (i in vars_to_pmm){
@@ -156,11 +163,11 @@ generateImpute <- function(gnet, m = 5,
         levels(imputations[[j]]) <- union(levels(imputations[[j]]), new_lvls)
       }
       to_replace <- data_mask[, fac_cols] == 0
-      idx        <- which(to_replace, arr.ind = TRUE)
-      col_ids    <- fac_cols[idx[, "col"]]
+      idx <- which(to_replace, arr.ind = TRUE)
+      col_ids <- fac_cols[idx[, "col"]]
       
       imputations[cbind(idx[, "row"], col_ids)] <-
-        gsamples   [cbind(idx[, "row"], col_ids)]
+        gsamples[cbind(idx[, "row"], col_ids)]
     }
     
     imputed_data_list[[z]] <- imputations

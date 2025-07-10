@@ -37,7 +37,7 @@ for (i in 1:replicate){
                                     cat.encoding = "onehot", 
                                     device = "cpu", epochs = 7500,
                                     params = list(lambda = 50), 
-                                    data_info = data_info_srs, save.step = 1000)
+                                    data_info = data_info_srs, save.step = 10000)
   save(megans_imp, file = paste0("./simulations/SRS/megans/", digit, ".RData"))
   
   megans_imp <- mmer.impute.cwgangp(samp_balance, m = 20, 
@@ -45,15 +45,15 @@ for (i in 1:replicate){
                                     cat.encoding = "onehot", 
                                     device = "cpu", epochs = 7500,
                                     params = list(lambda = 50),
-                                    data_info = data_info_balance, save.step = 1000)
+                                    data_info = data_info_balance, save.step = 10000)
   save(megans_imp, file = paste0("./simulations/Balance/megans/", digit, ".RData"))
   
-  megans_imp <- mmer.impute.cwgangp(samp_neyman, m = 1, 
+  megans_imp <- mmer.impute.cwgangp(samp_neyman, m = 20, 
                                     num.normalizing = "mode", 
                                     cat.encoding = "onehot", 
-                                    device = "cpu", epochs = 1, 
+                                    device = "cpu", epochs = 7500, 
                                     params = list(lambda = 50),
-                                    data_info = data_info_neyman, save.step = 1000)
+                                    data_info = data_info_neyman, save.step = 10000)
   save(megans_imp, file = paste0("./simulations/Neyman/megans/", digit, ".RData"))
 }
 
@@ -100,7 +100,7 @@ ggplot(samp_balance) +
 
 ggplot(samp_balance) + 
   geom_density(aes(x = T_I)) + 
-  geom_density(data = megans_imp$imputation[[2]],
+  geom_density(data = megans_imp$imputation[[1]],
                aes(x = T_I), colour = "red") +
   geom_density(data = data, 
                aes(x = T_I), colour = "blue")
@@ -118,69 +118,4 @@ ggplot(samp_balance) +
                aes(x = T_I, y = HbA1c), colour = "red") +
   geom_point(data = data, 
                aes(x = T_I, y = HbA1c), colour = "blue")
-
-
-nutri_samp <- read.csv("SRS_0001.csv")
-nutri_samp$W <- 4
-data_info <- list(weight_var = "W", 
-                  cat_vars = c("idx", "usborn", "high_chol", "bkg_pr", "bkg_o", "hypertension", "R", "female"),
-                  num_vars = names(nutri_samp)[!(names(nutri_samp) %in% c("idx", "usborn", "high_chol", 
-                                                                          "female", "bkg_pr", "bkg_o", 
-                                                                          "hypertension", "R", "W"))],
-                  phase2_vars = c("c_ln_na_true", "c_ln_k_true", "c_ln_kcal_true", "c_ln_protein_true"),
-                  phase1_vars = c("c_ln_na_bio1", "c_ln_k_bio1", "c_ln_kcal_bio1", "c_ln_protein_bio1"))
-load("NutritionalData_0001.RData")
-true.lm <- glm(sbp ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn +
-                 female + bkg_pr + bkg_o, family = gaussian(), pop)
-true.bn <- glm(hypertension ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn +
-                 female + bkg_pr + bkg_o, family = binomial(), pop)
-megans_nutri_N <- list()
-for (i in 1:10){
-  megans_imp <- mmer.impute.cwgangp(nutri_samp, m = 20, 
-                                    num.normalizing = "mode", 
-                                    cat.encoding = "onehot", 
-                                    device = "cpu", epochs = 5000,
-                                    params = list(alpha = 0, beta = 1, noise_dim = 256, 
-                                                  n_g_layers = 3, n_d_layers = 3, 
-                                                  lr_g = 2e-4, lr_d = 2e-4,
-                                                  type_g = "mlp", type_d = "mlp", 
-                                                  pac = 10, lambda = 0),
-                                    data_info = data_info, save.step = 500)
-}
-
-imp.mids <- as.mids(megans_imp$imputation)
-fit.lm <- with(data = imp.mids, 
-               exp = glm(sbp ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn +
-                           female + bkg_pr + bkg_o, family = gaussian()))
-fit.bn <- with(data = imp.mids, 
-               exp = glm(hypertension ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn +
-                           female + bkg_pr + bkg_o, family = binomial()))
-pooled.lm <- mice::pool(fit.lm)
-pooled.bn <- mice::pool(fit.bn)
-sumry.lm <- summary(pooled.lm, conf.int = TRUE)
-sumry.bn <- summary(pooled.bn, conf.int = TRUE)
-sumry.lm$estimate - coef(true.lm)
-sumry.bn$estimate - coef(true.bn)
-
-step.lm <- glm(sbp ~ c_age + c_bmi + c_ln_na_true + high_chol + usborn +
-                 female + bkg_pr + bkg_o, family = gaussian(), 
-               data = megans_imp$step_result[[20]][[1]])
-coef(step.lm) - coef(true.lm)
-
-
-
-library(ggplot2)
-ggplot(nutri_samp) + 
-  geom_density(aes(x = c_ln_na_true)) + 
-  geom_density(data = megans_imp$imputation[[5]],
-               aes(x = c_ln_na_true), colour = "red") +
-  geom_density(data = pop, 
-               aes(x = c_ln_na_true), colour = "blue")
-
-ggplot(nutri_samp) + 
-  geom_point(aes(x = c_ln_na_true, y = sbp)) + 
-  geom_point(data = megans_imp$imputation[[1]],
-               aes(x = c_ln_na_true, y = sbp), colour = "red") + 
-  geom_point(data = pop, 
-             aes(x = c_ln_na_true, y = sbp), colour = "blue")
 

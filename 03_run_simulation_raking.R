@@ -10,9 +10,13 @@ if(!dir.exists('./simulations/Neyman')){dir.create('./simulations/Neyman')}
 if(!dir.exists('./simulations/Balance/raking')){dir.create('./simulations/Balance/raking')}
 if(!dir.exists('./simulations/Neyman/raking')){dir.create('./simulations/Neyman/raking')}
 
+replicate <- 500
+n_chunks <- 20
+chunk_size <- ceiling(replicate / n_chunks)
+first_rep <- (task_id - 1) * chunk_size + 1
+last_rep <- min(task_id * chunk_size, replicate)
 
-replicate <- 1000
-for (i in 1:replicate){
+for (i in first_rep:last_rep){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))

@@ -12,8 +12,18 @@ if(!dir.exists('./simulations/Balance/mixgb')){dir.create('./simulations/Balance
 if(!dir.exists('./simulations/Neyman/mixgb')){dir.create('./simulations/Neyman/mixgb')}
 
 
-replicate <- 1000
-for (i in 1:replicate){
+args <- commandArgs(trailingOnly = TRUE)
+task_id <- as.integer(ifelse(length(args) >= 1,
+                             args[1],
+                             Sys.getenv("SLURM_ARRAY_TASK_ID", "1")))
+
+replicate <- 500
+n_chunks <- 20
+chunk_size <- ceiling(replicate / n_chunks)
+first_rep <- (task_id - 1) * chunk_size + 1
+last_rep <- min(task_id * chunk_size, replicate)
+
+for (i in first_rep:last_rep){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))

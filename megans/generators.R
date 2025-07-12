@@ -1,6 +1,6 @@
 generator.mlp <- torch::nn_module(
   "Generator",
-  initialize = function(n_g_layers, params, ncols, nphase2, ...){
+  initialize = function(n_g_layers, params, ncols, nphase2, nnum, ncat, ...){
     dim1 <- params$noise_dim + ncols - nphase2
     dim2 <- params$g_dim
     self$seq <- torch::nn_sequential()
@@ -8,11 +8,18 @@ generator.mlp <- torch::nn_module(
       self$seq$add_module(paste0("Residual_", i), Residual(dim1, dim2))
       dim1 <- dim1 + dim2
     }
-    self$seq$add_module("Linear", nn_linear(dim1, nphase2))
+    
+    self$num_head <- nn_linear(dim1, nnum)
+    self$cat_head <- nn_linear(dim1, ncat)
+    #self$seq$add_module("Linear", nn_linear(dim1, nphase2))
   },
   forward = function(input, ...){
+    #output <- self$seq(input)
     out <- self$seq(input)
-    return (out)
+    numout <- self$num_head(out)
+    catout <- self$cat_head(out)
+    output <- torch_cat(list(numout, catout), dim = 2)
+    return (output)
   }
 )
 

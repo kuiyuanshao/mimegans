@@ -1,4 +1,4 @@
-recon_loss <- function(fake, true, I, encode_result, vars, params, num_inds, cat_inds, cycle){
+recon_loss <- function(fake, true, I, encode_result, vars, phase2_cats, params, num_inds, cat_inds, cycle){
   mm_term <- torch_tensor(0, dtype = fake$dtype, device = fake$device)
   if (length(num_inds) > 0 & cycle){
     if (params$alpha != 0){
@@ -25,7 +25,7 @@ recon_loss <- function(fake, true, I, encode_result, vars, params, num_inds, cat
       #   w <- 1
       # }
       ce_term <- params$beta *
-        cross_entropy_loss(fake, true, encode_result, vars)
+        cross_entropy_loss(fake, true, I, encode_result, vars, phase2_cats)
     }
   }
   return (mm_term + ce_term)
@@ -48,9 +48,15 @@ d_loss <- function(dnet, true, fake, params, device){
   return (d_loss)
 }
 
-cross_entropy_loss <- function(fake, true, encode_result, vars){
-  cats <- encode_result$binary_indices[which(sapply(encode_result$new_col_names, function(col_names) {
-    any(col_names %in% vars)
+cross_entropy_loss <- function(fake, true, I, encode_result, vars, phase2_cats){
+  # cats <- encode_result$binary_indices[which(sapply(encode_result$new_col_names, function(col_names) {
+  #   any(col_names %in% vars)
+  # }))]
+  cats <- encode_result$binary_indices[which(sapply(names(encode_result$new_col_names), function(col_names) {
+    any(col_names %in% phase2_cats)
+  }))]
+  cats_mode <- encode_result$binary_indices[which(sapply(encode_result$new_col_names, function(col_names) {
+    any(col_names %in% vars[!(vars %in% unlist(encode_result$new_col_names[phase2_cats]))])
   }))]
   loss <- list()
   i <- 1
@@ -63,7 +69,14 @@ cross_entropy_loss <- function(fake, true, encode_result, vars){
                                    reduction = "mean")
     i <- i + 1
   }
-  loss_t <- torch_stack(loss, dim = 1)$mean()
+  for (catmode in cats_mode){
+    loss[[i]] <- nnf_cross_entropy(fake[I, catmode, drop = F], 
+                                   torch_argmax(true[I, catmode, drop = F], dim = 2), 
+                                   reduction = "mean")
+    i <- i + 1
+  }
+  
+  loss_t <- torch_stack(loss, dim = 1)$sum()
   return (loss_t)
 }
 
@@ -87,7 +100,6 @@ activation_fun <- function(fake, encode_result, vars, tau = 1, hard = F, gen = F
       fake[, cat] <- onehot
     }
   }
-  #fake[, nums] <- (fake[, nums] - fake[, nums]$mean()) / fake[, nums]$std()
   return (fake)
 }
 

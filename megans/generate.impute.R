@@ -36,7 +36,7 @@ generateImpute <- function(gnet, m = 5,
                simplify = TRUE, USE.NAMES = TRUE)
   names(ub) <- phase2_num_name
   names(lb) <- phase2_num_name
-  max_attempt <- 25
+  max_attempt <- 15
   
   num_col <- sapply(data_original, is.numeric)
   phase2_num_idx <- which(num_col & names(data_original) %in% phase2_vars)
@@ -60,7 +60,8 @@ generateImpute <- function(gnet, m = 5,
       
       gsample <- gnet(fakez_C)
       
-      gsample <- activation_fun(gsample, data_encode, phase2_vars)
+      gsample <- activation_fun(gsample, data_encode, phase2_vars, 
+                                tau = 0.2, hard = F, gen = T)
       gsample <- torch_cat(list(gsample, A, C), dim = 2)
       #noise_mat <- rbind(noise_mat, as.matrix(fakez$detach()$cpu()))
       output_list[[i]] <- as.matrix(gsample$detach()$cpu())
@@ -68,8 +69,8 @@ generateImpute <- function(gnet, m = 5,
     output_mat <- as.data.frame(do.call(rbind, output_list))
     names(output_mat) <- names(data_training)
     
-    denormalize <- paste("denormalize", num.normalizing, sep = ".")
-    decode <- paste("decode", cat.encoding, sep = ".")
+    denormalize <<- paste("denormalize", num.normalizing, sep = ".")
+    decode <<- paste("decode", cat.encoding, sep = ".")
     
     curr_gsample <- do.call(decode, args = list(
       data = output_mat,
@@ -90,50 +91,84 @@ generateImpute <- function(gnet, m = 5,
       gsamples[, match(phase2_vars[phase2_vars %in% num_vars], names(gsamples))] <-
         data_original[, match(phase1_vars[phase1_vars %in% num_vars], names(data_original))] -
         gsamples[, match(phase2_vars[phase2_vars %in% num_vars], names(gsamples))]
+      
+      # gsamples[, match((phase2_vars[phase2_vars %in% num_vars]), names(gsamples))] <-
+      #   sweep(exp(log(sweep(data_original[, match((phase1_vars[phase1_vars %in% num_vars]),
+      #                                             names(data_original))], 2, log_shift, "+")) -
+      #               gsamples[, match(phase2_vars[phase2_vars %in% num_vars], names(gsamples))]), 2, log_shift, "-")
     }
     
-    acc_prob <- function(mat) {
-      nr <- nrow(mat)
-      hi <- pmax(mat - rep(ub, each = nr), 0)
-      lo <- pmax(rep(lb, each = nr) - mat, 0)
-      worst <- apply(pmax(hi, lo), 1L, max)
-      exp(-4 * worst^2)
+    acc_prob <- function(mat, lb, ub, alpha = 16){
+      nr <- nrow(mat); p <- ncol(mat)
+      UB <- matrix(ub, nr, p, byrow = TRUE)
+      LB <- matrix(lb, nr, p, byrow = TRUE)
+      span <- matrix((ub - lb) / 2, nr, p, byrow = TRUE)
+      
+      hi <- pmax(mat - UB, 0)
+      lo <- pmax(LB - mat, 0)
+      d <- pmax(hi, lo) / span 
+      exp(-alpha * d^2) 
     }
-    M <- as.matrix(gsamples[ , match(phase2_vars[phase2_vars %in% num_vars], names(gsamples)), drop = FALSE])
-    acc <- acc_prob(M)
-    todo <- which(runif(length(acc)) > acc)
-    iter <- 0
-    while (length(todo) > 0 && iter < max_attempt) {
-      iter <- iter + 1
-      n_bad <- length(todo)
-      z_bad <- torch_normal(mean = 0, std = 1, size = c(n_bad, params$noise_dim))$to(device = device)
-      #z_bad <- torch_tensor(noise_mat[todo, ], device = device)
-      fake_bad <- gnet(torch_cat(list(z_bad, A_t[todo,], C_t[todo, ]), dim = 2))
-      fake_bad <- activation_fun(fake_bad, data_encode, phase2_vars)
-      fake_bad <- torch_cat(list(fake_bad, A_t[todo,], C_t[todo, ]), dim = 2)
-      fake_bad_cpu <- as.data.frame(as.matrix(fake_bad$detach()$cpu()))
-      names(fake_bad_cpu) <- names(data_training)
-
-      fake_bad_dec <- do.call(decode, list(data = fake_bad_cpu, encode_obj = data_encode))
-      fake_bad_den <- do.call(denormalize, list(data = fake_bad_dec,
-                                                num_vars = num_vars,
-                                                norm_obj = data_norm))$data
-
-      if (type == "mmer") {
-        fake_bad_den[, match(phase2_vars[phase2_vars %in% num_vars], names(fake_bad_den))] <-
-          data_original[todo, match(phase1_vars[phase1_vars %in% num_vars], names(data_original))] -
-          fake_bad_den[, match(phase2_vars[phase2_vars %in% num_vars], names(fake_bad_den))]
+    
+    gen_rows <- function(idx_vec){
+      n <- length(idx_vec)
+      z <- torch_normal(0, 1, size = c(n, params$noise_dim))$to(device=device)
+      tmp <- gnet(torch_cat(list(z, A_t[idx_vec,], C_t[idx_vec,]), dim = 2))
+      tmp <- activation_fun(tmp, data_encode, phase2_vars)
+      tmp <- torch_cat(list(tmp, A_t[idx_vec,], C_t[idx_vec,]), dim = 2)
+      df <- as.data.frame(as.matrix(tmp$detach()$cpu()))
+      names(df) <- names(data_training)
+      
+      deco <- do.call(decode, args = list(
+        data = df,
+        encode_obj = data_encode
+      ))
+      denorm <- do.call(denormalize, args = list(
+        data = deco,
+        num_vars = num_vars, 
+        norm_obj = data_norm
+      ))
+      den <- denorm$data
+      if(type == "mmer"){
+        idx_p2 <- match(phase2_vars[phase2_vars %in% num_vars], names(den))
+        idx_p1 <- match(phase1_vars[phase1_vars %in% num_vars], names(data_original))
+        den[, idx_p2] <- data_original[idx_vec, idx_p1] - den[, idx_p2]
+          # sweep(exp(log(sweep(data_original[idx_vec, idx_p1], 2, log_shift, "+")) -
+          #                            den[, idx_p2]), 2, log_shift, "-")
+          # data_original[idx_vec, idx_p1] - den[, idx_p2]
       }
-      M[todo, ] <- as.matrix(fake_bad_den[, match(phase2_vars[phase2_vars %in% num_vars], names(fake_bad_den))])
-      acc_new <- acc_prob(M[todo, , drop = FALSE])
-      todo <- todo[runif(length(acc_new)) > acc_new]
+      as.matrix(den[, idx_p2, drop = FALSE])
     }
-    # if (length(todo) > 0) {
-    #   warning("Reached max_attempt; remaining out-of-bound values clipped.")
-    #   M <- sweep(M, 2, ub, pmin)
-    #   M <- sweep(M, 2, lb, pmax)
-    # }
-    gsamples[, match(phase2_vars[phase2_vars %in% num_vars], names(gsamples))] <- M
+    
+    num_idx <- match(phase2_vars[phase2_vars %in% num_vars], names(gsamples))
+    M <- as.matrix(gsamples[, num_idx, drop = FALSE])
+    acc <- acc_prob(M, lb, ub)
+    u_mat <- matrix(runif(dim(acc)[1] * dim(acc)[2]), 
+                    nrow = nrow(M), ncol = ncol(M))
+    accept_mat <- u_mat < acc
+    iter <- 0L
+    repeat{
+      if (all(accept_mat) || iter >= max_attempt) break
+      
+      bad_rows <- which(rowSums(!accept_mat) > 0)
+      new_vals <- gen_rows(bad_rows)
+      
+      M[bad_rows, ] <- accept_mat[bad_rows, ] * M[bad_rows, ] +
+        (!accept_mat[bad_rows, ]) * new_vals
+      
+      acc <- acc_prob(M, lb, ub)
+      u_mat <- matrix(runif(dim(acc)[1] * dim(acc)[2]), 
+                      nrow = nrow(M), ncol = ncol(M))
+      accept_mat <- u_mat < acc
+      
+      iter <- iter + 1L
+    }
+    if(!all(accept_mat) && iter >= max_attempt){
+      M <- sweep(M, 2, ub, pmin)
+      M <- sweep(M, 2, lb, pmax)
+    }
+    gsamples[, num_idx] <- M
+    
     # vars_to_pmm <- "T_I"
     # if (!is.null(vars_to_pmm)){
     #   for (i in vars_to_pmm){

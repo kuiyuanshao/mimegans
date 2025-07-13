@@ -53,7 +53,7 @@ cross_entropy_loss <- function(fake, true, I, encode_result, vars, phase2_cats){
     i <- i + 1
   }
   
-  loss_t <- torch_stack(loss, dim = 1)$sum()
+  loss_t <- torch_stack(loss, dim = 1)$sum() / (length(cats) + length(cats_mode))
   return (loss_t)
 }
 

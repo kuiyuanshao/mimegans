@@ -82,10 +82,11 @@ Encoder <- torch::nn_module(
       nn_linear(embed_dim, embed_dim)
     )
   },
-  forward = function(input){
-    input <- input$unsqueeze(2)
-    attn_out <- self$attn(input, input, input)[[1]]
-    attn_out <- self$norm1(input + self$dropout1(attn_out))
+  forward = function(input1, input2){
+    input1 <- input1$unsqueeze(2)
+    input2 <- input2$unsqueeze(2)
+    attn_out <- self$attn(input1, input2, input2)[[1]]
+    attn_out <- self$norm1(input1 + self$dropout1(attn_out))
     out <- self$norm2(attn_out + self$dropout2(self$ff(attn_out)))
     out <- out$squeeze(2)
     return (out)

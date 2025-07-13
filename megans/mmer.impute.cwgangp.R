@@ -146,7 +146,8 @@ mmer.impute.cwgangp <- function(data, m = 5,
                               ncols, length(phase2_vars_encode),
                               length(num_inds_p2), length(cat_inds_p2)))$to(device = device)
   dnet <- do.call(paste("discriminator", type_d, sep = "."), 
-                  args = list(n_d_layers, params, ncols))$to(device = device)
+                  args = list(n_d_layers, params, ncols,  
+                              length(phase2_vars_encode)))$to(device = device)
   g_solver <- torch::optim_adam(gnet$parameters, lr = lr_g, 
                                 betas = g_betas, weight_decay = g_weight_decay)
   d_solver <- torch::optim_adam(dnet$parameters, lr = lr_d, 

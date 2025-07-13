@@ -2,7 +2,7 @@ lapply(c("survival", "dplyr", "stringr", "survey", "mice"), require, character.o
 source("00_utils_functions.R")
 options(survey.lonely.psu = "certainty")
 
-replicate <- 100
+replicate <- 25
 sampling_designs <- "Balance" # c("SRS", "Balance", "Neyman")
 methods <- c("megans", "mice") # c("megans", "gain", "mice", "mixgb", "raking")
 
@@ -16,6 +16,11 @@ for (i in 1:replicate){
   cox.true <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
                       rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
                       RACE + I(BMI / 5) + SMOKE, data = data)
+  cox.me <- coxph(Surv(T_I_STAR, EVENT_STAR) ~ I((HbA1c_STAR - 50) / 5) + 
+                    rs4506565_STAR + I((AGE - 50) / 5) + SEX + INSURANCE + 
+                    RACE + I(BMI / 5) + SMOKE_STAR, data = data)
+  resultCoeff <- rbind(resultCoeff, c(exp(coef(cox.me)) - exp(coef(cox.true)), "ME", "me", digit))
+  resultStdError <- rbind(resultStdError, c(sqrt(diag(vcov(cox.me))), "ME", "me", digit))
   resultStdError <- rbind(resultStdError, c(sqrt(diag(vcov(cox.true))), "True", "true", digit))
   for (j in sampling_designs){
     samp <- read.csv(paste0("./data/Sample/", j, "/", digit, ".csv"))
@@ -93,3 +98,13 @@ names(resultCI) <- c(paste0(names(coef(cox.true)), ".lower"),
                      "Design", "Method", "ID")
 
 save(resultCoeff, resultStdError, resultCI, file = "./simulations/results.RData")
+
+
+ggplot(megans_imp$imputation[[1]]) + 
+  geom_density(aes(x = T_I), colour = "red") +
+  geom_density(aes(x = T_I), data = data)
+
+
+ggplot(megans_imp$imputation[[1]]) + 
+  geom_density(aes(x = HbA1c), colour = "red") +
+  geom_density(aes(x = HbA1c), data = data)

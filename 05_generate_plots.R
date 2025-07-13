@@ -3,7 +3,7 @@ lapply(c("ggplot2", "dplyr", "tidyr", "RColorBrewer", "ggh4x"), require, charact
 
 ggplot(resultCoeff) + 
   geom_boxplot(aes(x = factor(Method, levels = c("complete", "mice", "megans")), 
-                   y = as.numeric(`rs45065652`))) + 
+                   y = as.numeric(`I((HbA1c - 50)/5)`))) + 
   theme_minimal() + 
   labs(x = "Methods", y = "Coefficient") + 
   theme(axis.title.x = element_text(family = "Georgia"),
@@ -19,7 +19,7 @@ ggplot(resultCoeff) +
 
 ggplot(resultStdError) + 
   geom_boxplot(aes(x = factor(Method, levels = c("true", "complete", "mice", "megans")), 
-                   y = as.numeric(`rs45065651`))) + 
+                   y = as.numeric(`I((HbA1c - 50)/5)`))) + 
   theme_minimal() + 
   labs(x = "Methods", y = "Standard Errors") + 
   theme(axis.title.x = element_text(family = "Georgia"),

@@ -111,3 +111,34 @@ gradient_penalty <- function(D, real_samples, fake_samples, pac, device) {
   return (gradient_penalty)
 }
 
+boundloss <- function(output, index, data_original, data_info, 
+                      lb, ub, phase2_m, 
+                      num.normalizing, cat.encoding, 
+                      data_encode, data_norm){
+  output <- as.data.frame(as.matrix(output$clone()$detach()$cpu()))
+  names(output) <- names(phase2_m)
+  denormalize <- paste("denormalize", num.normalizing, sep = ".")
+  decode <- paste("decode", cat.encoding, sep = ".")
+  
+  curr_gsample <- do.call(decode, args = list(
+    data = output,
+    encode_obj = data_encode
+  ))
+  curr_gsample <- do.call(denormalize, args = list(
+    data = curr_gsample,
+    num_vars = data_info$num_vars, 
+    norm_obj = data_norm
+  ))$data
+  idx1 <- match(data_info$phase1_vars[data_info$phase1_vars %in% data_info$num_vars], 
+                names(data_original))
+  idx2 <- match(data_info$phase2_vars[data_info$phase2_vars %in% data_info$num_vars], 
+                names(curr_gsample))
+  X <- data_original[index, idx1] - curr_gsample[, idx2]
+  
+  UB <- matrix(ub, nrow(X), length(ub), byrow = TRUE)
+  LB <- matrix(lb, nrow(X), length(lb), byrow = TRUE)
+  
+  bound_penalty <- 100 * mean(pmax(as.matrix(X - UB), 0)^2 + pmax(as.matrix(LB - X), 0)^2)
+  
+  return (bound_penalty)
+}

@@ -48,6 +48,7 @@ samplebatches <- function(data_original, data_training, tensor_list,
   }
   batches <- lapply(tensor_list, function(tensor) tensor[samp_idx, , drop = FALSE])
   batches[[length(batches) + 1]] <- torch_tensor(as.matrix(new_weights), device = tensor_list[[1]]$device)
+  batches[[length(batches) + 1]] <- samp_idx
   return(batches)
 }
 

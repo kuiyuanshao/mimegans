@@ -75,7 +75,10 @@ encode.onehot <- function(data, cat_vars, ori_cat_vars, phase1_vars, phase2_vars
 }
 
 decode.onehot <- function(data, encode_obj, ...) {
-  binary_indices <- encode_obj$binary_indices
+  matches <- lapply(encode_obj$new_col_names, function(x) any(x %in% names(data)))
+  matched_names <- names(encode_obj$new_col_names)[unlist(matches)]
+  
+  binary_indices <- encode_obj$binary_indices[matched_names]
   original_data <- data[, -unlist(binary_indices)]
   for (var_name in names(binary_indices)) {
     indices <- binary_indices[[var_name]]

@@ -48,6 +48,7 @@ normalize.mode <- function(data, num_vars, cond_vars, phase2_vars) {
 }
 
 denormalize.mode <- function(data, num_vars, norm_obj){
+  num_vars <- num_vars[num_vars %in% names(data)]
   mode_params <- norm_obj$mode_params
   for (col in num_vars){
     curr_col <- data[[col]]

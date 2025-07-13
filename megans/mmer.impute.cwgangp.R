@@ -40,7 +40,10 @@ mmer.impute.cwgangp <- function(data, m = 5,
   encode <- paste("encode", cat.encoding, sep = ".")
   
   weights <- as.numeric(as.character(data[, names(data) %in% weight_var]))
-  
+  ub <- sapply(phase2_vars[phase2_vars %in% data_info$num_vars], function(v) max(data[[v]], na.rm = T), 
+               simplify = TRUE, USE.NAMES = TRUE)
+  lb <- sapply(phase2_vars[phase2_vars %in% data_info$num_vars], function(v) min(data[[v]], na.rm = T), 
+               simplify = TRUE, USE.NAMES = TRUE)
   data_original <- data
   if (type == "mmer"){
     # log_shift <- pmax(0, -apply(data[, match((phase1_vars[phase1_vars %in% num_vars]), names(data))],
@@ -115,29 +118,27 @@ mmer.impute.cwgangp <- function(data, m = 5,
   phase1_m <- data_training[, names(data_training) %in% phase1_vars_encode, drop = F]
   phase1_t <- torch_tensor(as.matrix(phase1_m), device = device)
   
-  if (type == "mmer"){
-    phase1_cats <- phase1_vars[phase1_vars %in% cat_vars]
-    phase2_cats <- phase2_vars[phase2_vars %in% cat_vars]
-    if (length(phase2_cats) > 0){
-      ind1 <- match(phase1_cats, names(data_norm$data))
-      ind2 <- match(phase2_cats, names(data_norm$data))
-      confusmat <- lapply(1:length(ind1), function(i){
-        lv <- sort(unique(data_norm$data[, ind1[i]]))
-        cm <- prop.table(table(factor(data_norm$data[, ind2[i]], levels = lv),
-                               factor(data_norm$data[, ind1[i]], levels = lv)), 1)
-        cm[is.na(cm)] <- 0 
-        return (cm)
-      })
-      CM_tensors <- lapply(confusmat, function(cm) torch_tensor(cm, dtype = torch_float()))
-      names(CM_tensors) <- phase2_cats
-      phase1_cats_inds <- match(unlist(data_encode$new_col_names[phase1_vars[phase1_vars %in% cat_vars]]), 
-                                names(phase1_m))
-      phase2_cats_inds <- match(unlist(data_encode$new_col_names[phase2_vars[phase2_vars %in% cat_vars]]), 
-                                names(data_training))
-    }
-    # for categorical variables, NN outputs real categories, 
-    # then times by CM_list to trasnform it to phase1 categories, and then calculate the CE
+  phase1_cats <- phase1_vars[phase1_vars %in% cat_vars]
+  phase2_cats <- phase2_vars[phase2_vars %in% cat_vars]
+  if (length(phase2_cats) > 0){
+    ind1 <- match(phase1_cats, names(data_norm$data))
+    ind2 <- match(phase2_cats, names(data_norm$data))
+    confusmat <- lapply(1:length(ind1), function(i){
+      lv <- sort(unique(data_norm$data[, ind1[i]]))
+      cm <- prop.table(table(factor(data_norm$data[, ind2[i]], levels = lv),
+                             factor(data_norm$data[, ind1[i]], levels = lv)), 1)
+      cm[is.na(cm)] <- 0 
+      return (cm)
+    })
+    CM_tensors <- lapply(confusmat, function(cm) torch_tensor(cm, dtype = torch_float()))
+    names(CM_tensors) <- phase2_cats
+    phase1_cats_inds <- match(unlist(data_encode$new_col_names[phase1_vars[phase1_vars %in% cat_vars]]), 
+                              names(phase1_m))
+    phase2_cats_inds <- match(unlist(data_encode$new_col_names[phase2_vars[phase2_vars %in% cat_vars]]), 
+                              names(data_training))
   }
+  # for categorical variables, NN outputs real categories, 
+  # then times by CM_list to trasnform it to phase1 categories, and then calculate the CE
   tensor_list <- list(data_mask, conditions_t, phase2_t, phase1_t)
 
   gnet <- do.call(paste("generator", type_g, sep = "."), 
@@ -224,39 +225,40 @@ mmer.impute.cwgangp <- function(data, m = 5,
     fake_AC <- torch_cat(list(fakeact, A, C), dim = 2)
     x_fake <- dnet(fake_AC)
     
-    if (type == "mmer"){
-      if (length(phase2_cats) > 0){
-        A_cat <- A[, phase1_cats_inds, drop = F]
-        notI <- I$logical_not()
-        cats <- data_encode$binary_indices[which(sapply(names(data_encode$new_col_names), function(col_names) {
-          any(col_names %in% phase2_cats)
-        }))]
-        eps <- 1e-6
-        for (i in 1:length(cats)){
-          cat <- cats[[i]]
-          logit <- fake[notI, cat]
-          prob <- nnf_softmax(logit, dim = 2)
-          prob <- prob$clamp(eps, 1 - eps)
-          cm <- CM_tensors[[names(cats)[i]]]
-          prob_proj <- prob$matmul(cm)
-          prob_proj <- prob_proj$clamp(eps, 1 - eps)
-          prob_proj <- prob_proj / prob_proj$sum(dim = 2, keepdim=TRUE)
-          logit_proj <- torch_log(prob_proj)
-          tmp <- fake[notI, ]
-          tmp[, cat] <- logit_proj
-          fake[notI, ] <- tmp
-        }
-        for (k in 1:length(phase2_cats_inds)){
-          X[notI, phase2_cats_inds[k]] <- A_cat[notI, k]
-        }
+    if (length(phase2_cats) > 0){
+      A_cat <- A[, phase1_cats_inds, drop = F]
+      notI <- I$logical_not()
+      cats <- data_encode$binary_indices[which(sapply(names(data_encode$new_col_names), function(col_names) {
+        any(col_names %in% phase2_cats)
+      }))]
+      eps <- 1e-6
+      for (i in 1:length(cats)){
+        cat <- cats[[i]]
+        logit <- fake[notI, cat]
+        prob <- nnf_softmax(logit, dim = 2)
+        prob <- prob$clamp(eps, 1 - eps)
+        cm <- CM_tensors[[names(cats)[i]]]
+        prob_proj <- prob$matmul(cm)
+        prob_proj <- prob_proj$clamp(eps, 1 - eps)
+        prob_proj <- prob_proj / prob_proj$sum(dim = 2, keepdim=TRUE)
+        logit_proj <- torch_log(prob_proj)
+        tmp <- fake[notI, ]
+        tmp[, cat] <- logit_proj
+        fake[notI, ] <- tmp
+      }
+      for (k in 1:length(phase2_cats_inds)){
+        X[notI, phase2_cats_inds[k]] <- A_cat[notI, k]
       }
     }
+    
 
     adv_term <- params$gamma * -(torch_mean(x_fake))
-    
+    # bound_loss <- boundloss(fakeact, batch[[6]], data_original, data_info, 
+    #                         lb, ub, phase2_m, num.normalizing, cat.encoding, 
+    #                         data_encode, data_norm)
     xrecon_loss <- recon_loss(fake, X, I, data_encode, phase2_vars_encode, 
                               phase2_cats, params, num_inds_p2, cat_inds_p2)
-    g_loss <- adv_term + xrecon_loss
+    g_loss <- adv_term + xrecon_loss # + bound_loss
     
     g_solver$zero_grad()
     g_loss$backward()
@@ -273,10 +275,10 @@ mmer.impute.cwgangp <- function(data, m = 5,
     if (save.step > 0){
       if (i %% save.step == 0){
         result <- generateImpute(gnet, m = 1, 
-                                 data_original, data_norm, 
+                                 data_original, data_info, data_norm, 
                                  data_encode, data_training,
                                  phase1_vars_encode, phase2_vars_encode, 
-                                 num_vars, num.normalizing, cat.encoding, 
+                                 num.normalizing, cat.encoding, 
                                  batch_size, device, params, tensor_list,
                                  type, log_shift)
         step_result[[p]] <- result$gsample
@@ -289,9 +291,9 @@ mmer.impute.cwgangp <- function(data, m = 5,
   
   #gnet$eval()
   result <- generateImpute(gnet, m = m, 
-                           data_original, data_norm, 
+                           data_original, data_info, data_norm, 
                            data_encode, data_training,
-                           phase1_vars_encode, phase2_vars_encode, num_vars, 
+                           phase1_vars_encode, phase2_vars_encode,
                            num.normalizing, cat.encoding, 
                            batch_size, device, params, tensor_list,
                            type, log_shift)

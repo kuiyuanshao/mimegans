@@ -38,7 +38,7 @@ for (i in 1:replicate){
       if (!file.exists(paste0("./simulations/", j, "/", k, "/", digit, ".RData"))){
         next
       }
-      load(paste0("./simulations/", j, "/", k, "/", digit, ".RData"))
+      imp <- load(paste0("./simulations/", j, "/", k, "/", digit, ".RData"))
       if (k != "raking"){
         if (k == "megans"){
           megans_imp$imputation <- lapply(megans_imp$imputation, function(dat){
@@ -51,6 +51,9 @@ for (i in 1:replicate){
           })
           imp.mids <- as.mids(gain_imp$imputation)
         }else if (k == "mice"){
+          if (imp != "mice_imp"){
+            mice_imp <- fit
+          }
           if (class(mice_imp) != "list"){
             mice_imp <- mice::complete(mice_imp, "all")
           }
@@ -64,11 +67,11 @@ for (i in 1:replicate){
           })
           imp.mids <- as.mids(mixgb_imp)
         }
-        fit <- with(data = imp.mids, 
+        cox.fit <- with(data = imp.mids, 
                     exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
                                   rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
                                   RACE + I(BMI / 5) + SMOKE))
-        pooled <- mice::pool(fit)
+        pooled <- mice::pool(cox.fit)
         sumry <- summary(pooled, conf.int = TRUE)
         resultCoeff <- rbind(resultCoeff, c(exp(sumry$estimate) - exp(coef(cox.true)), j, k, digit))
         resultStdError <- rbind(resultStdError, c(sumry$std.error, j, k, digit))

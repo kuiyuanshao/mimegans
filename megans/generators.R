@@ -9,16 +9,16 @@ generator.mlp <- torch::nn_module(
       dim1 <- dim1 + dim2
     }
     
-    self$num_head <- nn_linear(dim1, nnum)
-    self$cat_head <- nn_linear(dim1, ncat)
-    #self$seq$add_module("Linear", nn_linear(dim1, nphase2))
+    #self$num_head <- nn_linear(dim1, nnum)
+    #self$cat_head <- nn_linear(dim1, ncat)
+    self$seq$add_module("Linear", nn_linear(dim1, nphase2))
   },
   forward = function(input, ...){
-    #output <- self$seq(input)
-    out <- self$seq(input)
-    numout <- self$num_head(out)
-    catout <- self$cat_head(out)
-    output <- torch_cat(list(numout, catout), dim = 2)
+    output <- self$seq(input)
+    #out <- self$seq(input)
+    #numout <- self$num_head(out)
+    #catout <- self$cat_head(out)
+    #output <- torch_cat(list(numout, catout), dim = 2)
     return (output)
   }
 )
@@ -31,8 +31,8 @@ generator.attn <- torch::nn_module(
     dim2 <- params$g_dim
     self$proj_layer <- torch::nn_sequential(
       nn_linear(dim1, dim2),
-      nn_layer_norm(dim2),
-      nn_relu()
+      #nn_layer_norm(dim2),
+      #nn_relu()
     )
     
     self$seq <- torch::nn_sequential()
@@ -42,8 +42,8 @@ generator.attn <- torch::nn_module(
     }
     
     self$output_layer <- torch::nn_sequential(
-      nn_layer_norm(dim2),
-      nn_relu(),
+      #nn_layer_norm(dim2),
+      #nn_relu(),
       nn_linear(dim2, nphase2)
     )
     # self$output_layer_cat <- torch::nn_sequential(

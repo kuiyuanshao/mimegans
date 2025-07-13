@@ -1,44 +1,21 @@
-recon_loss <- function(fake, true, I, encode_result, vars, phase2_cats, params, num_inds, cat_inds, cycle){
+recon_loss <- function(fake, true, I, encode_result, vars, phase2_cats, params, num_inds, cat_inds){
   mm_term <- torch_tensor(0, dtype = fake$dtype, device = fake$device)
-  if (length(num_inds) > 0 & cycle){
+  if (length(num_inds) > 0){
     if (params$alpha != 0){
-      # if (HT){
-      #   w <- (W[I] / p) / sum(W[I] / p)
-      # }else{
-      #   w <- 1
-      # }
-      # mm_term <- params$alpha * 
-      #   sum((w * nnf_mse_loss(fake[I, num_inds, drop = FALSE],
-      #                         true[I, num_inds, drop = FALSE], reduction = "none"))) / length(num_inds)
-      
       mm_term <- params$alpha * 
-        nnf_mse_loss(fake[, num_inds, drop = FALSE],
-                     true[, num_inds, drop = FALSE], reduction = "mean")
+        nnf_mse_loss(fake[I, num_inds, drop = FALSE],
+                     true[I, num_inds, drop = FALSE], reduction = "mean")
     }
   }
   ce_term <- torch_tensor(0, dtype = fake$dtype, device = fake$device)
   if (length(cat_inds) > 0){
     if (params$beta != 0) {
-      # if (HT){
-      #   w <- W / sum(W)
-      # }else{
-      #   w <- 1
-      # }
       ce_term <- params$beta *
         cross_entropy_loss(fake, true, I, encode_result, vars, phase2_cats)
     }
   }
   return (mm_term + ce_term)
 }
-
-moment_penalty <- function(x_real, x_fake, eps = 1e-6) {
-  mu_f <- x_fake$mean(dim = 1, keepdim = TRUE)
-  mu_r <- x_real$mean(dim = 1, keepdim = TRUE)
-  mu_loss <- (mu_r - mu_f)$pow(2)$mean() 
-  # var_loss <- ((x_fake - mu_f)$pow(2)$mean(dim = 1) - x_real$std(dim = 1))$pow(2)$mean()
-  mu_loss # + var_loss
-}
-
 
 d_loss <- function(dnet, true, fake, params, device){
   y_fake <- dnet(fake)

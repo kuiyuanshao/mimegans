@@ -54,8 +54,8 @@ for (i in first_rep:last_rep){
     megans_imp <- mmer.impute.cwgangp(samp_balance, m = 5, 
                                       num.normalizing = "mode", 
                                       cat.encoding = "onehot", 
-                                      device = "cpu", epochs = 5000,
-                                      params = list(lambda = 50), 
+                                      device = "cpu", epochs = 10000,
+                                      params = list(lambda = 10), 
                                       data_info = data_info_balance, save.step = 20000)
     save(megans_imp, file = paste0("./simulations/Balance/megans/", digit, ".RData"))
   # }

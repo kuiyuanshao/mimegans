@@ -139,22 +139,13 @@ mmer.impute.cwgangp <- function(data, m = 5,
     # then times by CM_list to trasnform it to phase1 categories, and then calculate the CE
   }
   tensor_list <- list(data_mask, conditions_t, phase2_t, phase1_t)
-  
-  # mnet <- m_net(dim(conditions_t)[2], params)
-  # cnet <- do.call(paste("generator", type_g, sep = "."), 
-  #                 args = list(n_g_layers, params, 
-  #                             ncols, length(phase1_vars_encode),
-  #                             num_inds_p1, cat_inds_p1))$to(device = device)
+
   gnet <- do.call(paste("generator", type_g, sep = "."), 
                   args = list(n_g_layers, params, 
                               ncols, length(phase2_vars_encode),
                               length(num_inds_p2), length(cat_inds_p2)))$to(device = device)
   dnet <- do.call(paste("discriminator", type_d, sep = "."), 
                   args = list(n_d_layers, params, ncols))$to(device = device)
-  
-  # m_solver <- torch::optim_adam(mnet$parameters, lr = lr_d)
-  # c_solver <- torch::optim_adam(cnet$parameters, lr = lr_g, 
-  #                               betas = g_betas, weight_decay = g_weight_decay)
   g_solver <- torch::optim_adam(gnet$parameters, lr = lr_g, 
                                 betas = g_betas, weight_decay = g_weight_decay)
   d_solver <- torch::optim_adam(dnet$parameters, lr = lr_d, 
@@ -264,7 +255,7 @@ mmer.impute.cwgangp <- function(data, m = 5,
     adv_term <- params$gamma * -(torch_mean(x_fake))
     
     xrecon_loss <- recon_loss(fake, X, I, data_encode, phase2_vars_encode, 
-                              phase2_cats, params, num_inds_p2, cat_inds_p2, F)
+                              phase2_cats, params, num_inds_p2, cat_inds_p2)
     g_loss <- adv_term + xrecon_loss
     
     g_solver$zero_grad()

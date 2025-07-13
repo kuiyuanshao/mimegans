@@ -11,6 +11,7 @@ as.mids <- function(imp_list){
   return (imp_mids)
 }
 
+
 exactAllocation <- function(data, stratum_variable, target_variable, sample_size){
   strata_units <- as.data.frame(table(data[[stratum_variable]]))
   colnames(strata_units) <- c(stratum_variable, "count")
@@ -75,6 +76,34 @@ match_types <- function(new_df, orig_df) {
     }
   }
   out
+}
+
+reallocate <- function(samp){
+  parts <- do.call(rbind, strsplit(as.character(samp$STRATA), "\\."))
+  flag <- parts[,1]
+  lvl1 <- as.integer(parts[,2])
+  lvl2 <- as.integer(parts[,3])
+  
+  cnt   <- table(samp$STRATA)
+  single <- names(cnt)[cnt == 1]       # lone strata
+  multi <- names(cnt)[cnt > 1]        # viable targets
+  
+  nearest <- function(lbl){
+    i <- which(samp$STRATA == lbl)[1]
+    f <- flag[i]; x <- lvl1[i]; y <- lvl2[i]
+    idx <- match(multi, samp$STRATA)
+    cand <- multi[flag[idx] == f]    # same TRUE/FALSE block
+    d <- abs(lvl1[idx[flag[idx]==f]] - x) + abs(lvl2[idx[flag[idx]==f]] - y)
+    cand[which.min(d)]
+  }
+  
+  map <- setNames(multi, multi)
+  for(lbl in single) map[lbl] <- nearest(lbl)
+  
+  samp$STRATA <- map[samp$STRATA]
+  samp$fpc <- cnt[samp$STRATA]
+  
+  return (samp)
 }
 
 data_info_srs <- list(weight_var = "W",

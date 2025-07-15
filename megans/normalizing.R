@@ -11,7 +11,7 @@ normalize.mode <- function(data, num_vars, cond_vars, phase2_vars) {
     if (length(unique(curr_col_obs)) == 1 | col %in% cond_vars) {
       mc <- mclust::Mclust(curr_col_obs, G = 1, verbose = F)
     } else {
-      mc <- mclust::Mclust(curr_col_obs, G = 1:9, verbose = F, modelNames = "V")
+      mc <- mclust::Mclust(curr_col_obs, G = 1:9, verbose = F, modelNames = "E")
     }
     pred <- predict(mc, newdata = curr_col_obs)
     mode_labels <- as.numeric(as.factor(pred$classification))
@@ -19,10 +19,10 @@ normalize.mode <- function(data, num_vars, cond_vars, phase2_vars) {
     # mode_sds <- c()
     mode_means <- mc$parameters$mean + 1e-6
     mode_sds <- sqrt(mc$parameters$variance$sigmasq) + 1e-6
-    # 
-    # if (length(mode_sds) != length(mode_means)){
-    #   mode_sds <- rep(mode_sds, length(mode_means))
-    # }
+    
+    if (length(mode_sds) != length(mode_means)){
+      mode_sds <- rep(mode_sds, length(mode_means))
+    }
     curr_col_norm <- rep(NA, length(curr_col_obs))
     for (mode in sort(unique(mode_labels))) {
       mode <- as.numeric(mode)

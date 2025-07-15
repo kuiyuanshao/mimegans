@@ -278,7 +278,7 @@ mmer.impute.cwgangp <- function(data, m = 5,
         result <- generateImpute(gnet, m = 1, 
                                  data_original, data_info, data_norm, 
                                  data_encode, data_training,
-                                 phase1_vars_encode, phase2_vars_encode, 
+                                 phase1_vars_encode, phase2_vars_encode,
                                  num.normalizing, cat.encoding, 
                                  batch_size, device, params, tensor_list,
                                  type, log_shift)

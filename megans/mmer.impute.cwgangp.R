@@ -219,12 +219,25 @@ mmer.impute.cwgangp <- function(data, m = 5,
     
     fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), noise_dim))$to(device = device)
     fakez_AC <- torch_cat(list(fakez, A, C), dim = 2)
-
     fake <- gnet(fakez_AC)
+    
+    fakez2 <- torch_normal(mean = 0, std = 1, size = c(X$size(1), noise_dim))$to(device = device)
+    fakez2_AC <- torch_cat(list(fakez2, A, C), dim = 2)
+    fake2 <- gnet(fakez2_AC)
+    
+    div_loss <- torch_mean(torch_abs(fake - fake2)) / torch_mean(
+      torch_abs(fakez - fakez2))
+    div_loss <- 1 / (div_loss + 1e-5)
+    
     fakeact <- activation_fun(fake, data_encode, phase2_vars_encode, 
                               tau = tau, hard = hard)
     fake_AC <- torch_cat(list(fakeact, A, C), dim = 2)
     x_fake <- dnet(fake_AC)
+    
+    fake2act <- activation_fun(fake2, data_encode, phase2_vars_encode, 
+                               tau = tau, hard = hard)
+    fake2_AC <- torch_cat(list(fake2act, A, C), dim = 2)
+    x_fake2 <- dnet(fake2_AC)
     
     if (length(phase2_cats) > 0){
       A_cat <- A[, phase1_cats_inds, drop = F]
@@ -246,20 +259,32 @@ mmer.impute.cwgangp <- function(data, m = 5,
         tmp <- fake[notI, ]
         tmp[, cat] <- logit_proj
         fake[notI, ] <- tmp
+        
+        logit2 <- fake2[notI, cat]
+        prob2 <- nnf_softmax(logit2, dim = 2)
+        prob2 <- prob2$clamp(eps, 1 - eps)
+        prob_proj2 <- prob2$matmul(cm)
+        prob_proj2 <- prob_proj2$clamp(eps, 1 - eps)
+        prob_proj2 <- prob_proj2 / prob_proj2$sum(dim = 2, keepdim=TRUE)
+        logit_proj2 <- torch_log(prob_proj2)
+        tmp <- fake2[notI, ]
+        tmp[, cat] <- logit_proj2
+        fake2[notI, ] <- tmp
       }
       for (k in 1:length(phase2_cats_inds)){
         X[notI, phase2_cats_inds[k]] <- A_cat[notI, k]
       }
     }
     
+    
+    
 
-    adv_term <- params$gamma * -(torch_mean(x_fake))
-    # bound_loss <- boundloss(fakeact, batch[[6]], data_original, data_info, 
-    #                         lb, ub, phase2_m, num.normalizing, cat.encoding, 
-    #                         data_encode, data_norm)
+    adv_term <- params$gamma * -(torch_mean(x_fake)) + -(torch_mean(x_fake2))
     xrecon_loss <- recon_loss(fake, X, I, data_encode, phase2_vars_encode, 
                               phase2_cats, params, num_inds_p2, cat_inds_p2)
-    g_loss <- adv_term + xrecon_loss # + bound_loss
+    xrecon_loss2 <- recon_loss(fake2, X, I, data_encode, phase2_vars_encode, 
+                               phase2_cats, params, num_inds_p2, cat_inds_p2)
+    g_loss <- adv_term + xrecon_loss + xrecon_loss2 - div_loss
     
     g_solver$zero_grad()
     g_loss$backward()

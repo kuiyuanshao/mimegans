@@ -54,28 +54,12 @@ for (i in first_rep:last_rep){
     megans_imp <- mmer.impute.cwgangp(samp_balance, m = 5, 
                                       num.normalizing = "mode", 
                                       cat.encoding = "onehot", 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-                                      device = "cpu", epochs = 3000,
-                                      params = list(batch_size = 500, pac = 10,
-                                                    lambda = 15, lr_g = 2e-4, lr_d = 2e-4, 
-                                                    n_g_layers = 5, n_d_layers = 1, noise_dim = 128,
-=======
-                                      device = "cpu", epochs = 5000,
-                                      params = list(batch_size = 500, pac = 10,
-=======
-                                      device = "cpu", epochs = 5000,
-                                      params = list(batch_size = 500, pac = 10,
->>>>>>> parent of 51e7a35 (Revert "u")
-                                                    lambda = 10, lr_g = 2e-4, lr_d = 2e-4, 
-=======
                                       device = "cpu", epochs = 10000,
                                       params = list(batch_size = 500, pac = 10,
                                                     lambda = 15, lr_g = 2e-4, lr_d = 2e-4, 
->>>>>>> parent of 8bd854c (u)
+
                                                     n_g_layers = 5, n_d_layers = 3, noise_dim = 128,
->>>>>>> parent of 51e7a35 (Revert "u")
+
                                                     discriminator_steps = 1, type_d = "attn",
                                                     g_dim = 512, d_dim = 512), 
                                       type = "mmer",
@@ -123,13 +107,12 @@ ggplot(megans_imp$imputation[[1]]) +
   geom_density(aes(x = T_I_STAR - T_I), colour = "red") + 
   geom_density(aes(x = T_I_STAR - T_I), data = data)
 
-<<<<<<< HEAD
-=======
+
 ggplot(megans_imp$imputation[[1]]) + 
   geom_density(aes(x = HbA1c_STAR - HbA1c), colour = "red") + 
   geom_density(aes(x = HbA1c_STAR - HbA1c), data = data)
 
-<<<<<<< HEAD
+
 coeffs <- bind_rows(lapply(fit$analyses, function(i){sqrt(diag(vcov(i)))}))
 vars <- bind_rows(lapply(fit$analyses, function(i){coef(i)}))
 21 * apply(vars, 2, var) / 20
@@ -172,9 +155,4 @@ fit <- with(data = imp.mids,
                           SEX + INSURANCE + 
                           RACE + I(BMI / 5) + SMOKE))
 21 * apply(bind_rows(lapply(fit$analyses, function(i){coef(i)})), 2, var) / 20
-<<<<<<< HEAD
->>>>>>> parent of 51e7a35 (Revert "u")
-=======
->>>>>>> parent of 51e7a35 (Revert "u")
-=======
->>>>>>> parent of 8bd854c (u)
+

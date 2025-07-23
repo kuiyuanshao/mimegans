@@ -54,9 +54,9 @@ for (i in first_rep:last_rep){
     megans_imp <- mmer.impute.cwgangp(samp_balance, m = 20, 
                                       num.normalizing = "mode", 
                                       cat.encoding = "onehot", 
-                                      device = "cpu", epochs = 5000,
+                                      device = "cpu", epochs = 10000,
                                       params = list(batch_size = 500, pac = 10,
-                                                    lambda = 10, lr_g = 2e-4, lr_d = 2e-4, 
+                                                    lambda = 15, lr_g = 2e-4, lr_d = 2e-4, 
                                                     n_g_layers = 5, n_d_layers = 3, noise_dim = 128,
                                                     discriminator_steps = 1, type_d = "attn",
                                                     g_dim = 512, d_dim = 512), 
@@ -76,13 +76,14 @@ for (i in first_rep:last_rep){
 }
 
 load(paste0("./data/Complete/", digit, ".RData"))
+
 cox.true <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
                     rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
                     RACE + I(BMI / 5) + SMOKE, data = data)
-imp <- lapply(megans_imp$imputation, function(dat){
+megans_imp$imputation <- lapply(megans_imp$imputation, function(dat){
   match_types(dat, data)
 })
-imp.mids <- as.mids(imp)
+imp.mids <- as.mids(megans_imp$imputation)
 fit <- with(data = imp.mids, 
             exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
                           rs4506565 + I((AGE - 50) / 5) + 
@@ -108,45 +109,3 @@ ggplot(megans_imp$imputation[[1]]) +
   geom_density(aes(x = HbA1c_STAR - HbA1c), colour = "red") + 
   geom_density(aes(x = HbA1c_STAR - HbA1c), data = data)
 
-coeffs <- bind_rows(lapply(fit$analyses, function(i){sqrt(diag(vcov(i)))}))
-vars <- bind_rows(lapply(fit$analyses, function(i){coef(i)}))
-21 * apply(vars, 2, var) / 20
-
-coefres <- NULL
-for (i in 1:100){
-  digit <- stringr::str_pad(i, 4, pad = 0)
-  samp_balance <- read.csv(paste0("./data/Sample/Debug/", digit, ".csv"))
-  samp_balance <- match_types(samp_balance, data)
-  design <- svydesign(ids = ~1, strata = ~STRATA, weights = ~W, 
-                      data = samp_balance)
-  cox.comp <- svycoxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
-                         rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
-                         RACE + I(BMI / 5) + SMOKE, design)
-  coefres <- rbind(coefres, coef(cox.comp))
-}
-101 * apply(coefres, 2, var) / 100
-load(paste0("./simulations/Balance/megans/0001.RData"))
-imp <- lapply(megans_imp$imputation, function(dat){
-  match_types(dat, data)
-})
-imp.mids <- as.mids(imp)
-fit <- with(data = imp.mids, 
-            exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
-                          rs4506565 + I((AGE - 50) / 5) + 
-                          SEX + INSURANCE + 
-                          RACE + I(BMI / 5) + SMOKE))
-apply(bind_rows(lapply(fit$analyses, function(i){coef(i)})), 2, var)
-
-load(paste0("./simulations/Balance/mice/0001.RData"))
-mice_imp <- mice::complete(mice_imp, "all")
-
-imp <- lapply(mice_imp, function(dat){
-  match_types(dat, data)
-})
-imp.mids <- as.mids(imp)
-fit <- with(data = imp.mids, 
-            exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
-                          rs4506565 + I((AGE - 50) / 5) + 
-                          SEX + INSURANCE + 
-                          RACE + I(BMI / 5) + SMOKE))
-21 * apply(bind_rows(lapply(fit$analyses, function(i){coef(i)})), 2, var) / 20

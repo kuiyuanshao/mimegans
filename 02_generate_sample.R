@@ -100,14 +100,4 @@ for (i in 1:replicate){
             file = paste0("./data/Sample/Neyman/", digit, ".csv"))
 }
 
-digit <- "0001"
-load(paste0("./data/Complete/", digit, ".RData"))
-if(!dir.exists('./data/Sample/Debug')){dir.create('./data/Sample/Debug')}
-for (i in 1:replicate){
-  digit <- stringr::str_pad(i, 4, pad = 0)
-  cat("Current:", digit, "\n")
-  samp_result <- generateSample(data, 0.05, seed[i])
-  write.csv(samp_result$samp_balance,
-            file = paste0("./data/Sample/Debug/", digit, ".csv"))
-}
 

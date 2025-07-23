@@ -20,6 +20,7 @@ normalize.mode <- function(data, num_vars, cond_vars, phase2_vars) {
     mode_means <- mc$parameters$mean + 1e-6
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     mode_sds <- sqrt(mc$parameters$variance$sigmasq) + 1e-6
     # 
     # if (length(mode_sds) != length(mode_means)){
@@ -29,6 +30,9 @@ normalize.mode <- function(data, num_vars, cond_vars, phase2_vars) {
 =======
 >>>>>>> parent of 51e7a35 (Revert "u")
     mode_sds <- 4 * sqrt(mc$parameters$variance$sigmasq) + 1e-6
+=======
+    mode_sds <- sqrt(mc$parameters$variance$sigmasq) + 1e-6
+>>>>>>> parent of 8bd854c (u)
     
     if (length(mode_sds) != length(mode_means)){
       mode_sds <- rep(mode_sds, length(mode_means))
@@ -43,7 +47,7 @@ normalize.mode <- function(data, num_vars, cond_vars, phase2_vars) {
       if (is.na(mode_sds[mode]) | mode_sds[mode] == 0){
         curr_col_norm[idx] <- (curr_col_obs[idx] - mode_means[mode])
       }else{
-        curr_col_norm[idx] <- pmin(pmax((curr_col_obs[idx] - mode_means[mode]) / (mode_sds[mode]), -1), 1)
+        curr_col_norm[idx] <- (curr_col_obs[idx] - mode_means[mode]) / (mode_sds[mode])
       }
     }
     mode_labels_curr_col <- rep(NA, length(curr_col))

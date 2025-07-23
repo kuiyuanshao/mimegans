@@ -2,7 +2,7 @@ lapply(c("survival", "dplyr", "stringr", "survey", "mice"), require, character.o
 source("00_utils_functions.R")
 options(survey.lonely.psu = "certainty")
 
-replicate <- 25
+replicate <- 21
 sampling_designs <- "Balance" # c("SRS", "Balance", "Neyman")
 methods <- c("megans", "mice") # c("megans", "gain", "mice", "mixgb", "raking")
 
@@ -108,8 +108,3 @@ ggplot(megans_imp$imputation[[1]]) +
 ggplot(megans_imp$imputation[[1]]) + 
   geom_density(aes(x = HbA1c), colour = "red") +
   geom_density(aes(x = HbA1c), data = data)
-
-ggplot() + 
-  geom_point(aes(x = mice_imp[[1]]$HbA1c, y = data$HbA1c)) + 
-  geom_abline()
-sqrt(mean((mice_imp[[1]]$HbA1c - mice_imp[[2]]$HbA1c)^2))

@@ -56,6 +56,7 @@ for (i in first_rep:last_rep){
                                       cat.encoding = "onehot", 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
                                       device = "cpu", epochs = 3000,
                                       params = list(batch_size = 500, pac = 10,
                                                     lambda = 15, lr_g = 2e-4, lr_d = 2e-4, 
@@ -68,6 +69,11 @@ for (i in first_rep:last_rep){
                                       params = list(batch_size = 500, pac = 10,
 >>>>>>> parent of 51e7a35 (Revert "u")
                                                     lambda = 10, lr_g = 2e-4, lr_d = 2e-4, 
+=======
+                                      device = "cpu", epochs = 10000,
+                                      params = list(batch_size = 500, pac = 10,
+                                                    lambda = 15, lr_g = 2e-4, lr_d = 2e-4, 
+>>>>>>> parent of 8bd854c (u)
                                                     n_g_layers = 5, n_d_layers = 3, noise_dim = 128,
 >>>>>>> parent of 51e7a35 (Revert "u")
                                                     discriminator_steps = 1, type_d = "attn",
@@ -88,13 +94,14 @@ for (i in first_rep:last_rep){
 }
 
 load(paste0("./data/Complete/", digit, ".RData"))
+
 cox.true <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
                     rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
                     RACE + I(BMI / 5) + SMOKE, data = data)
-imp <- lapply(megans_imp$imputation, function(dat){
+megans_imp$imputation <- lapply(megans_imp$imputation, function(dat){
   match_types(dat, data)
 })
-imp.mids <- as.mids(imp)
+imp.mids <- as.mids(megans_imp$imputation)
 fit <- with(data = imp.mids, 
             exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
                           rs4506565 + I((AGE - 50) / 5) + 
@@ -122,6 +129,7 @@ ggplot(megans_imp$imputation[[1]]) +
   geom_density(aes(x = HbA1c_STAR - HbA1c), colour = "red") + 
   geom_density(aes(x = HbA1c_STAR - HbA1c), data = data)
 
+<<<<<<< HEAD
 coeffs <- bind_rows(lapply(fit$analyses, function(i){sqrt(diag(vcov(i)))}))
 vars <- bind_rows(lapply(fit$analyses, function(i){coef(i)}))
 21 * apply(vars, 2, var) / 20
@@ -168,3 +176,5 @@ fit <- with(data = imp.mids,
 >>>>>>> parent of 51e7a35 (Revert "u")
 =======
 >>>>>>> parent of 51e7a35 (Revert "u")
+=======
+>>>>>>> parent of 8bd854c (u)

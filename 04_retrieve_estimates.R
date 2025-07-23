@@ -108,3 +108,8 @@ ggplot(megans_imp$imputation[[1]]) +
 ggplot(megans_imp$imputation[[1]]) + 
   geom_density(aes(x = HbA1c), colour = "red") +
   geom_density(aes(x = HbA1c), data = data)
+
+ggplot() + 
+  geom_point(aes(x = mice_imp[[1]]$HbA1c, y = data$HbA1c)) + 
+  geom_abline()
+sqrt(mean((mice_imp[[1]]$HbA1c - mice_imp[[2]]$HbA1c)^2))

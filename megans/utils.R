@@ -77,6 +77,11 @@ activation_fun <- function(fake, encode_result, vars, tau = 1, hard = F, gen = F
       fake[, cat] <- onehot
     }
   }
+  
+  for (num in nums){
+    fake[, num] <- torch_tanh(fake[, num])
+  }
+  
   return (fake)
 }
 

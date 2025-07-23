@@ -68,8 +68,7 @@ Tokenizer <- nn_module(
 Encoder <- torch::nn_module(
   "Encoder",
   initialize = function(embed_dim, num_heads){
-    self$attn <- nn_multihead_attention(embed_dim, dropout = 0.2, 
-                                        num_heads, batch_first = T)
+    self$attn <- nn_multihead_attention(embed_dim, num_heads, batch_first = T)
     
     self$dropout1 <- nn_dropout()
     self$dropout2 <- nn_dropout()
@@ -78,9 +77,9 @@ Encoder <- torch::nn_module(
     self$norm2 <- nn_layer_norm(embed_dim)
     
     self$ff <- torch::nn_sequential(
-      nn_linear(embed_dim, 2 * embed_dim),
+      nn_linear(embed_dim, embed_dim),
       nn_gelu(),
-      nn_linear(2 * embed_dim, embed_dim)
+      nn_linear(embed_dim, embed_dim)
     )
   },
   forward = function(input1, input2){

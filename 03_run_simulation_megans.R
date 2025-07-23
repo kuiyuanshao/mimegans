@@ -51,18 +51,18 @@ for (i in first_rep:last_rep){
   #   save(megans_imp, file = paste0("./simulations/SRS/megans/", digit, ".RData"))
   # }
   # if (!file.exists(paste0("./simulations/Neyman/megans/", digit, ".RData"))){
-    megans_imp <- mmer.impute.cwgangp(samp_balance, m = 20, 
+    megans_imp <- mmer.impute.cwgangp(samp_balance, m = 5, 
                                       num.normalizing = "mode", 
                                       cat.encoding = "onehot", 
-                                      device = "cpu", epochs = 10000,
+                                      device = "cpu", epochs = 3000,
                                       params = list(batch_size = 500, pac = 10,
                                                     lambda = 15, lr_g = 2e-4, lr_d = 2e-4, 
-                                                    n_g_layers = 5, n_d_layers = 3, noise_dim = 128,
+                                                    n_g_layers = 5, n_d_layers = 1, noise_dim = 128,
                                                     discriminator_steps = 1, type_d = "attn",
                                                     g_dim = 512, d_dim = 512), 
                                       type = "mmer",
                                       data_info = data_info_balance, save.step = 1000)
-     save(megans_imp, file = paste0("./simulations/Balance/megans/", digit, ".RData"))
+    save(megans_imp, file = paste0("./simulations/Balance/megans/", digit, ".RData"))
   # }
   # if (!file.exists(paste0("./simulations/Neyman/megans/", digit, ".RData"))){
   #   megans_imp <- mmer.impute.cwgangp(samp_neyman, m = 20, 
@@ -91,21 +91,17 @@ fit <- with(data = imp.mids,
                           RACE + I(BMI / 5) + SMOKE))
 pooled <- mice::pool(fit)
 sumry <- summary(pooled, conf.int = TRUE)
-round(exp(sumry$estimate) - exp(coef(cox.true)), 4)
+exp(sumry$estimate) - exp(coef(cox.true))
 
-ggplot(megans_imp$imputation[[2]]) + 
+ggplot(megans_imp$imputation[[1]]) + 
   geom_density(aes(x = T_I), colour = "red") +
   geom_density(aes(x = T_I), data = data)
 
-ggplot(megans_imp$imputation[[2]]) + 
+ggplot(megans_imp$imputation[[1]]) + 
   geom_density(aes(x = HbA1c), colour = "red") +
   geom_density(aes(x = HbA1c), data = data)
 
 ggplot(megans_imp$imputation[[1]]) + 
   geom_density(aes(x = T_I_STAR - T_I), colour = "red") + 
   geom_density(aes(x = T_I_STAR - T_I), data = data)
-
-ggplot(megans_imp$imputation[[1]]) + 
-  geom_density(aes(x = HbA1c_STAR - HbA1c), colour = "red") + 
-  geom_density(aes(x = HbA1c_STAR - HbA1c), data = data)
 

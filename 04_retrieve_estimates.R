@@ -2,7 +2,7 @@ lapply(c("survival", "dplyr", "stringr", "survey", "mice"), require, character.o
 source("00_utils_functions.R")
 options(survey.lonely.psu = "certainty")
 
-replicate <- 21
+replicate <- 25
 sampling_designs <- "Balance" # c("SRS", "Balance", "Neyman")
 methods <- c("megans", "mice") # c("megans", "gain", "mice", "mixgb", "raking")
 
@@ -73,7 +73,7 @@ for (i in 1:replicate){
           imp.mids <- as.mids(mixgb_imp)
         }
         cox.fit <- with(data = imp.mids, 
-                        exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
+                    exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
                                   rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
                                   RACE + I(BMI / 5) + SMOKE))
         pooled <- mice::pool(cox.fit)

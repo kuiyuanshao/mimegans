@@ -3,12 +3,14 @@ Residual <- torch::nn_module(
   initialize = function(dim1, dim2){
     self$linear <- nn_linear(dim1, dim2)
     self$bn <- nn_batch_norm1d(dim2)
-    self$relu <- nn_relu()
+    self$elu <- nn_elu()
+    self$do <- nn_dropout()
   },
   forward = function(input){
     output <- self$linear(input)
     output <- self$bn(output)
-    output <- self$relu(output)
+    output <- self$elu(output)
+    output <- self$do(output)
     return (torch_cat(list(output, input), dim = 2))
   }
 )

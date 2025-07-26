@@ -51,15 +51,13 @@ for (i in first_rep:last_rep){
   #   save(megans_imp, file = paste0("./simulations/SRS/megans/", digit, ".RData"))
   # }
   # if (!file.exists(paste0("./simulations/Neyman/megans/", digit, ".RData"))){
-    megans_imp <- mmer.impute.cwgangp(samp_balance, m = 5, 
+    megans_imp <- mmer.impute.cwgangp(samp_balance, m = 20, 
                                       num.normalizing = "mode", 
                                       cat.encoding = "onehot", 
                                       device = "cpu", epochs = 10000,
                                       params = list(batch_size = 500, pac = 10,
-                                                    lambda = 15, lr_g = 2e-4, lr_d = 2e-4, 
-
-                                                    n_g_layers = 5, n_d_layers = 3, noise_dim = 128,
-
+                                                    lambda = 10, lr_g = 2e-4, lr_d = 2e-4, 
+                                                    n_g_layers = 5, n_d_layers = 1, noise_dim = 128,
                                                     discriminator_steps = 1, type_d = "attn",
                                                     g_dim = 512, d_dim = 512), 
                                       type = "mmer",
@@ -95,7 +93,7 @@ pooled <- mice::pool(fit)
 sumry <- summary(pooled, conf.int = TRUE)
 exp(sumry$estimate) - exp(coef(cox.true))
 
-ggplot(megans_imp$imputation[[1]]) + 
+ggplot(megans_imp$imputation[[3]]) + 
   geom_density(aes(x = T_I), colour = "red") +
   geom_density(aes(x = T_I), data = data)
 
@@ -118,41 +116,79 @@ vars <- bind_rows(lapply(fit$analyses, function(i){coef(i)}))
 21 * apply(vars, 2, var) / 20
 
 coefres <- NULL
-for (i in 1:100){
+load(paste0("./data/Complete/", digit, ".RData"))
+lapply(c("dplyr", "stringr", "torch"), require, character.only = T)
+lapply(paste0("./megans/", list.files("./megans")), source)
+source("00_utils_functions.R")
+for (i in 1:20){
   digit <- stringr::str_pad(i, 4, pad = 0)
   samp_balance <- read.csv(paste0("./data/Sample/Debug/", digit, ".csv"))
-  samp_balance <- match_types(samp_balance, data)
-  design <- svydesign(ids = ~1, strata = ~STRATA, weights = ~W, 
-                      data = samp_balance)
-  cox.comp <- svycoxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
-                         rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
-                         RACE + I(BMI / 5) + SMOKE, design)
-  coefres <- rbind(coefres, coef(cox.comp))
+  samp_balance <- match_types(samp_balance, data) %>% 
+    mutate(across(all_of(data_info_balance$cat_vars), as.factor, .names = "{.col}"),
+           across(all_of(data_info_balance$num_vars), as.numeric, .names = "{.col}"))
+  megans_imp <- mmer.impute.cwgangp(samp_balance, m = 20, 
+                                    num.normalizing = "mode", 
+                                    cat.encoding = "onehot", 
+                                    device = "cpu", epochs = 500,
+                                    params = list(batch_size = 500, pac = 10,
+                                                  lambda = 10, lr_g = 2e-4, lr_d = 2e-4, 
+                                                  n_g_layers = 5, n_d_layers = 3, noise_dim = 128,
+                                                  discriminator_steps = 1, type_d = "attn",
+                                                  g_dim = 512, d_dim = 512), 
+                                    type = "mmer",
+                                    data_info = data_info_balance, save.step = 5000)
+  save(megans_imp, file = paste0("./data/Sample/Debug/", digit, ".RData"))
+  
+  megans_imp$imputation <- lapply(megans_imp$imputation, function(dat){
+    match_types(dat, samp_balance)
+  })
+  imp.mids <- as.mids(megans_imp$imputation)
+  fit <- with(data = imp.mids, 
+              exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
+                            rs4506565 + I((AGE - 50) / 5) + 
+                            SEX + INSURANCE + 
+                            RACE + I(BMI / 5) + SMOKE))
+  pooled <- mice::pool(fit)
+  sumry <- summary(pooled, conf.int = TRUE)
+  print(exp(sumry$estimate) - exp(coef(cox.true)))
+  coeff <- bind_rows(lapply(fit$analyses, function(i){coef(i)}))
+  print(apply(exp(coeff), 2, var))
 }
-101 * apply(coefres, 2, var) / 100
-load(paste0("./simulations/Balance/megans/0001.RData"))
-imp <- lapply(megans_imp$imputation, function(dat){
-  match_types(dat, data)
-})
-imp.mids <- as.mids(imp)
-fit <- with(data = imp.mids, 
-            exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
-                          rs4506565 + I((AGE - 50) / 5) + 
-                          SEX + INSURANCE + 
-                          RACE + I(BMI / 5) + SMOKE))
-apply(bind_rows(lapply(fit$analyses, function(i){coef(i)})), 2, var)
 
-load(paste0("./simulations/Balance/mice/0001.RData"))
-mice_imp <- mice::complete(mice_imp, "all")
+show_var(imputation.list = megans_imp$imputation, var.name = "T_I",
+         original.data = samp_balance)
 
-imp <- lapply(mice_imp, function(dat){
-  match_types(dat, data)
-})
-imp.mids <- as.mids(imp)
-fit <- with(data = imp.mids, 
-            exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
-                          rs4506565 + I((AGE - 50) / 5) + 
-                          SEX + INSURANCE + 
-                          RACE + I(BMI / 5) + SMOKE))
-21 * apply(bind_rows(lapply(fit$analyses, function(i){coef(i)})), 2, var) / 20
+plot_box(imputation.list = megans_imp$imputation[1:5], var.name = "T_I",
+          original.data = samp_balance)
 
+plot_2num(imputation.list = megans_imp$imputation[1:5], var.x = "HbA1c",
+          var.y = "T_I", original.data = samp_balance, shape = TRUE)
+
+coeffs <- NULL
+for (i in 1:20){
+  digit <- stringr::str_pad(i, 4, pad = 0)
+  load(paste0("./data/Sample/Debug/", digit, ".RData"))
+  
+  megans_imp$imputation <- lapply(megans_imp$imputation, function(dat){
+    match_types(dat, data)
+  })
+  imp.mids <- as.mids(megans_imp$imputation)
+  fit <- with(data = imp.mids, 
+              exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
+                            rs4506565 + I((AGE - 50) / 5) + 
+                            SEX + INSURANCE + 
+                            RACE + I(BMI / 5) + SMOKE))
+  pooled <- mice::pool(fit)
+  sumry <- summary(pooled, conf.int = TRUE)
+  coeffs <- rbind(coeffs, exp(sumry$estimate))
+}
+
+apply(coeffs, 2, var) / apply(vars, 2, var) 
+vars <- bind_rows(lapply(fit$analyses, function(i){exp(coef(i))}))
+apply(vars, 2, var)
+exp(vars)
+
+ggplot() + 
+  geom_boxplot(aes(x = coeffs[, 1] - exp(coef(cox.true))[1]))
+hist(exp(vars$`I((HbA1c - 50)/5)`))
+hist(coeffs[, 1])

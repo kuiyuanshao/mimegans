@@ -18,26 +18,11 @@ normalize.mode <- function(data, num_vars, cond_vars, phase2_vars) {
     # mode_means <- c()
     # mode_sds <- c()
     mode_means <- mc$parameters$mean + 1e-6
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
     mode_sds <- sqrt(mc$parameters$variance$sigmasq) + 1e-6
-    # 
-    # if (length(mode_sds) != length(mode_means)){
-    #   mode_sds <- rep(mode_sds, length(mode_means))
-    # }
-=======
-=======
->>>>>>> parent of 51e7a35 (Revert "u")
-    mode_sds <- 4 * sqrt(mc$parameters$variance$sigmasq) + 1e-6
-=======
-    mode_sds <- sqrt(mc$parameters$variance$sigmasq) + 1e-6
->>>>>>> parent of 8bd854c (u)
     
     if (length(mode_sds) != length(mode_means)){
       mode_sds <- rep(mode_sds, length(mode_means))
     }
->>>>>>> parent of 51e7a35 (Revert "u")
     curr_col_norm <- rep(NA, length(curr_col_obs))
     for (mode in sort(unique(mode_labels))) {
       mode <- as.numeric(mode)

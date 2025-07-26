@@ -1,5 +1,45 @@
 pacman::p_load(progress, torch)
 
+enable_dropout <- function(model){
+  model$train()  # turn dropout ON
+  model$apply(function(m) {
+    if (inherits(m, "nn_batch_norm1d")) m$eval()  # freeze BN stats
+  })
+}
+
+init_gan_g <- function(m) {
+  if (any(class(m) == "nn_linear")) {
+    nn_init_kaiming_normal_(m$weight, a = 1.257237, mode = "fan_in", nonlinearity = "leaky_relu")
+    nn_init_zeros_(m$bias)
+  }
+}
+
+init_gan_d <- function(m) {
+  if (inherits(m, "nn_linear")) {
+    out_features <- tryCatch(m$out_features, error = function(e) NULL)
+    
+    if (!is.null(out_features) && out_features == 1) {
+      nn_init_normal_(m$weight, mean = 0, std = 1e-3)
+    } else {
+      nn_init_kaiming_normal_(m$weight, a = 0.2, mode = "fan_in",
+                              nonlinearity = "leaky_relu")
+    }
+    if (!is.null(m$bias)) nn_init_constant_(m$bias, 0)
+  }
+  if (inherits(m, "nn_batch_norm1d") || inherits(m, "nn_layer_norm")) {
+    if (!is.null(m$weight)) nn_init_constant_(m$weight, 1)
+    if (!is.null(m$bias))   nn_init_constant_(m$bias, 0)
+  }
+  if (inherits(m, "nn_multihead_attention")) {
+    if (!is.null(m$in_proj_weight)) nn_init_xavier_uniform_(m$in_proj_weight, gain = 1.0)
+    if (!is.null(m$in_proj_bias))   nn_init_constant_(m$in_proj_bias, 0)
+    if (!is.null(m$out_proj)) {
+      nn_init_xavier_uniform_(m$out_proj$weight, gain = 1.0)
+      if (!is.null(m$out_proj$bias)) nn_init_constant_(m$out_proj$bias, 0)
+    }
+  }
+}
+
 cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10, 
                             alpha = 0, beta = 1, at_least_p = 1/2, 
                             lr_g = 2e-4, lr_d = 2e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
@@ -148,6 +188,10 @@ mmer.impute.cwgangp <- function(data, m = 5,
   dnet <- do.call(paste("discriminator", type_d, sep = "."), 
                   args = list(n_d_layers, params, ncols,  
                               length(phase2_vars_encode)))$to(device = device)
+  
+  gnet$apply(init_gan_g)
+  # dnet$apply(init_gan_d)
+  
   g_solver <- torch::optim_adam(gnet$parameters, lr = lr_g, 
                                 betas = g_betas, weight_decay = g_weight_decay)
   d_solver <- torch::optim_adam(dnet$parameters, lr = lr_d, 
@@ -163,6 +207,7 @@ mmer.impute.cwgangp <- function(data, m = 5,
     p <- 1
   }
   for (i in 1:epochs){
+    gnet$train()
     for (d in 1:discriminator_steps){
       batch <- samplebatches(data, data_training, tensor_list, 
                              phase1_rows, phase2_rows, phase2_vars_encode,
@@ -221,10 +266,24 @@ mmer.impute.cwgangp <- function(data, m = 5,
     fakez_AC <- torch_cat(list(fakez, A, C), dim = 2)
 
     fake <- gnet(fakez_AC)
+    
+    fakez2 <- torch_normal(mean = 0, std = 1, size = c(X$size(1), noise_dim))$to(device = device)
+    fakez2_AC <- torch_cat(list(fakez2, A, C), dim = 2)
+    fake2 <- gnet(fakez2_AC)
+    
+    div_loss <- torch_mean(torch_abs(fake - fake2)) / torch_mean(
+      torch_abs(fakez - fakez2))
+    div_loss <- 1 / (div_loss + 1e-5)
+    
     fakeact <- activation_fun(fake, data_encode, phase2_vars_encode, 
                               tau = tau, hard = hard)
     fake_AC <- torch_cat(list(fakeact, A, C), dim = 2)
     x_fake <- dnet(fake_AC)
+    
+    fake2act <- activation_fun(fake2, data_encode, phase2_vars_encode, 
+                               tau = tau, hard = hard)
+    fake2_AC <- torch_cat(list(fake2act, A, C), dim = 2)
+    x_fake2 <- dnet(fake2_AC)
     
     if (length(phase2_cats) > 0){
       A_cat <- A[, phase1_cats_inds, drop = F]
@@ -233,12 +292,13 @@ mmer.impute.cwgangp <- function(data, m = 5,
         any(col_names %in% phase2_cats)
       }))]
       eps <- 1e-6
-      for (i in 1:length(cats)){
-        cat <- cats[[i]]
+      for (c in 1:length(cats)){
+        cat <- cats[[c]]
+        cm <- CM_tensors[[names(cats)[c]]]
+        
         logit <- fake[notI, cat]
         prob <- nnf_softmax(logit, dim = 2)
         prob <- prob$clamp(eps, 1 - eps)
-        cm <- CM_tensors[[names(cats)[i]]]
         prob_proj <- prob$matmul(cm)
         prob_proj <- prob_proj$clamp(eps, 1 - eps)
         prob_proj <- prob_proj / prob_proj$sum(dim = 2, keepdim=TRUE)
@@ -246,6 +306,17 @@ mmer.impute.cwgangp <- function(data, m = 5,
         tmp <- fake[notI, ]
         tmp[, cat] <- logit_proj
         fake[notI, ] <- tmp
+        
+        logit2 <- fake2[notI, cat]
+        prob2 <- nnf_softmax(logit2, dim = 2)
+        prob2 <- prob2$clamp(eps, 1 - eps)
+        prob_proj2 <- prob2$matmul(cm)
+        prob_proj2 <- prob_proj2$clamp(eps, 1 - eps)
+        prob_proj2 <- prob_proj2 / prob_proj2$sum(dim = 2, keepdim=TRUE)
+        logit_proj2 <- torch_log(prob_proj2)
+        tmp <- fake2[notI, ]
+        tmp[, cat] <- logit_proj2
+        fake2[notI, ] <- tmp
       }
       for (k in 1:length(phase2_cats_inds)){
         X[notI, phase2_cats_inds[k]] <- A_cat[notI, k]
@@ -253,13 +324,12 @@ mmer.impute.cwgangp <- function(data, m = 5,
     }
     
 
-    adv_term <- params$gamma * -(torch_mean(x_fake))
-    # bound_loss <- boundloss(fakeact, batch[[6]], data_original, data_info, 
-    #                         lb, ub, phase2_m, num.normalizing, cat.encoding, 
-    #                         data_encode, data_norm)
+    adv_term <- params$gamma * (-torch_mean(x_fake)) # + -torch_mean(x_fake2))
     xrecon_loss <- recon_loss(fake, X, I, data_encode, phase2_vars_encode, 
                               phase2_cats, params, num_inds_p2, cat_inds_p2)
-    g_loss <- adv_term + xrecon_loss # + bound_loss
+    xrecon_loss2 <- recon_loss(fake2, X, I, data_encode, phase2_vars_encode, 
+                               phase2_cats, params, num_inds_p2, cat_inds_p2)
+    g_loss <- adv_term + xrecon_loss # + xrecon_loss2 + 10 * div_loss
     
     g_solver$zero_grad()
     g_loss$backward()
@@ -275,6 +345,8 @@ mmer.impute.cwgangp <- function(data, m = 5,
     
     if (save.step > 0){
       if (i %% save.step == 0){
+        # enable_dropout(gnet)
+        gnet$eval()
         result <- generateImpute(gnet, m = 1, 
                                  data_original, data_info, data_norm, 
                                  data_encode, data_training,
@@ -282,7 +354,7 @@ mmer.impute.cwgangp <- function(data, m = 5,
                                  num.normalizing, cat.encoding, 
                                  batch_size, device, params, tensor_list,
                                  type, log_shift)
-        step_result[[p]] <- result$gsample
+        step_result[[p]] <- result$gsample[[1]]
         p <- p + 1
       }
     }
@@ -290,7 +362,8 @@ mmer.impute.cwgangp <- function(data, m = 5,
   training_loss <- data.frame(training_loss)
   names(training_loss) <- c("G Loss", "D Loss")
   
-  #gnet$eval()
+  # enable_dropout(gnet)
+  gnet$eval()
   result <- generateImpute(gnet, m = m, 
                            data_original, data_info, data_norm, 
                            data_encode, data_training,

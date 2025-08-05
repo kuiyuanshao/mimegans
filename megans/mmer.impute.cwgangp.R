@@ -47,14 +47,14 @@ cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10,
                             g_dim = 256, d_dim = 256, pac = 10, 
                             n_g_layers = 3, n_d_layers = 3, discriminator_steps = 1,
                             tau = 0.2, hard = F, 
-                            type_g = "mlp", type_d = "mlp", sn_g = T, sn_d = T){
+                            type_g = "mlp", type_d = "mlp", sn_g = T, sn_d = T, scale = T){
   
   list(batch_size = batch_size, gamma = gamma, lambda = lambda, alpha = alpha, beta = beta, 
        at_least_p = at_least_p, lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 
        g_weight_decay = g_weight_decay, d_weight_decay = d_weight_decay, noise_dim = noise_dim,
        g_dim = g_dim, d_dim = d_dim, pac = pac, n_g_layers = n_g_layers, n_d_layers = n_d_layers, 
        discriminator_steps = discriminator_steps, tau = tau, hard = hard,
-       type_g = type_g, type_d = type_d, sn_g = sn_g, sn_d = sn_d)
+       type_g = type_g, type_d = type_d, sn_g = sn_g, sn_d = sn_d, scale = scale)
 }
 
 mmer.impute.cwgangp <- function(data, m = 5, 
@@ -196,9 +196,9 @@ mmer.impute.cwgangp <- function(data, m = 5,
   d_solver <- torch::optim_adam(dnet$parameters, lr = lr_d, 
                                 betas = d_betas, weight_decay = d_weight_decay)
   
-  training_loss <- matrix(0, nrow = epochs, ncol = 2)
+  training_loss <- matrix(0, nrow = epochs, ncol = 3)
   pb <- progress_bar$new(
-    format = paste0("Running :what [:bar] :percent eta: :eta | G Loss: :g_loss | D Loss: :d_loss"),
+    format = paste0("Running :what [:bar] :percent eta: :eta | G Loss: :g_loss | D Loss: :d_loss | Gamma: :gamma"),
     clear = FALSE, total = epochs, width = 100)
   
   if (save.step > 0){
@@ -286,11 +286,13 @@ mmer.impute.cwgangp <- function(data, m = 5,
     g_loss$backward()
     g_solver$step()
     
-    training_loss[i, ] <- c(g_loss$item(), d_loss$item())
+    gamma <- torch_clamp(dnet$gamma_attn + 0.05, 0.05, 0.75)
+    training_loss[i, ] <- c(g_loss$item(), d_loss$item(), gamma$item())
     pb$tick(tokens = list(
       what = "cWGAN-GP",
       g_loss = sprintf("%.4f", g_loss$item()),
-      d_loss = sprintf("%.4f", d_loss$item())
+      d_loss = sprintf("%.4f", d_loss$item()),
+      gamma = sprintf("%.4f", gamma$item())
     ))
     Sys.sleep(1 / 100000)
     
@@ -317,7 +319,7 @@ mmer.impute.cwgangp <- function(data, m = 5,
     }
   }
   training_loss <- data.frame(training_loss)
-  names(training_loss) <- c("G Loss", "D Loss")
+  names(training_loss) <- c("G Loss", "D Loss", "Gamma")
   
   # enable_dropout(gnet)
   gnet$eval()

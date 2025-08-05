@@ -129,7 +129,7 @@ cox.true <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +
 lapply(paste0("./megans/", list.files("./megans")), source)
 source("00_utils_functions.R")
 i <- 1
-for (i in 1:20){
+for (i in 1:5){
   digit <- stringr::str_pad(i, 4, pad = 0)
   samp_balance <- read.csv(paste0("./data/Sample/Debug/", digit, ".csv"))
   samp_balance <- match_types(samp_balance, data) %>% 
@@ -144,10 +144,10 @@ for (i in 1:20){
                                                   n_g_layers = 5, n_d_layers = 3, noise_dim = 128,
                                                   discriminator_steps = 1, 
                                                   type_g = "mlp", type_d = "saencoder",
-                                                  g_dim = 256, d_dim = 256, sn_g = F, sn_d = F), 
+                                                  g_dim = 256, d_dim = 256, sn_g = F, sn_d = F, scale = F), 
                                     type = "mmer",
-                                    data_info = data_info_balance, save.step = 5000)
-  save(megans_imp, file = paste0("./data/Sample/ATTN/", digit, ".RData"))
+                                    data_info = data_info_balance, save.step = 10000)
+  save(megans_imp, file = paste0("./data/Sample/ScaleATTN/", digit, ".RData"))
   
   megans_imp$imputation <- lapply(megans_imp$imputation, function(dat){
     match_types(dat, data)
@@ -164,8 +164,9 @@ for (i in 1:20){
   coeff <- bind_rows(lapply(fit$analyses, function(i){coef(i)}))
   print(apply(exp(coeff), 2, var))
 }
-a
-
+load(paste0("./data/Sample/ScaleATTN/", "0001", ".RData"))
+ggplot() +
+  geom_line(aes(x = 1:10000, y = megans_imp$loss[, 2]))
 show_var(imputation.list = megans_imp$imputation, var.name = "T_I",
          original.data = samp_balance)
 
@@ -179,7 +180,7 @@ coeffs <- NULL
 vars <- NULL
 for (i in 1:16){
   digit <- stringr::str_pad(i, 4, pad = 0)
-  load(paste0("./data/Sample/ATTN/", digit, ".RData"))
+  load(paste0("./data/Sample/ScaleATTN/", digit, ".RData"))
   
   megans_imp$imputation <- lapply(megans_imp$imputation, function(dat){
     match_types(dat, data)

@@ -185,7 +185,7 @@ discriminator.caencoder <- torch::nn_module(
     self$nphase2 <- nphase2
     self$ncols <- ncols
     head_dim_target <- if (nphase2 >= 64) 32 else 16
-    proj_dim <- ((nphase2 + 3) %/% head_dim_target) * head_dim_target
+    proj_dim <- ((nphase2 + 3) %/% head_dim_target + 1) * head_dim_target
     self$pacdim <- proj_dim * params$pac
     self$proj_layer <- nn_linear(nphase2, proj_dim)
     self$proj_layer_c <- nn_linear((ncols - nphase2), proj_dim)
@@ -227,17 +227,29 @@ discriminator.caencoder <- torch::nn_module(
   }
 )
 
+gamma_val <- function(raw){
+  gamma_min <- 0.05
+  gamma_max <- 0.3
+  mid  <- (gamma_min + gamma_max) / 2
+  span <- (gamma_max - gamma_min) / 2
+  softsign <- function(x) x / (1 + torch_abs(x))
+  gamma <- mid + span * softsign(raw)
+  
+  return (gamma)
+}
+
 discriminator.saencoder <- torch::nn_module(
   "DiscriminatorEncoder",
   initialize = function(n_d_layers, params, ncols, nphase2, ...) {
+    self$params <- params
     self$nphase2 <- nphase2
     self$ncols <- ncols
     head_dim_target <- if (ncols >= 64) 32 else 16
-    proj_dim <- ((ncols + 3) %/% head_dim_target + 1) * head_dim_target
-    self$pacdim <- proj_dim * params$pac
-    self$proj_layer <- nn_linear(ncols, proj_dim)
-    self$encoder <- Encoder(proj_dim, num_heads = max(1, min(8, round(proj_dim / head_dim_target))))
-    self$gamma_attn <- nn_parameter(torch_tensor(0.1))
+    self$proj_dim <- ((ncols + 3) %/% head_dim_target + 1) * head_dim_target
+    self$pacdim <- self$proj_dim * params$pac
+    self$proj_layer <- nn_linear(ncols, self$proj_dim)
+    self$encoder <- Encoder(self$proj_dim, num_heads = max(1, min(8, round(self$proj_dim / head_dim_target))))
+    self$gamma_attn <- nn_parameter(torch_tensor(0.05))
 
     self$seq <- torch::nn_sequential()
     dim <- self$pacdim
@@ -251,10 +263,20 @@ discriminator.saencoder <- torch::nn_module(
   },
   encode = function(input){
     input <- self$proj_layer(input)
-    encode_out <- self$encoder(input, input) # * self$gamma_attn
-
-    denom <- encode_out$norm(p = 2, dim = 2, keepdim = TRUE)$detach() + 1e-8
-    return (encode_out / denom)
+    gamma <- torch_clamp(self$gamma_attn + 0.05, 0.05, 1)
+    encode_out <- self$encoder(input, input)
+    
+    #denom1 <- (encode_out * gamma)$norm(p = 2, dim = 2, keepdim = TRUE)$detach() + 1e-9
+    denom <- (encode_out)$norm(p = 2, dim = 2, keepdim = TRUE)$detach() + 1e-9
+    
+    # print(nnf_mse_loss(encode_out / denom2, (encode_out * gamma) / denom1))
+    if (self$params$scale){
+      out <- gamma * (encode_out / (denom + 1e-8))
+    }else{
+      out <- (encode_out / (denom + 1e-8))
+    }
+   
+    return (out)
   },
   head_forward = function(encode_out){
     encode_out <- encode_out$reshape(c(-1, self$pacdim))

@@ -164,6 +164,7 @@ for (i in 1:20){
   coeff <- bind_rows(lapply(fit$analyses, function(i){coef(i)}))
   print(apply(exp(coeff), 2, var))
 }
+a
 
 show_var(imputation.list = megans_imp$imputation, var.name = "T_I",
          original.data = samp_balance)

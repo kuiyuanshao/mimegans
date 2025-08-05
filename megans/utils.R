@@ -17,18 +17,7 @@ recon_loss <- function(fake, true, I, encode_result, vars, phase2_cats, params, 
   return (mm_term + ce_term)
 }
 
-d_loss <- function(dnet, true, fake, params, device){
-  y_fake <- dnet(fake)
-  y_true <- dnet(true)
-  gradient_penalty<- gradient_penalty(dnet, true, fake, pac = params$pac, device = device)
-  d_loss <- -(torch_mean(y_true) - torch_mean(y_fake)) + params$lambda * gradient_penalty
-  return (d_loss)
-}
-
 cross_entropy_loss <- function(fake, true, I, encode_result, vars, phase2_cats){
-  # cats <- encode_result$binary_indices[which(sapply(encode_result$new_col_names, function(col_names) {
-  #   any(col_names %in% vars)
-  # }))]
   cats <- encode_result$binary_indices[which(sapply(names(encode_result$new_col_names), function(col_names) {
     any(col_names %in% phase2_cats)
   }))]
@@ -38,9 +27,6 @@ cross_entropy_loss <- function(fake, true, I, encode_result, vars, phase2_cats){
   loss <- list()
   i <- 1
   for (cat in cats){
-    # loss[[i]] <- sum((w$squeeze(2) * nnf_cross_entropy(fake[, cat, drop = F], 
-    #                                     torch_argmax(true[, cat, drop = F], dim = 2), 
-    #                                     reduction = "none")))
     loss[[i]] <- nnf_cross_entropy(fake[, cat, drop = F], 
                                    torch_argmax(true[, cat, drop = F], dim = 2), 
                                    reduction = "mean")
@@ -80,17 +66,67 @@ activation_fun <- function(fake, encode_result, vars, tau = 1, hard = F, gen = F
   return (fake)
 }
 
-gradient_penalty <- function(D, real_samples, fake_samples, pac, device) {
-  alp <- torch_rand(c(ceiling(real_samples$size(1) / pac), 1, 1))$to(device = device)
-  pac <- torch_tensor(as.integer(pac), device = device)
-  size <- torch_tensor(real_samples$size(2), device = device)
+proj_to_p1 <- function(fake, X, A, I, CM_tensors, data_encode, phase2_cats, phase1_cats_inds, phase2_cats_inds){
+  A_cat <- A[, phase1_cats_inds, drop = F]
+  notI <- I$logical_not()
+  cats <- data_encode$binary_indices[which(sapply(names(data_encode$new_col_names), function(col_names) {
+    any(col_names %in% phase2_cats)
+  }))]
+  eps <- 1e-6
+  for (c in 1:length(cats)){
+    cat <- cats[[c]]
+    cm <- CM_tensors[[names(cats)[c]]]
+    
+    logit <- fake[notI, cat]
+    prob <- nnf_softmax(logit, dim = 2)
+    prob <- prob$clamp(eps, 1 - eps)
+    prob_proj <- prob$matmul(cm)
+    prob_proj <- prob_proj$clamp(eps, 1 - eps)
+    prob_proj <- prob_proj / prob_proj$sum(dim = 2, keepdim=TRUE)
+    logit_proj <- torch_log(prob_proj)
+    tmp <- fake[notI, ]
+    tmp[, cat] <- logit_proj
+    fake[notI, ] <- tmp
+  }
+  for (k in 1:length(phase2_cats_inds)){
+    X[notI, phase2_cats_inds[k]] <- A_cat[notI, k]
+  }
   
-  alp <- alp$repeat_interleave(pac, dim = 2)$repeat_interleave(size, dim = 3)
-  alp <- alp$reshape(c(-1, real_samples$size(2)))
+  return (list(fake, X))
+}
+
+gradient_penalty <- function(D, real_samples, fake_samples, params, device, nphase2) {
+  # alp <- torch_rand(c(ceiling(real_samples$size(1) / pac), 1, 1))$to(device = device)
+  # pac <- torch_tensor(as.integer(pac), device = device)
+  # size <- torch_tensor(real_samples$size(2), device = device)
+  # size <- torch_tensor(nphase2, device = device)
+  # alp <- alp$repeat_interleave(pac, dim = 2)$repeat_interleave(size, dim = 3)
+  # alp <- alp$reshape(c(-1, size$item()))
   
-  interpolates <- (alp * real_samples + (1 - alp) * fake_samples)$requires_grad_(TRUE)
-  d_interpolates <- D(interpolates)
-  
+  alp <- torch_rand(real_samples$size(1), 1, device = device)
+  # interpolates <- (alp * real_samples[, 1:nphase2, drop = F] + (1 - alp) * fake_samples[, 1:nphase2, drop = F])$requires_grad_(TRUE)
+  # input <- torch_cat(list(interpolates, real_samples[, (nphase2 + 1):real_samples$size(2)]), dim = 2)
+  if (params$type_d == "mlp"){
+    interpolates <- (alp * real_samples + (1 - alp) * fake_samples)$requires_grad_(TRUE)
+    d_interpolates <- D(interpolates)
+  }else if (params$type_d == "attn"){
+    feat_r <- D$crossattn(real_samples[, 1:nphase2, drop = F], real_samples[, (nphase2 + 1):real_samples$size(2)])
+    feat_f <- D$crossattn(fake_samples[, 1:nphase2, drop = F], fake_samples[, (nphase2 + 1):real_samples$size(2)])
+    # feat_r <- D$selfattn(real_samples)
+    # feat_f <- D$selfattn(fake_samples)
+    interpolates <- (alp * feat_r + (1 - alp) * feat_f)$requires_grad_(TRUE)
+    d_interpolates <- D$head_forward(interpolates)
+  }else if (params$type_d == "encoder"){
+    feat_r <- D$encode(real_samples)
+    feat_f <- D$encode(fake_samples)
+    interpolates <- (alp * feat_r + (1 - alp) * feat_f)$requires_grad_(TRUE)
+    d_interpolates <- D$head_forward(interpolates)
+  }else if (params$type_d == "selfattn"){
+    feat_r <- D$selfattn(real_samples)
+    feat_f <- D$selfattn(fake_samples)
+    interpolates <- (alp * feat_r + (1 - alp) * feat_f)$requires_grad_(TRUE)
+    d_interpolates <- D$head_forward(interpolates)
+  }
   fake <- torch_ones(d_interpolates$size(), device = device)
   fake$requires_grad <- FALSE
   
@@ -103,8 +139,8 @@ gradient_penalty <- function(D, real_samples, fake_samples, pac, device) {
   )[[1]]
   
   # Reshape gradients to group the pac samples together
-  if (pac$item() > 1){
-    gradients <- gradients$reshape(c(-1, pac$item() * size$item()))
+  if (params$pac > 1){
+    gradients <- gradients$reshape(c(-1, params$pac * interpolates$size(2)))
   }
   gradient_penalty <- torch_mean((torch_norm(gradients, p = 2, dim = 2) - 1) ^ 2)
   

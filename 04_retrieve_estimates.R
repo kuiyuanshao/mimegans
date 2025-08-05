@@ -108,3 +108,33 @@ ggplot(megans_imp$imputation[[1]]) +
 ggplot(megans_imp$imputation[[1]]) + 
   geom_density(aes(x = HbA1c), colour = "red") +
   geom_density(aes(x = HbA1c), data = data)
+
+
+apply(bind_cols(lapply((resultCoeff %>% filter(Method == "megans"))[, 1:13], as.numeric)) + matrix(rep(exp(coef(cox.true)), 17), byrow = T,  ncol = 13), 2, var)
+apply(bind_cols(lapply((resultStdError %>% filter(Method == "megans"))[, 1:13], as.numeric)) ^ 2, 2, mean)
+
+apply(bind_cols(lapply((resultCoeff %>% filter(Method == "megans"))[, 1:13], as.numeric)) + 
+        matrix(rep(exp(coef(cox.true)), 17), byrow = T,  ncol = 13), 2, var) 
+
+coeffs <- NULL
+for (i in 1:20){
+  digit <- stringr::str_pad(i, 4, pad = 0)
+  load(paste0("./data/Sample/Debug/", digit, ".RData"))
+  
+  megans_imp$imputation <- lapply(megans_imp$imputation, function(dat){
+    match_types(dat, data)
+  })
+  imp.mids <- as.mids(megans_imp$imputation)
+  fit <- with(data = imp.mids, 
+              exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
+                            rs4506565 + I((AGE - 50) / 5) + 
+                            SEX + INSURANCE + 
+                            RACE + I(BMI / 5) + SMOKE))
+  pooled <- mice::pool(fit)
+  sumry <- summary(pooled, conf.int = TRUE)
+  coeffs <- rbind(coeffs, exp(sumry$estimate))
+}
+
+apply(coeffs, 2, var) / apply(vars, 2, var) 
+vars <- bind_rows(lapply(fit$analyses, function(i){exp(coef(i))}))
+apply(vars, 2, var)

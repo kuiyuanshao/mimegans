@@ -1,16 +1,21 @@
 Residual <- torch::nn_module(
   "Residual",
-  initialize = function(dim1, dim2){
-    self$linear <- nn_linear(dim1, dim2)
-    self$bn <- nn_batch_norm1d(dim2)
-    self$elu <- nn_elu()
-    self$do <- nn_dropout()
+  initialize = function(dim1, dim2, rate, sn){
+    if (sn){
+      self$linear <- spectral_norm(nn_linear(dim1, dim2))
+    }else{
+      self$linear <- nn_linear(dim1, dim2)
+    }
+    self$norm <- nn_batch_norm1d(dim2)
+    self$act <- nn_elu()
+    self$dropout <- nn_dropout(rate)
   },
   forward = function(input){
-    output <- self$linear(input)
-    output <- self$bn(output)
-    output <- self$elu(output)
-    output <- self$do(output)
+    output <- input %>% 
+      self$linear() %>% 
+      self$norm() %>%
+      self$act() %>%
+      self$dropout()
     return (torch_cat(list(output, input), dim = 2))
   }
 )
@@ -67,13 +72,62 @@ Tokenizer <- nn_module(
   }
 )
 
+ScaleNorm <- torch::nn_module(
+  "ScaleNorm",
+  initialize = function(scale = 1, eps = 1e-5){
+    self$scale <- nn_parameter(torch_tensor(scale))
+    self$eps <- eps
+  },
+  forward = function(x){
+    norm <- self$scale / (torch_norm(x, dim = -1, keepdim = T) + self$eps)
+    return (x * norm)
+  }
+)
+
+RMSNorm <- nn_module(
+  "RMSNorm",
+  initialize = function(d, p = -1, eps = 1e-8, bias = FALSE) {
+    self$eps  <- eps
+    self$d    <- d
+    self$p    <- p
+    self$bias <- bias
+    
+    self$scale <- nn_parameter(torch_ones(d))   # γ vector
+    if (bias) {
+      self$offset <- nn_parameter(torch_zeros(d))
+    }
+  },
+  
+  forward = function(x) {
+    if (self$p < 0 || self$p > 1) {
+      norm_x <- x$norm(p = 2, dim = -1, keepdim = TRUE)
+      d_x    <- self$d
+    } else {
+      partial_size <- as.integer(self$d * self$p)
+      split <- torch_split(x, c(partial_size, self$d - partial_size), dim = -1)
+      partial_x <- split[[1]]
+      norm_x <- partial_x$norm(p = 2, dim = -1, keepdim = TRUE)
+      d_x <- partial_size
+    }
+    
+    rms_x <- norm_x * d_x^(-0.5)
+    x_normed <- x / (rms_x + self$eps)
+    
+    if (self$bias) {
+      return(self$scale * x_normed + self$offset)
+    } else {
+      return(self$scale * x_normed)
+    }
+  }
+)
+
 Encoder <- torch::nn_module(
   "Encoder",
   initialize = function(embed_dim, num_heads){
-    self$attn <- nn_multihead_attention(embed_dim, num_heads, batch_first = T)
-    
-    self$dropout1 <- nn_dropout()
-    self$dropout2 <- nn_dropout()
+    self$attn <- nn_multihead_attention(embed_dim, num_heads, 
+                                        batch_first = T)
+    self$dropout1 <- nn_dropout(0.5)
+    self$dropout2 <- nn_dropout(0.5)
     
     self$norm1 <- nn_layer_norm(embed_dim)
     self$norm2 <- nn_layer_norm(embed_dim)
@@ -88,59 +142,72 @@ Encoder <- torch::nn_module(
     input1 <- input1$unsqueeze(2)
     input2 <- input2$unsqueeze(2)
     attn_out <- self$attn(input1, input2, input2)[[1]]
-    attn_out <- self$norm1(input1 + self$dropout1(attn_out))
-    out <- self$norm2(attn_out + self$dropout2(self$ff(attn_out)))
+    attn_out <- input1 + attn_out
+    out <- attn_out + self$ff(attn_out)
     out <- out$squeeze(2)
     return (out)
   }
 )
 
-m_net <- nn_module(
-  initialize = function(input_dim, params, hidden = 64){
-    self$pacdim <- input_dim * params$pac
-    self$seq <- nn_sequential(
-      nn_linear(self$pacdim, hidden),
-      nn_relu(),
-      nn_linear(hidden, 1)
-    )
-  },
-  forward = function(input){
-    input <- input$reshape(c(-1, self$pacdim))
-    self$seq(input)
-  }
-)
 
-LinearSN <- nn_module(
-  "LinearSN",
-  initialize = function(in_f, out_f, n_power = 1, eps = 1e-12) {
-    self$linear  <- nn_linear(in_f, out_f, bias = TRUE)
-    u0 <- torch_randn(out_f)
-    self$u <- nn_buffer(u0 / (torch_norm(u0) + eps))
-    self$n_power <- n_power
+SpectralNorm <- nn_module(
+  classname = "SpectralNorm",
+  
+  initialize = function(module, name = "weight",
+                        n_power_iterations = 1L, eps = 1e-12) {
+    
+    self$module <- module
+    self$name <- name
+    self$niters <- as.integer(n_power_iterations)
     self$eps <- eps
+    
+    w <- module$parameters[[name]]
+    stopifnot(!is.null(w))
+    
+    # init power‑iter vectors as buffers (unit length)
+    w_mat  <- w$view(c(w$size(1), -1))
+    make_unit <- function(dim) {
+      v <- torch_randn(dim, device = w$device, dtype = w$dtype)
+      v / (v$norm(p = 2) + eps)
+    }
+    self$u <- nn_buffer(make_unit(w_mat$size(1)))
+    self$v <- nn_buffer(make_unit(w_mat$size(2)))
   },
   
-  compute_weight = function() {
-    w <- self$linear$weight
-    u_est <- self$u$clone() 
-    for (i in 1:self$n_power) {
-      v <- torch_mv(torch_t(w), u_est)
-      v <- v / (torch_norm(v) + self$eps)
-      
-      u_est <- torch_mv(w, v)
-      u_est <- u_est / (torch_norm(u_est) + self$eps)
+  .power_iteration = function(w_mat) {
+    u <- self$u$detach()
+    v <- self$v$detach()
+    eps <- self$eps
+    
+    for (i in seq_len(self$niters)) {
+      v <- torch_matmul(w_mat$t(), u)
+      v <- v / (v$norm(p = 2) + eps)
+      u <- torch_matmul(w_mat, v)
+      u <- u / (u$norm(p = 2) + eps)
     }
-    sigma <- torch_dot(u_est, torch_mv(w, v)) 
+    # update buffers *outside* autograd
     with_no_grad({
-      self$u$copy_(u_est) 
+      self$u$copy_(u)
+      self$v$copy_(v)
     })
-    w / sigma 
+    list(u = u, v = v)
   },
   
   forward = function(x) {
-    w_bar <- self$compute_weight()
-    nnf_linear(x, w_bar, self$linear$bias)
+    w_orig <- self$module$parameters[[self$name]]
+    w_mat  <- w_orig$view(c(w_orig$size(1), -1))
+    
+    uv   <- self$.power_iteration(w_mat)
+    sigma <- torch_dot(uv$u, torch_matmul(w_mat, uv$v))$detach()
+    w_bar <- w_orig / (sigma)         # fresh tensor, no graph history
+
+    return(nnf_linear(x, w_bar, bias = self$module$bias))
   }
 )
+
+spectral_norm <- function(module, name = "weight", n_power_iterations = 1L) {
+  SpectralNorm(module, name, n_power_iterations)
+}
+
 
 

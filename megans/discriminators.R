@@ -271,9 +271,9 @@ discriminator.saencoder <- torch::nn_module(
     
     # print(nnf_mse_loss(encode_out / denom2, (encode_out * gamma) / denom1))
     if (self$params$scale){
-      out <- gamma * (encode_out / (denom + 1e-8))
+      out <- gamma * (encode_out / denom)
     }else{
-      out <- (encode_out / (denom + 1e-8))
+      out <- (encode_out / denom)
     }
    
     return (out)

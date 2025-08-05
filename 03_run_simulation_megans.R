@@ -143,7 +143,7 @@ for (i in 1:20){
                                                   lambda = 10, lr_g = 2e-4, lr_d = 2e-4, 
                                                   n_g_layers = 5, n_d_layers = 3, noise_dim = 128,
                                                   discriminator_steps = 1, 
-                                                  type_g = "mlp", type_d = "attn",
+                                                  type_g = "mlp", type_d = "encoder",
                                                   g_dim = 512, d_dim = 512, sn_g = F, sn_d = F), 
                                     type = "mmer",
                                     data_info = data_info_balance, save.step = 5000)
@@ -240,7 +240,7 @@ for (i in 1:20){
                                                   lambda = 10, lr_g = 2e-4, lr_d = 2e-4, 
                                                   n_g_layers = 3, n_d_layers = 2, noise_dim = 128,
                                                   discriminator_steps = 1, 
-                                                  type_g = "mlp", type_d = "attn",
+                                                  type_g = "mlp", type_d = "encoder",
                                                   g_dim = 256, d_dim = 256, sn_g = F, sn_d = F), 
                                     type = "mmer",
                                     data_info = data_info, save.step = 5000)

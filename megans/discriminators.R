@@ -238,7 +238,7 @@ discriminator.encoder <- torch::nn_module(
     proj_dim <- ((ncols + 3) %/% head_dim_target + 1) * head_dim_target
     self$pacdim <- proj_dim * params$pac
     self$proj_layer <- nn_linear(ncols, proj_dim)
-
+    self$encoder <- Encoder(proj_dim, num_heads = max(1, min(8, round(proj_dim / head_dim_target))))
     self$gamma_attn <- nn_parameter(torch_tensor(0.1))
 
     self$seq <- torch::nn_sequential()
@@ -251,8 +251,8 @@ discriminator.encoder <- torch::nn_module(
     }
     self$seq$add_module("Linear", nn_linear(dim, 1))
   },
-  encode = function(x){
-    input <- self$proj_layer(x)
+  encode = function(input){
+    input <- self$proj_layer(input)
     encode_out <- self$encoder(input, input) # * self$gamma_attn
 
     denom <- encode_out$norm(p = 2, dim = 2, keepdim = TRUE)$detach() + 1e-8
@@ -264,7 +264,7 @@ discriminator.encoder <- torch::nn_module(
     return (out)
   },
   forward = function(input) {
-    encode_out <- self$encode(input)
+    encode_out <- self$encode(input = input)
     encode_out <- encode_out$reshape(c(-1, self$pacdim))
     out <- self$seq(encode_out)
     return(out)

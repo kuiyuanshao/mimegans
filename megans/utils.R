@@ -116,14 +116,14 @@ gradient_penalty <- function(D, real_samples, fake_samples, params, device, npha
     # feat_f <- D$selfattn(fake_samples)
     interpolates <- (alp * feat_r + (1 - alp) * feat_f)$requires_grad_(TRUE)
     d_interpolates <- D$head_forward(interpolates)
-  }else if (params$type_d == "encoder"){
+  }else if (params$type_d == "saencoder"){
     feat_r <- D$encode(real_samples)
     feat_f <- D$encode(fake_samples)
     interpolates <- (alp * feat_r + (1 - alp) * feat_f)$requires_grad_(TRUE)
     d_interpolates <- D$head_forward(interpolates)
-  }else if (params$type_d == "selfattn"){
-    feat_r <- D$selfattn(real_samples)
-    feat_f <- D$selfattn(fake_samples)
+  }else if (params$type_d == "caencoder"){
+    feat_r <- D$encode(real_samples[, 1:nphase2, drop = F], real_samples[, (nphase2 + 1):real_samples$size(2)])
+    feat_f <- D$encode(fake_samples[, 1:nphase2, drop = F], fake_samples[, (nphase2 + 1):real_samples$size(2)])
     interpolates <- (alp * feat_r + (1 - alp) * feat_f)$requires_grad_(TRUE)
     d_interpolates <- D$head_forward(interpolates)
   }

@@ -1,11 +1,7 @@
 Residual <- torch::nn_module(
   "Residual",
-  initialize = function(dim1, dim2, rate, sn){
-    if (sn){
-      self$linear <- spectral_norm(nn_linear(dim1, dim2))
-    }else{
-      self$linear <- nn_linear(dim1, dim2)
-    }
+  initialize = function(dim1, dim2, rate){
+    self$linear <- nn_linear(dim1, dim2)
     self$norm <- nn_batch_norm1d(dim2)
     self$act <- nn_elu()
     self$dropout <- nn_dropout(rate)
@@ -87,9 +83,9 @@ ScaleNorm <- torch::nn_module(
 RMSNorm <- nn_module(
   "RMSNorm",
   initialize = function(d, p = -1, eps = 1e-8, bias = FALSE) {
-    self$eps  <- eps
-    self$d    <- d
-    self$p    <- p
+    self$eps <- eps
+    self$d <- d
+    self$p <- p
     self$bias <- bias
     
     self$scale <- nn_parameter(torch_ones(d))   # γ vector

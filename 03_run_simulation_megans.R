@@ -129,7 +129,7 @@ cox.true <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +
 lapply(paste0("./megans/", list.files("./megans")), source)
 source("00_utils_functions.R")
 i <- 1
-for (i in 1:5){
+for (i in 1:10){
   digit <- stringr::str_pad(i, 4, pad = 0)
   samp_balance <- read.csv(paste0("./data/Sample/Debug/", digit, ".csv"))
   samp_balance <- match_types(samp_balance, data) %>% 
@@ -143,10 +143,10 @@ for (i in 1:5){
                                                   lambda = 10, lr_g = 2e-4, lr_d = 2e-4, 
                                                   n_g_layers = 5, n_d_layers = 3, noise_dim = 128,
                                                   discriminator_steps = 1, 
-                                                  type_g = "mlp", type_d = "saencoder",
-                                                  g_dim = 256, d_dim = 256, sn_g = F, sn_d = F, scale = F), 
+                                                  type_g = "mlp", type_d = "sattn",
+                                                  g_dim = 256, d_dim = 256), 
                                     type = "mmer",
-                                    data_info = data_info_balance, save.step = 10000)
+                                    data_info = data_info_balance, save.step = 10001)
   save(megans_imp, file = paste0("./data/Sample/ScaleATTN/", digit, ".RData"))
   
   megans_imp$imputation <- lapply(megans_imp$imputation, function(dat){
@@ -178,7 +178,7 @@ plot_2num(imputation.list = megans_imp$imputation[1:5], var.x = "HbA1c",
 
 coeffs <- NULL
 vars <- NULL
-for (i in 1:16){
+for (i in 1:10){
   digit <- stringr::str_pad(i, 4, pad = 0)
   load(paste0("./data/Sample/ScaleATTN/", digit, ".RData"))
   
@@ -213,18 +213,22 @@ for (i in 1:20){
   data$c_ln_kcal_true[idx] <- NA
   data$c_ln_protein_true[idx] <- NA
   data$W <- 1
+  data$R <- 1
+  data$R[idx] <- 0
   save(data, file = paste0("./debug/", digit, ".RData"))
 }
-lapply(c("dplyr", "stringr", "torch", "survival", "ggplot2"), require, character.only = T)
+lapply(c("dplyr", "stringr", "torch", "ggplot2"), require, character.only = T)
 lapply(paste0("./megans/", list.files("./megans")), source)
 source("00_utils_functions.R")
-cox.true <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + usborn + 
-                  female + bkg_o + bkg_pr, family = gaussian(), pop)
+cox.true.lm <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + usborn + 
+                     female + bkg_o + bkg_pr, family = gaussian(), pop)
+cox.true.bn <- glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + usborn + 
+                     female + bkg_o + bkg_pr, family = binomial(), pop)
 for (i in 1:20){
   digit <- stringr::str_pad(i, 4, pad = 0)
   load(paste0("./debug/", digit, ".RData"))
   data_info <- list(weight_var = "W", 
-                    cat_vars = c("idx", "usborn", "high_chol", "female", "bkg_pr", "bkg_o", "hypertension"),
+                    cat_vars = c("idx", "usborn", "high_chol", "female", "bkg_pr", "bkg_o", "hypertension", "R"),
                     num_vars = c("id", "age", "bmi", "c_age", "c_bmi",
                                  "c_ln_na_true", "c_ln_k_true", "c_ln_kcal_true", "c_ln_protein_true",
                                  "c_ln_na_bio1", "c_ln_k_bio1", "c_ln_kcal_bio1", "c_ln_protein_bio1",
@@ -237,31 +241,79 @@ for (i in 1:20){
   megans_imp <- mmer.impute.cwgangp(data, m = 20, 
                                     num.normalizing = "mode", 
                                     cat.encoding = "onehot", 
-                                    device = "cpu", epochs = 10000,
+                                    device = "cpu", epochs = 5000,
                                     params = list(batch_size = 500, pac = 10, 
                                                   lambda = 10, lr_g = 2e-4, lr_d = 2e-4, 
                                                   n_g_layers = 3, n_d_layers = 2, noise_dim = 128,
                                                   discriminator_steps = 1, 
-                                                  type_g = "mlp", type_d = "encoder",
-                                                  g_dim = 256, d_dim = 256, sn_g = F, sn_d = F), 
+                                                  type_g = "mlp", type_d = "sattn",
+                                                  g_dim = 256, d_dim = 256), 
                                     type = "mmer",
-                                    data_info = data_info, save.step = 5000)
+                                    data_info = data_info, save.step = 10001)
   save(megans_imp, file = paste0("./debug/imp_", digit, ".RData"))
-  megans_imp$imputation <- lapply(megans_imp$imputation, function(dat){
-    match_types(dat, pop)
-  })
+  
   imp.mids <- as.mids(megans_imp$imputation)
-  fit <- with(data = imp.mids, 
-              exp = glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + usborn + 
-                          female + bkg_o + bkg_pr))
-  pooled <- mice::pool(fit)
-  sumry <- summary(pooled, conf.int = TRUE)
-  print(sumry$estimate - coef(cox.true))
-  coeff <- bind_rows(lapply(fit$analyses, function(i){coef(i)}))
-  print(apply(coeff, 2, var))
+  fit.lm <- with(data = imp.mids, 
+                 exp = glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + usborn + 
+                             female + bkg_o + bkg_pr, family = gaussian()))
+  pooled.lm <- mice::pool(fit.lm)
+  sumry.lm <- summary(pooled.lm, conf.int = TRUE)
+  print(sumry.lm$estimate - coef(cox.true.lm))
+  
+  fit.bn <- with(data = imp.mids, 
+                 exp = glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + usborn + 
+                             female + bkg_o + bkg_pr, family = binomial()))
+  pooled.bn <- mice::pool(fit.bn)
+  sumry.bn <- summary(pooled.bn, conf.int = TRUE)
+  print(sumry.bn$estimate - coef(cox.true.bn))
+  
+  coeff.lm <- bind_rows(lapply(fit.lm$analyses, function(i){coef(i)}))
+  print(apply(coeff.lm, 2, var))
+  coeff.bn <- bind_rows(lapply(fit.bn$analyses, function(i){coef(i)}))
+  print(apply(coeff.bn, 2, var))
 }
 
-
-ggplot() + 
+ggplot(megans_imp$imputation[[1]]) +
+  geom_boxplot(aes(x = as.factor(hypertension), y = c_ln_na_true))
+ggplot(pop) +
+  geom_boxplot(aes(x = as.factor(hypertension), y = c_ln_na_true))
+ggplot(megans_imp$imputation[[1]]) + 
   geom_density(aes(x = megans_imp$imputation[[1]]$c_ln_na_true), colour = "blue") + 
   geom_density(aes(x = pop$c_ln_na_true), colour = "red")
+
+ggplot(megans_imp$imputation[[1]]) + 
+  geom_point(aes(x = c_ln_na_true, y = sbp)) +
+  geom_point(aes(x = c_ln_na_true, y = sbp), data = data, colour = "red", alpha = 0.1)
+coeffs.lm <- NULL
+coeffs.bn <- NULL
+vars.lm <- NULL
+vars.bn <- NULL
+for (i in 1:16){
+  digit <- stringr::str_pad(i, 4, pad = 0)
+  load(paste0("./debug/imp_", digit, ".RData"))
+  
+  imp.mids <- as.mids(megans_imp$imputation)
+  fit.lm <- with(data = imp.mids, 
+                 exp = glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + usborn + 
+                             female + bkg_o + bkg_pr, family = gaussian()))
+  pooled.lm <- mice::pool(fit.lm)
+  sumry.lm <- summary(pooled.lm, conf.int = TRUE)
+  
+  fit.bn <- with(data = imp.mids, 
+                 exp = glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + usborn + 
+                             female + bkg_o + bkg_pr, family = binomial()))
+  pooled.bn <- mice::pool(fit.bn)
+  sumry.bn <- summary(pooled.bn, conf.int = TRUE)
+  
+  
+  coeffs.lm <- rbind(coeffs.lm, sumry.lm$estimate)
+  coeffs.bn <- rbind(coeffs.bn, sumry.bn$estimate)
+  
+  vars.lm <- rbind(vars.lm, apply(bind_rows(lapply(fit.lm$analyses, function(i){coef(i)})), 2, var))
+  vars.bn <- rbind(vars.bn, apply(bind_rows(lapply(fit.bn$analyses, function(i){coef(i)})), 2, var))
+}
+colMeans(coeffs.lm) -  coef(cox.true.lm)
+colMeans(coeffs.bn) - coef(cox.true.bn)
+apply(coeffs.lm, 2, var) / apply(vars.lm, 2, mean) 
+apply(coeffs.bn, 2, var) / apply(vars.bn, 2, mean) 
+ggplot() + geom_boxplot(aes(x = coeffs.bn[, 2])) + xlim(0.5, 2)

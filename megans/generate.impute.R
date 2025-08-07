@@ -68,7 +68,7 @@ generateImpute <- function(gnet, m = 5,
                            phase1_vars, phase2_vars,
                            num.normalizing, cat.encoding, 
                            batch_size, device, params,
-                           tensor_list, type, log_shift){
+                           tensor_list, type){
   imputed_data_list <- vector("list", m)
   gsample_data_list <- vector("list", m)
   batchforimpute <- create_bfi(data_original, batch_size, tensor_list)

@@ -208,7 +208,7 @@ discriminator.caencoder <- torch::nn_module(
     proj_y <- self$proj_layer_c(y)
     encode_out <- self$encoder(proj_x, proj_y) # * self$gamma_attn
 
-    denom <- encode_out$norm(p = 2, dim = 2, keepdim = TRUE)$detach() + 1e-8
+    denom <- encode_out$norm(p = 2, dim = 2, keepdim = TRUE)$detach() + 1e-7
     return (encode_out / denom)
   },
   head_forward = function(encode_out){
@@ -238,19 +238,19 @@ gamma_val <- function(raw){
   return (gamma)
 }
 
-discriminator.saencoder <- torch::nn_module(
+discriminator.sattn <- torch::nn_module(
   "DiscriminatorEncoder",
-  initialize = function(n_d_layers, params, ncols, nphase2, ...) {
-    self$params <- params
-    self$nphase2 <- nphase2
-    self$ncols <- ncols
+  initialize = function(params, ncols, nphase2, ...) {
+    n_d_layers <- params$n_d_layers
     head_dim_target <- if (ncols >= 64) 32 else 16
     self$proj_dim <- ((ncols + 3) %/% head_dim_target + 1) * head_dim_target
     self$pacdim <- self$proj_dim * params$pac
+    
     self$proj_layer <- nn_linear(ncols, self$proj_dim)
-    self$encoder <- Encoder(self$proj_dim, num_heads = max(1, min(8, round(self$proj_dim / head_dim_target))))
-    self$gamma_attn <- nn_parameter(torch_tensor(0.05))
-
+    self$attn <- nn_multihead_attention(self$proj_dim, 
+                                        num_heads = max(1, min(8, round(self$proj_dim / head_dim_target))),
+                                        batch_first = T)
+    self$gamma <- nn_parameter(torch_tensor(0))
     self$seq <- torch::nn_sequential()
     dim <- self$pacdim
     for (i in 1:n_d_layers) {
@@ -261,32 +261,11 @@ discriminator.saencoder <- torch::nn_module(
     }
     self$seq$add_module("Linear", nn_linear(dim, 1))
   },
-  encode = function(input){
-    input <- self$proj_layer(input)
-    gamma <- torch_clamp(self$gamma_attn + 0.05, 0.05, 1)
-    encode_out <- self$encoder(input, input)
-    
-    #denom1 <- (encode_out * gamma)$norm(p = 2, dim = 2, keepdim = TRUE)$detach() + 1e-9
-    denom <- (encode_out)$norm(p = 2, dim = 2, keepdim = TRUE)$detach() + 1e-9
-    
-    # print(nnf_mse_loss(encode_out / denom2, (encode_out * gamma) / denom1))
-    if (self$params$scale){
-      out <- gamma * (encode_out / denom)
-    }else{
-      out <- (encode_out / denom)
-    }
-   
-    return (out)
-  },
-  head_forward = function(encode_out){
-    encode_out <- encode_out$reshape(c(-1, self$pacdim))
-    out <- self$seq(encode_out)
-    return (out)
-  },
   forward = function(input) {
-    encode_out <- self$encode(input = input)
-    encode_out <- encode_out$reshape(c(-1, self$pacdim))
-    out <- self$seq(encode_out)
-    return(out)
+    input <- self$proj_layer(input)$unsqueeze(2)
+    attn_out <- (input + self$gamma / 3 * self$attn(input, input, input)[[1]])$squeeze(2)
+    attn_out <- attn_out$reshape(c(-1, self$pacdim))
+    out <- self$seq(attn_out)
+    return (out)
   }
 )

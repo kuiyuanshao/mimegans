@@ -1,15 +1,12 @@
 pacman::p_load(progress, torch)
 
-enable_dropout <- function(model){
-  model$train()  # turn dropout ON
-  model$apply(function(m) {
-    if (inherits(m, "nn_batch_norm1d")) m$eval()  # freeze BN stats
-  })
-}
-
 init_gan_g <- function(m) {
-  if (any(class(m) == "nn_linear")) {
+  if (inherits(m, "nn_linear")) {
     nn_init_kaiming_normal_(m$weight, a = 1.257237, mode = "fan_in", nonlinearity = "leaky_relu")
+    nn_init_zeros_(m$bias)
+  }
+  if (inherits(m, "nn_batch_norm1d")) {
+    nn_init_ones_(m$weight)
     nn_init_zeros_(m$bias)
   }
 }
@@ -25,10 +22,6 @@ init_gan_d <- function(m) {
                               nonlinearity = "leaky_relu")
     }
     if (!is.null(m$bias)) nn_init_constant_(m$bias, 0)
-  }
-  if (inherits(m, "nn_batch_norm1d") || inherits(m, "nn_layer_norm")) {
-    if (!is.null(m$weight)) nn_init_constant_(m$weight, 1)
-    if (!is.null(m$bias))   nn_init_constant_(m$bias, 0)
   }
   if (inherits(m, "nn_multihead_attention")) {
     if (!is.null(m$in_proj_weight)) nn_init_xavier_uniform_(m$in_proj_weight, gain = 1.0)
@@ -47,14 +40,14 @@ cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10,
                             g_dim = 256, d_dim = 256, pac = 10, 
                             n_g_layers = 3, n_d_layers = 3, discriminator_steps = 1,
                             tau = 0.2, hard = F, 
-                            type_g = "mlp", type_d = "mlp", sn_g = T, sn_d = T, scale = T){
+                            type_g = "mlp", type_d = "mlp"){
   
   list(batch_size = batch_size, gamma = gamma, lambda = lambda, alpha = alpha, beta = beta, 
        at_least_p = at_least_p, lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 
        g_weight_decay = g_weight_decay, d_weight_decay = d_weight_decay, noise_dim = noise_dim,
        g_dim = g_dim, d_dim = d_dim, pac = pac, n_g_layers = n_g_layers, n_d_layers = n_d_layers, 
        discriminator_steps = discriminator_steps, tau = tau, hard = hard,
-       type_g = type_g, type_d = type_d, sn_g = sn_g, sn_d = sn_d, scale = scale)
+       type_g = type_g, type_d = type_d)
 }
 
 mmer.impute.cwgangp <- function(data, m = 5, 
@@ -76,18 +69,8 @@ mmer.impute.cwgangp <- function(data, m = 5,
   encode <- paste("encode", cat.encoding, sep = ".")
   
   weights <- as.numeric(as.character(data[, names(data) %in% weight_var]))
-  # ub <- sapply(phase2_vars[phase2_vars %in% data_info$num_vars], function(v) max(data[[v]], na.rm = T), 
-  #              simplify = TRUE, USE.NAMES = TRUE)
-  # lb <- sapply(phase2_vars[phase2_vars %in% data_info$num_vars], function(v) min(data[[v]], na.rm = T), 
-  #              simplify = TRUE, USE.NAMES = TRUE)
   data_original <- data
   if (type == "mmer"){
-    # log_shift <- pmax(0, -apply(data[, match((phase1_vars[phase1_vars %in% num_vars]), names(data))],
-    #                             2, min, na.rm = TRUE)) + 1e-6
-    # data[, match((phase2_vars[phase2_vars %in% num_vars]), names(data))] <-
-    #   log(sweep(data[, match((phase1_vars[phase1_vars %in% num_vars]), names(data))], 2, log_shift, "+")) -
-    #   log(sweep(data[, match((phase2_vars[phase2_vars %in% num_vars]), names(data))], 2, log_shift, "+"))
-    log_shift <- 0
     data[, match((phase2_vars[phase2_vars %in% num_vars]), names(data))] <-
         data[, match((phase1_vars[phase1_vars %in% num_vars]), names(data))] -
       data[, match((phase2_vars[phase2_vars %in% num_vars]), names(data))]
@@ -177,34 +160,30 @@ mmer.impute.cwgangp <- function(data, m = 5,
   tensor_list <- list(data_mask, conditions_t, phase2_t, phase1_t)
 
   gnet <- do.call(paste("generator", type_g, sep = "."), 
-                  args = list(n_g_layers, params, 
-                              ncols, length(phase2_vars_encode),
-                              length(num_inds_p2), length(cat_inds_p2), rate = 0.2))$to(device = device)
+                  args = list(params, 
+                              ncols, length(phase2_vars_encode), rate = 0.75))$to(device = device)
   dnet <- do.call(paste("discriminator", type_d, sep = "."), 
-                  args = list(n_d_layers, params, ncols,  
+                  args = list(params, ncols,  
                               length(phase2_vars_encode)))$to(device = device)
-  
-  if (sn_d){
-    lambda <- 0
-    params$lambda <- 0
-  }
-  # gnet$apply(init_gan_g)
-  # dnet$apply(init_gan_d)
+  gnet$apply(init_gan_g)
+  dnet$apply(init_gan_d)
   
   g_solver <- torch::optim_adam(gnet$parameters, lr = lr_g, 
                                 betas = g_betas, weight_decay = g_weight_decay)
   d_solver <- torch::optim_adam(dnet$parameters, lr = lr_d, 
                                 betas = d_betas, weight_decay = d_weight_decay)
   
-  training_loss <- matrix(0, nrow = epochs, ncol = 3)
+  training_loss <- matrix(0, nrow = epochs, ncol = 2)
   pb <- progress_bar$new(
-    format = paste0("Running :what [:bar] :percent eta: :eta | G Loss: :g_loss | D Loss: :d_loss | Gamma: :gamma"),
+    format = paste0("Running :what [:bar] :percent eta: :eta | G Loss: :g_loss | D Loss: :d_loss"),
     clear = FALSE, total = epochs, width = 100)
   
   if (save.step > 0){
     step_result <- list()
     p <- 1
   }
+  
+  gnet_list <- list()
   for (i in 1:epochs){
     gnet$train()
     for (d in 1:discriminator_steps){
@@ -238,14 +217,13 @@ mmer.impute.cwgangp <- function(data, m = 5,
       x_true_I <- dnet(true_AC_I)
       
       if (lambda > 0){
-        gp <- gradient_penalty(dnet, true_AC_I, fake_AC_I, params, device = device,
-                               length(phase2_vars_encode))
+        gp <- gradient_penalty(dnet, true_AC_I, fake_AC_I, params, device = device)
       }else{
         gp <- torch_tensor(0, dtype = fake$dtype, device = device)
       }
       
       d_loss <- -(torch_mean(x_true_I) - torch_mean(x_fake_I)) + 
-        params$lambda * gp # + 1e-3 * x_true_I$pow(2)$mean()
+        params$lambda * gp 
       
       d_solver$zero_grad()
       d_loss$backward()
@@ -286,47 +264,41 @@ mmer.impute.cwgangp <- function(data, m = 5,
     g_loss$backward()
     g_solver$step()
     
-    gamma <- torch_clamp(dnet$gamma_attn + 0.05, 0.05, 0.75)
-    training_loss[i, ] <- c(g_loss$item(), d_loss$item(), gamma$item())
+    training_loss[i, ] <- c(g_loss$item(), d_loss$item())
     pb$tick(tokens = list(
       what = "cWGAN-GP",
       g_loss = sprintf("%.4f", g_loss$item()),
-      d_loss = sprintf("%.4f", d_loss$item()),
-      gamma = sprintf("%.4f", gamma$item())
+      d_loss = sprintf("%.4f", d_loss$item())
     ))
     Sys.sleep(1 / 100000)
     
     if (save.step > 0){
       if (i %% save.step == 0){
-        # enable_dropout(gnet)
         gnet$eval()
         for (modu in gnet$modules) {
           if (inherits(modu, "nn_dropout")) {
             modu$train(TRUE)
-            modu$p <- 0.75
           }
         }
-        result <- generateImpute(gnet, m = 1, 
+        result <- generateImpute(gnet, m = 5, 
                                  data_original, data_info, data_norm, 
                                  data_encode, data_training,
                                  phase1_vars_encode, phase2_vars_encode, 
                                  num.normalizing, cat.encoding, 
                                  batch_size, device, params, tensor_list,
-                                 type, log_shift)
+                                 type)
         step_result[[p]] <- result$gsample[[1]]
         p <- p + 1
       }
     }
   }
   training_loss <- data.frame(training_loss)
-  names(training_loss) <- c("G Loss", "D Loss", "Gamma")
+  names(training_loss) <- c("G Loss", "D Loss")
   
-  # enable_dropout(gnet)
   gnet$eval()
   for (modu in gnet$modules) {
     if (inherits(modu, "nn_dropout")) {
       modu$train(TRUE)
-      modu$p <- 0.75
     }
   }
   result <- generateImpute(gnet, m = m, 
@@ -335,7 +307,7 @@ mmer.impute.cwgangp <- function(data, m = 5,
                            phase1_vars_encode, phase2_vars_encode,
                            num.normalizing, cat.encoding, 
                            batch_size, device, params, tensor_list,
-                           type, log_shift)
+                           type)
   if (save.model){
     model <- list(gnet = gnet, params = params, 
                   data = data_original, data_norm = data_norm,

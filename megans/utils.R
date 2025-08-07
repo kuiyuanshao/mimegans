@@ -95,38 +95,10 @@ proj_to_p1 <- function(fake, X, A, I, CM_tensors, data_encode, phase2_cats, phas
   return (list(fake, X))
 }
 
-gradient_penalty <- function(D, real_samples, fake_samples, params, device, nphase2) {
-  # alp <- torch_rand(c(ceiling(real_samples$size(1) / pac), 1, 1))$to(device = device)
-  # pac <- torch_tensor(as.integer(pac), device = device)
-  # size <- torch_tensor(real_samples$size(2), device = device)
-  # size <- torch_tensor(nphase2, device = device)
-  # alp <- alp$repeat_interleave(pac, dim = 2)$repeat_interleave(size, dim = 3)
-  # alp <- alp$reshape(c(-1, size$item()))
-  
+gradient_penalty <- function(D, real_samples, fake_samples, params, device) {
   alp <- torch_rand(real_samples$size(1), 1, device = device)
-  # interpolates <- (alp * real_samples[, 1:nphase2, drop = F] + (1 - alp) * fake_samples[, 1:nphase2, drop = F])$requires_grad_(TRUE)
-  # input <- torch_cat(list(interpolates, real_samples[, (nphase2 + 1):real_samples$size(2)]), dim = 2)
-  if (params$type_d == "mlp"){
-    interpolates <- (alp * real_samples + (1 - alp) * fake_samples)$requires_grad_(TRUE)
-    d_interpolates <- D(interpolates)
-  }else if (params$type_d == "attn"){
-    feat_r <- D$crossattn(real_samples[, 1:nphase2, drop = F], real_samples[, (nphase2 + 1):real_samples$size(2)])
-    feat_f <- D$crossattn(fake_samples[, 1:nphase2, drop = F], fake_samples[, (nphase2 + 1):real_samples$size(2)])
-    # feat_r <- D$selfattn(real_samples)
-    # feat_f <- D$selfattn(fake_samples)
-    interpolates <- (alp * feat_r + (1 - alp) * feat_f)$requires_grad_(TRUE)
-    d_interpolates <- D$head_forward(interpolates)
-  }else if (params$type_d == "saencoder"){
-    feat_r <- D$encode(real_samples)
-    feat_f <- D$encode(fake_samples)
-    interpolates <- (alp * feat_r + (1 - alp) * feat_f)$requires_grad_(TRUE)
-    d_interpolates <- D$head_forward(interpolates)
-  }else if (params$type_d == "caencoder"){
-    feat_r <- D$encode(real_samples[, 1:nphase2, drop = F], real_samples[, (nphase2 + 1):real_samples$size(2)])
-    feat_f <- D$encode(fake_samples[, 1:nphase2, drop = F], fake_samples[, (nphase2 + 1):real_samples$size(2)])
-    interpolates <- (alp * feat_r + (1 - alp) * feat_f)$requires_grad_(TRUE)
-    d_interpolates <- D$head_forward(interpolates)
-  }
+  interpolates <- (alp * real_samples + (1 - alp) * fake_samples)$requires_grad_(TRUE)
+  d_interpolates <- D(interpolates)
   fake <- torch_ones(d_interpolates$size(), device = device)
   fake$requires_grad <- FALSE
   

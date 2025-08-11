@@ -1,11 +1,11 @@
 discriminator.mlp <- torch::nn_module(
   "Discriminator",
-  initialize = function(n_d_layers, params, ncols, ...) {
+  initialize = function(params, ncols, ...) {
     self$pacdim <- ncols * params$pac
     self$seq <- torch::nn_sequential()
     
     dim <- self$pacdim
-    for (i in 1:n_d_layers) {
+    for (i in 1:params$n_d_layers) {
       self$seq$add_module(paste0("Linear", i), nn_linear(dim, params$d_dim))
       self$seq$add_module(paste0("LeakyReLU", i), nn_leaky_relu(0.2))
       self$seq$add_module(paste0("Dropout", i), nn_dropout(0.5))
@@ -17,41 +17,6 @@ discriminator.mlp <- torch::nn_module(
   forward = function(input, ...) {
     input <- input$reshape(c(-1, self$pacdim))
     out <- self$seq(input)
-    return(out)
-  }
-)
-
-discriminator.proj <- torch::nn_module(
-  "Discriminator",
-  initialize = function(n_d_layers, params, ncols, nphase2, ...) {
-    self$nphase2 <- nphase2
-    self$ncols <- ncols
-    self$pacdim_c <- (ncols - nphase2) * params$pac
-    self$pacdim <- nphase2 * params$pac
-    self$seq <- torch::nn_sequential()
-    
-    dim <- self$pacdim
-    for (i in 1:n_d_layers) {
-      self$seq$add_module(paste0("Linear", i), nn_linear(dim, params$d_dim))
-      self$seq$add_module(paste0("LeakyReLU", i), nn_leaky_relu(0.2))
-      self$seq$add_module(paste0("Dropout", i), nn_dropout(0.5))
-      dim <- params$d_dim
-    }
-    self$seq$add_module("Linear", nn_linear(dim, dim))
-    
-    self$proj <- nn_sequential(
-      nn_linear(self$pacdim_c, params$d_dim),
-      nn_leaky_relu(0.2),
-      nn_linear(params$d_dim, params$d_dim, bias = F)
-    )
-  },
-  forward = function(input) {
-    x <- input[, 1:self$nphase2]
-    y <- input[, (self$nphase2 + 1):self$ncols]
-    input <- x$reshape(c(-1, self$pacdim))
-    out <- self$seq(input)
-    h <- self$proj(y$reshape(c(-1, self$pacdim_c)))
-    output <- (out * h)$sum(dim = 2, keepdim = T)
     return(out)
   }
 )
@@ -123,65 +88,10 @@ discriminator.proj <- torch::nn_module(
 #   }
 # )
 
-# discriminator.attn <- torch::nn_module(
-#   "DiscriminatorAttn",
-#   initialize = function(n_d_layers, params, ncols, nphase2, ...) {
-#     self$nphase2 <- nphase2
-#     self$ncols <- ncols
-#     
-#     head_dim_target <- if (nphase2 >= 64) 32 else 16
-#     proj_dim <- ((ncols + 3) %/% head_dim_target + 1) * head_dim_target
-#     self$pacdim <- proj_dim * params$pac
-#     self$proj_layer <- nn_linear(ncols, proj_dim)
-#     
-#     self$attn <- nn_multihead_attention(proj_dim, max(1, min(8, round(proj_dim / head_dim_target))), 
-#                                         batch_first = T)
-#     self$gamma_attn <- nn_parameter(torch_tensor(0))
-#     self$seq <- torch::nn_sequential()
-#     dim <- self$pacdim
-#     for (i in 1:n_d_layers) {
-#       if (params$sn_d){
-#         self$seq$add_module(paste0("Linear", i), spectral_norm(nn_linear(dim, params$d_dim)))
-#       }else{
-#         self$seq$add_module(paste0("Linear", i), nn_linear(dim, params$d_dim))
-#       }
-#       self$seq$add_module(paste0("LeakyReLU", i), nn_leaky_relu(0.2))
-#       self$seq$add_module(paste0("Dropout", i), nn_dropout(0.5))
-#       dim <- params$d_dim
-#     }
-#     self$seq$add_module("Linear", nn_linear(dim, 1))
-#     
-#     if (params$sn_d){
-#       for(i in seq_along(self$attn)) {
-#         layer <- self$attn[[i]]
-#         if (inherits(layer, "nn_linear")) {
-#           self$attn[[i]] <- spectral_norm(layer)
-#         }
-#       }
-#     }
-#   },
-#   selfattn = function(input){
-#     proj_in <- self$proj_layer(input)$unsqueeze(2)
-#     attn_score <- self$attn(proj_in, proj_in, proj_in)[[1]]
-#     attn_res <- (proj_in + self$gamma_attn * attn_score)$squeeze(2)
-#     return (attn_res)
-#   },
-#   head_forward = function(attn_score){
-#     attn_score <- attn_score$reshape(c(-1, self$pacdim))
-#     out <- self$seq(attn_score)
-#     return (out)
-#   },
-#   forward = function(input) {
-#     attn_score <- self$selfattn(input)
-#     attn_score <- attn_score$reshape(c(-1, self$pacdim))
-#     out <- self$seq(attn_score)
-#     return(out)
-#   }
-# )
 
 discriminator.caencoder <- torch::nn_module(
   "DiscriminatorEncoder",
-  initialize = function(n_d_layers, params, ncols, nphase2, ...) {
+  initialize = function(params, ncols, nphase2, ...) {
     self$nphase2 <- nphase2
     self$ncols <- ncols
     head_dim_target <- if (nphase2 >= 64) 32 else 16
@@ -195,7 +105,7 @@ discriminator.caencoder <- torch::nn_module(
 
     self$seq <- torch::nn_sequential()
     dim <- self$pacdim
-    for (i in 1:n_d_layers) {
+    for (i in 1:params$n_d_layers) {
       self$seq$add_module(paste0("Linear", i), nn_linear(dim, params$d_dim))
       self$seq$add_module(paste0("LeakyReLU", i), nn_leaky_relu(0.2))
       self$seq$add_module(paste0("Dropout", i), nn_dropout(0.5))
@@ -227,17 +137,6 @@ discriminator.caencoder <- torch::nn_module(
   }
 )
 
-gamma_val <- function(raw){
-  gamma_min <- 0.05
-  gamma_max <- 0.3
-  mid  <- (gamma_min + gamma_max) / 2
-  span <- (gamma_max - gamma_min) / 2
-  softsign <- function(x) x / (1 + torch_abs(x))
-  gamma <- mid + span * softsign(raw)
-  
-  return (gamma)
-}
-
 discriminator.sattn <- torch::nn_module(
   "DiscriminatorEncoder",
   initialize = function(params, ncols, nphase2, ...) {
@@ -250,6 +149,7 @@ discriminator.sattn <- torch::nn_module(
     self$attn <- nn_multihead_attention(self$proj_dim, 
                                         num_heads = max(1, min(8, round(self$proj_dim / head_dim_target))),
                                         batch_first = T)
+    self$norm <- RMSNorm(self$proj_dim)
     self$gamma <- nn_parameter(torch_tensor(0))
     self$seq <- torch::nn_sequential()
     dim <- self$pacdim
@@ -263,7 +163,7 @@ discriminator.sattn <- torch::nn_module(
   },
   forward = function(input) {
     input <- self$proj_layer(input)$unsqueeze(2)
-    attn_out <- (input + self$gamma / 3 * self$attn(input, input, input)[[1]])$squeeze(2)
+    attn_out <- (input + self$gamma * self$attn(input, input, input)[[1]])$squeeze(2)
     attn_out <- attn_out$reshape(c(-1, self$pacdim))
     out <- self$seq(attn_out)
     return (out)

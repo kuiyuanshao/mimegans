@@ -1,6 +1,7 @@
 Residual <- torch::nn_module(
   "Residual",
-  initialize = function(dim1, dim2, rate){
+  initialize = function(dim1, dim2, rate, resid = "concat", ...){
+    self$resid <- resid
     self$linear <- nn_linear(dim1, dim2)
     self$norm <- nn_batch_norm1d(dim2)
     self$act <- nn_elu()
@@ -12,7 +13,11 @@ Residual <- torch::nn_module(
       self$norm() %>%
       self$act() %>%
       self$dropout()
-    return (torch_cat(list(output, input), dim = 2))
+    if (self$resid == "concat"){
+      return (torch_cat(list(output, input), dim = 2))
+    }else{
+      return (output + input)
+    }
   }
 )
 

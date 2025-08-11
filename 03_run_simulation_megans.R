@@ -129,7 +129,7 @@ cox.true <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +
 lapply(paste0("./megans/", list.files("./megans")), source)
 source("00_utils_functions.R")
 i <- 1
-for (i in 1:10){
+for (i in 1:20){
   digit <- stringr::str_pad(i, 4, pad = 0)
   samp_balance <- read.csv(paste0("./data/Sample/Debug/", digit, ".csv"))
   samp_balance <- match_types(samp_balance, data) %>% 
@@ -206,7 +206,7 @@ apply(vars, 2, var)
 load("NutritionalData_0001.RData")
 for (i in 1:20){
   digit <- stringr::str_pad(i, 4, pad = 0)
-  idx <- sample(1:4000, 3500)
+  idx <- sample(1:4000, 3000)
   data <- pop
   data$c_ln_na_true[idx] <- NA
   data$c_ln_k_true[idx] <- NA
@@ -217,7 +217,7 @@ for (i in 1:20){
   data$R[idx] <- 0
   save(data, file = paste0("./debug/", digit, ".RData"))
 }
-lapply(c("dplyr", "stringr", "torch", "ggplot2"), require, character.only = T)
+lapply(c("dplyr", "stringr", "torch", "ggplot2", "mice"), require, character.only = T)
 lapply(paste0("./megans/", list.files("./megans")), source)
 source("00_utils_functions.R")
 cox.true.lm <- glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + usborn + 
@@ -238,20 +238,26 @@ for (i in 1:20){
   data <- match_types(data, pop) %>% 
     mutate(across(all_of(data_info$cat_vars), as.factor, .names = "{.col}"),
            across(all_of(data_info$num_vars), as.numeric, .names = "{.col}"))
-  megans_imp <- mmer.impute.cwgangp(data, m = 20, 
-                                    num.normalizing = "mode", 
-                                    cat.encoding = "onehot", 
+  megans_imp <- mmer.impute.cwgangp(data, m = 20,
+                                    num.normalizing = "mode",
+                                    cat.encoding = "onehot",
                                     device = "cpu", epochs = 5000,
                                     params = list(batch_size = 500, pac = 10, 
-                                                  lambda = 10, lr_g = 2e-4, lr_d = 2e-4, 
-                                                  n_g_layers = 3, n_d_layers = 2, noise_dim = 128,
-                                                  discriminator_steps = 1, 
+                                                  lambda = 10, lr_g = 1e-4, lr_d = 1e-4,
+                                                  n_g_layers = 3, n_d_layers = 1, noise_dim = 64,
+                                                  discriminator_steps = 1,
                                                   type_g = "mlp", type_d = "sattn",
-                                                  g_dim = 256, d_dim = 256), 
+                                                  g_dim = 256, d_dim = 256),
                                     type = "mmer",
                                     data_info = data_info, save.step = 10001)
   save(megans_imp, file = paste0("./debug/imp_", digit, ".RData"))
-  
+  inc <- c("c_age", "c_bmi", "c_ln_na_bio1",
+           "high_chol", "usborn",
+           "female", "bkg_pr", "bkg_o", "sbp", "hypertension")
+  mice_imp <- mice(data, m = 20, print = T, maxit = 5, remove.collinear = F, 
+                   maxcor = 1.0001, ls.meth = "ridge", ridge = 0.001,
+                   predictorMatrix = quickpred(data, include = inc))
+  save(mice_imp, file = paste0("./debug/MICEimp_", digit, ".RData"))
   imp.mids <- as.mids(megans_imp$imputation)
   fit.lm <- with(data = imp.mids, 
                  exp = glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + usborn + 
@@ -273,24 +279,16 @@ for (i in 1:20){
   print(apply(coeff.bn, 2, var))
 }
 
-ggplot(megans_imp$imputation[[1]]) +
-  geom_boxplot(aes(x = as.factor(hypertension), y = c_ln_na_true))
-ggplot(pop) +
-  geom_boxplot(aes(x = as.factor(hypertension), y = c_ln_na_true))
-ggplot(megans_imp$imputation[[1]]) + 
-  geom_density(aes(x = megans_imp$imputation[[1]]$c_ln_na_true), colour = "blue") + 
-  geom_density(aes(x = pop$c_ln_na_true), colour = "red")
-
-ggplot(megans_imp$imputation[[1]]) + 
-  geom_point(aes(x = c_ln_na_true, y = sbp)) +
-  geom_point(aes(x = c_ln_na_true, y = sbp), data = data, colour = "red", alpha = 0.1)
+pacman::p_load("ggplot2", "tidyr", "dplyr", "RColorBrewer", "ggh4x")
 coeffs.lm <- NULL
 coeffs.bn <- NULL
 vars.lm <- NULL
 vars.bn <- NULL
-for (i in 1:16){
+combined_df.1 <- combined_df.2 <- NULL
+for (i in 1:7){
   digit <- stringr::str_pad(i, 4, pad = 0)
   load(paste0("./debug/imp_", digit, ".RData"))
+  load(paste0("./debug/MICEimp_", digit, ".RData"))
   
   imp.mids <- as.mids(megans_imp$imputation)
   fit.lm <- with(data = imp.mids, 
@@ -298,7 +296,6 @@ for (i in 1:16){
                              female + bkg_o + bkg_pr, family = gaussian()))
   pooled.lm <- mice::pool(fit.lm)
   sumry.lm <- summary(pooled.lm, conf.int = TRUE)
-  
   fit.bn <- with(data = imp.mids, 
                  exp = glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + usborn + 
                              female + bkg_o + bkg_pr, family = binomial()))
@@ -308,12 +305,152 @@ for (i in 1:16){
   
   coeffs.lm <- rbind(coeffs.lm, sumry.lm$estimate)
   coeffs.bn <- rbind(coeffs.bn, sumry.bn$estimate)
-  
   vars.lm <- rbind(vars.lm, apply(bind_rows(lapply(fit.lm$analyses, function(i){coef(i)})), 2, var))
   vars.bn <- rbind(vars.bn, apply(bind_rows(lapply(fit.bn$analyses, function(i){coef(i)})), 2, var))
+  
+  combined_df.1 <- rbind(combined_df.1, c("/gans", digit, "GANs", "Est", sumry.bn$estimate[2]))
+  combined_df.1 <- rbind(combined_df.1, c("/gans", digit, "GANs", "Var", (sumry.bn$std.error^2)[2]))
+  combined_df.2 <- rbind(combined_df.2, c("/gans", digit, "GANs", "Est", sumry.lm$estimate[2]))
+  combined_df.2 <- rbind(combined_df.2, c("/gans", digit, "GANs", "Var", (sumry.lm$std.error^2)[2]))
+  
+  fit.lm <- with(data = mice_imp, 
+                 exp = glm(sbp ~ c_ln_na_true + c_age + c_bmi + high_chol + usborn + 
+                             female + bkg_o + bkg_pr, family = gaussian()))
+  pooled.lm <- mice::pool(fit.lm)
+  sumry.lm <- summary(pooled.lm, conf.int = TRUE)
+  fit.bn <- with(data = mice_imp, 
+                 exp = glm(hypertension ~ c_ln_na_true + c_age + c_bmi + high_chol + usborn + 
+                             female + bkg_o + bkg_pr, family = binomial()))
+  pooled.bn <- mice::pool(fit.bn)
+  sumry.bn <- summary(pooled.bn, conf.int = TRUE)
+  combined_df.1 <- rbind(combined_df.1, c("/pmm", digit, "MICE", "Est", sumry.bn$estimate[2]))
+  combined_df.1 <- rbind(combined_df.1, c("/pmm", digit, "MICE", "Var", (sumry.bn$std.error^2)[2]))
+  combined_df.2 <- rbind(combined_df.2, c("/pmm", digit, "MICE", "Est", sumry.lm$estimate[2]))
+  combined_df.2 <- rbind(combined_df.2, c("/pmm", digit, "MICE", "Var", (sumry.lm$std.error^2)[2]))
 }
 colMeans(coeffs.lm) -  coef(cox.true.lm)
 colMeans(coeffs.bn) - coef(cox.true.bn)
 apply(coeffs.lm, 2, var) / apply(vars.lm, 2, mean) 
 apply(coeffs.bn, 2, var) / apply(vars.bn, 2, mean) 
-ggplot() + geom_boxplot(aes(x = coeffs.bn[, 2])) + xlim(0.5, 2)
+
+combined_df.1 <- as.data.frame(combined_df.1)
+names(combined_df.1) <- c("TYPE", "DIGIT", "METHOD", "ESTIMATE", "value")
+combined_df.2 <- as.data.frame(combined_df.2)
+names(combined_df.2) <- c("TYPE", "DIGIT", "METHOD", "ESTIMATE", "value")
+ggplot(combined_df.1) + 
+  geom_boxplot(aes(x = METHOD, 
+                   y = as.numeric(value), colour = METHOD)) + 
+  geom_hline(data = means.1, aes(yintercept = 1.38), linetype = "dashed", color = "black") + 
+  facet_wrap(~ESTIMATE, scales = "free", ncol = 1,
+             labeller = labeller(ESTIMATE = c(Est = "Coefficient", Var = "Variance"))) + 
+  theme_minimal() +
+  facetted_pos_scales(y = list(ESTIMATE == "Est" ~ scale_y_continuous(limits = c(0, 2.5)),
+                               ESTIMATE == "Var" ~ scale_y_continuous(limits = c(0, 0.09))))
+ggplot(combined_df.2) + 
+  geom_boxplot(aes(x = METHOD, 
+                   y = as.numeric(value), colour = METHOD)) + 
+  geom_hline(data = means.1, aes(yintercept = 27.5), linetype = "dashed", color = "black") + 
+  facet_wrap(~ESTIMATE, scales = "free", ncol = 1,
+             labeller = labeller(ESTIMATE = c(Est = "Coefficient", Var = "Variance"))) + 
+  theme_minimal()+ 
+  facetted_pos_scales(y = list(ESTIMATE == "Est" ~ scale_y_continuous(limits = c(20, 33)),
+                               ESTIMATE == "Var" ~ scale_y_continuous(limits = c(0, 2))))
+
+
+
+
+load("result_miceTestRej_imputation.RData")
+library(tidyr)
+combined_df.1 <- bind_rows(result_df.1) %>% 
+  filter(grepl("^c_ln_na_true", rownames(.))) %>%
+  pivot_longer(
+    cols = 1:6,
+    names_to = c("METHOD", "ESTIMATE"),
+    names_pattern = "^(.*)\\.(Est|Var)$"
+  ) %>% 
+  mutate(METHOD = case_when(
+    METHOD == "MICE.imp" & TYPE == "/pmm"  ~ "MICE.IMP.PMM",
+    METHOD == "MICE.imp" & TYPE == "/norm"  ~ "MICE.IMP.NORM",
+    METHOD == "MICE.imp" & TYPE == "/wnorm" ~ "MICE.IMP.PWLS",
+    METHOD == "MICE.imp" & TYPE == "/cml" ~ "MICE.IMP.CML",
+    METHOD == "MICE.imp" & TYPE == "/cml_rejsamp" ~ "MICE.IMP.CML_REJ",
+    TRUE ~ METHOD
+  ))
+
+combined_df.2 <- bind_rows(result_df.2) %>% 
+  filter(grepl("^c_ln_na_true", rownames(.))) %>%
+  pivot_longer(
+    cols = 1:6,
+    names_to = c("METHOD", "ESTIMATE"),
+    names_pattern = "^(.*)\\.(Est|Var)$"
+  ) %>% 
+  mutate(METHOD = case_when(
+    METHOD == "MICE.imp" & TYPE == "/pmm"  ~ "MICE.IMP.PMM",
+    METHOD == "MICE.imp" & TYPE == "/norm"  ~ "MICE.IMP.NORM",
+    METHOD == "MICE.imp" & TYPE == "/wnorm" ~ "MICE.IMP.PWLS",
+    METHOD == "MICE.imp" & TYPE == "/cml" ~ "MICE.IMP.CML",
+    METHOD == "MICE.imp" & TYPE == "/cml_rejsamp" ~ "MICE.IMP.CML_REJ",
+    TRUE ~ METHOD
+  ))
+
+means.1 <- combined_df.1 %>% 
+  dplyr::filter(METHOD == "TRUE") %>%
+  aggregate(as.numeric(value) ~ ESTIMATE, data = ., FUN = mean)
+
+means.2 <- combined_df.2 %>% 
+  dplyr::filter(METHOD == "TRUE") %>%
+  aggregate(as.numeric(value) ~ ESTIMATE, data = ., FUN = mean)
+
+pacman::p_load("ggplot2", "tidyr", "dplyr", "RColorBrewer", "ggh4x")
+ggplot(combined_df.1) + 
+  geom_boxplot(aes(x = factor(METHOD, levels = c("TRUE", "COMPL", "MICE.IMP.PMM", "MICE.IMP.NORM", "MICE.IMP.PWLS", "MICE.IMP.CML", "MICE.IMP.CML_REJ", "GANs")), 
+                   y = as.numeric(value), colour = factor(METHOD, levels = c("TRUE", "COMPL", "MICE.IMP.PMM", "MICE.IMP.NORM", "MICE.IMP.PWLS", "MICE.IMP.CML", "MICE.IMP.CML_REJ", "GANs")))) + 
+  geom_hline(data = means.1, aes(yintercept = `as.numeric(value)`), linetype = "dashed", color = "black") + 
+  facet_wrap(~ESTIMATE, scales = "free", ncol = 1,
+             labeller = labeller(ESTIMATE = c(Est = "Coefficient", Var = "Variance"))) + 
+  theme_minimal() + 
+  labs(x = "Methods", y = "Estimate", colour = "Methods") + 
+  theme(axis.title.x = element_text(family = "Georgia"),
+        axis.title.y = element_text(family = "Georgia"),
+        axis.text.x = element_text(family = "Georgia"),
+        axis.text.y = element_text(family = "Georgia"),
+        legend.title = element_text(family = "Georgia"),
+        legend.text = element_text(family = "Georgia"),
+        strip.text = element_text(family = "Georgia")) +
+  scale_x_discrete(labels = c("TRUE" = "True",  "COMPL" = "Complete-Case",
+                              "MICE.IMP.PMM" = "PMM", 
+                              "MICE.IMP.NORM" = "NORM", 
+                              "MICE.IMP.PWLS" = "PWLS",
+                              "MICE.IMP.CML" = "CML",
+                              "MICE.IMP.CML_REJ" = "CML_REJ",
+                              "GANs" = "GANs")) +
+  scale_color_brewer(palette = "Paired") +
+  facetted_pos_scales(y = list(ESTIMATE == "Est" ~ scale_y_continuous(limits = c(0, 2.5)),
+                               ESTIMATE == "Var" ~ scale_y_continuous(limits = c(0, 0.09))))
+
+
+ggplot(combined_df.2) + 
+  geom_boxplot(aes(x = factor(METHOD, levels = c("TRUE", "COMPL", "MICE.IMP.PMM", "MICE.IMP.NORM", "MICE.IMP.PWLS", "MICE.IMP.CML", "MICE.IMP.CML_REJ", "GANs")), 
+                   y = as.numeric(value), colour = factor(METHOD, levels = c("TRUE", "COMPL", "MICE.IMP.PMM", "MICE.IMP.NORM", "MICE.IMP.PWLS", "MICE.IMP.CML", "MICE.IMP.CML_REJ", "GANs")))) + 
+  geom_hline(data = means.2, aes(yintercept = `as.numeric(value)`), linetype = "dashed", color = "black") + 
+  facet_wrap(~ESTIMATE, scales = "free", ncol = 1,
+             labeller = labeller(ESTIMATE = c(Est = "Coefficient", Var = "Variance"))) + 
+  theme_minimal() + 
+  labs(x = "Methods", y = "Estimate", colour = "Methods") + 
+  theme(axis.title.x = element_text(family = "Georgia"),
+        axis.title.y = element_text(family = "Georgia"),
+        axis.text.x = element_text(family = "Georgia"),
+        axis.text.y = element_text(family = "Georgia"),
+        legend.title = element_text(family = "Georgia"),
+        legend.text = element_text(family = "Georgia"),
+        strip.text = element_text(family = "Georgia")) +
+  scale_x_discrete(labels = c("TRUE" = "True",  "COMPL" = "Complete-Case",
+                              "MICE.IMP.PMM" = "PMM", 
+                              "MICE.IMP.NORM" = "NORM", 
+                              "MICE.IMP.PWLS" = "PWLS",
+                              "MICE.IMP.CML" = "CML",
+                              "MICE.IMP.CML_REJ" = "CML_REJ",
+                              "GANs" = "GANs")) +
+  scale_color_brewer(palette = "Paired") +
+  facetted_pos_scales(y = list(ESTIMATE == "Est" ~ scale_y_continuous(limits = c(20, 33)),
+                               ESTIMATE == "Var" ~ scale_y_continuous(limits = c(0, 2))))

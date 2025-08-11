@@ -38,7 +38,7 @@ cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 10,
                             lr_g = 2e-4, lr_d = 2e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
                             g_weight_decay = 1e-6, d_weight_decay = 1e-6, noise_dim = 64, 
                             g_dim = 256, d_dim = 256, pac = 10, 
-                            n_g_layers = 3, n_d_layers = 3, discriminator_steps = 1,
+                            n_g_layers = 3, n_d_layers = 2, discriminator_steps = 1,
                             tau = 0.2, hard = F, 
                             type_g = "mlp", type_d = "mlp"){
   
@@ -165,8 +165,8 @@ mmer.impute.cwgangp <- function(data, m = 5,
   dnet <- do.call(paste("discriminator", type_d, sep = "."), 
                   args = list(params, ncols,  
                               length(phase2_vars_encode)))$to(device = device)
-  gnet$apply(init_gan_g)
-  dnet$apply(init_gan_d)
+  #gnet$apply(init_gan_g)
+  #dnet$apply(init_gan_d)
   
   g_solver <- torch::optim_adam(gnet$parameters, lr = lr_g, 
                                 betas = g_betas, weight_decay = g_weight_decay)
@@ -205,6 +205,7 @@ mmer.impute.cwgangp <- function(data, m = 5,
       fake <- gnet(fakez_AC)
       fake <- activation_fun(fake, data_encode, phase2_vars_encode, 
                              tau = tau, hard = hard)
+      
     
       fake_AC_I <- torch_cat(list(fake[I, , drop = F],
                                   A[I, , drop = F], 
@@ -213,16 +214,27 @@ mmer.impute.cwgangp <- function(data, m = 5,
                                   A[I, , drop = F], 
                                   C[I, , drop = F]), dim = 2)
       
+      fakez_2 <- torch_normal(mean = 0, std = 1, size = c(X$size(1), noise_dim))$to(device = device) 
+      fakez_AC_2 <- torch_cat(list(fakez_2, A, C), dim = 2)
+      
+      fake_2 <- gnet(fakez_AC_2)
+      fake_2 <- activation_fun(fake_2, data_encode, phase2_vars_encode, 
+                               tau = tau, hard = hard)
+      fake_AC_I_2 <- torch_cat(list(fake_2[I, , drop = F],
+                                    A[I, , drop = F], 
+                                    C[I, , drop = F]), dim = 2)
+      x_fake_I_2 <- dnet(fake_AC_I_2)
       x_fake_I <- dnet(fake_AC_I)
       x_true_I <- dnet(true_AC_I)
-      
       if (lambda > 0){
-        gp <- gradient_penalty(dnet, true_AC_I, fake_AC_I, params, device = device)
+        gp <- gradient_penalty(dnet, true_AC_I, fake_AC_I, params, device = device) + 
+          gradient_penalty(dnet, true_AC_I, fake_AC_I_2, params, device = device)
       }else{
         gp <- torch_tensor(0, dtype = fake$dtype, device = device)
       }
       
       d_loss <- -(torch_mean(x_true_I) - torch_mean(x_fake_I)) + 
+        -(torch_mean(x_true_I) - torch_mean(x_fake_I_2)) + 
         params$lambda * gp 
       
       d_solver$zero_grad()
@@ -246,19 +258,37 @@ mmer.impute.cwgangp <- function(data, m = 5,
     fakeact <- activation_fun(fake, data_encode, phase2_vars_encode, 
                               tau = tau, hard = hard)
     fake_AC <- torch_cat(list(fakeact, A, C), dim = 2)
-    x_fake <- dnet(fake_AC[I, ])
+    x_fake <- dnet(fake_AC)
+    
+    
+    fakez_2 <- torch_normal(mean = 0, std = 1, size = c(X$size(1), noise_dim))$to(device = device) 
+    fakez_AC_2 <- torch_cat(list(fakez_2, A, C), dim = 2)
+    fake_2 <- gnet(fakez_AC_2)
+    fakeact_2 <- activation_fun(fake_2, data_encode, phase2_vars_encode, 
+                              tau = tau, hard = hard)
+    fake_AC_2 <- torch_cat(list(fakeact_2, A, C), dim = 2)
+    x_fake_2 <- dnet(fake_AC_2)
     
     if (length(phase2_cats) > 0){
       projs <- proj_to_p1(fake, X, A, I, CM_tensors, data_encode, phase2_cats, 
                           phase1_cats_inds, phase2_cats_inds)
       fake <- projs[[1]]
+      
+      projs_2 <- proj_to_p1(fake_2, X, A, I, CM_tensors, data_encode, phase2_cats, 
+                          phase1_cats_inds, phase2_cats_inds)
+      fake_2 <- projs_2[[1]]
       X <- projs[[2]]
     }
 
-    adv_term <- params$gamma * -torch_mean(x_fake)
+    adv_term <- params$gamma * (-torch_mean(x_fake) - torch_mean(x_fake_2))
     xrecon_loss <- recon_loss(fake, X, I, data_encode, phase2_vars_encode, 
                               phase2_cats, params, num_inds_p2, cat_inds_p2)
-    g_loss <- adv_term + xrecon_loss
+    xrecon_loss_2 <- recon_loss(fake_2, X, I, data_encode, phase2_vars_encode, 
+                                phase2_cats, params, num_inds_p2, cat_inds_p2)
+    div_loss <- nnf_l1_loss(fake_2, fake, reduction = "mean") / 
+      nnf_l1_loss(fakez_2, fakez, reduction = "mean")
+    div_loss <- torch_relu(1 - div_loss) #(1 / (div_loss + 1e-5))
+    g_loss <- adv_term + xrecon_loss + xrecon_loss_2 + div_loss
     
     g_solver$zero_grad()
     g_loss$backward()

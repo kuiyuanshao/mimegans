@@ -65,14 +65,16 @@ generateData <- function(n, seed){
   # Ferritin:
   data$Ferritin <- simCovs(data, covarInfo$formu$FERRITIN, 
                            covarInfo$betas$FERRITIN, covarInfo$type$FERRITIN, covarInfo$sigma$FERRITIN)
-  # VITAL SIGNS: SBP, DBP, PULSE
+  # VITAL SIGNS:
   data <- cbind(data, simCovs(data, covarInfo$formu$VITALS, covarInfo$betas$VITALS, covarInfo$type$VITALS, covarInfo$sigma$VITALS))
-  # HYPENTERSION
-  data$HYPERTENSION <- with(data, SBP >= 140)
+  # data$SBP <- data$SBP - 234
   
   for (i in c(29, (32:77)[!(32:77) %in% (57:60)])){
     data[, i] <- exp(data[, i]) - 1
   }
+  # HYPENTERSION
+  data$SBP <- pmin(pmax(data$SBP, 90), 200)
+  data$HYPERTENSION <- with(data, SBP >= 140)
   data$Glucose <- data$Glucose + 10
   data$F_Glucose <- data$F_Glucose + 6
   data$HbA1c <- data$HbA1c + 40
@@ -473,12 +475,12 @@ loadCovarInfo <- function(genoInfo){
     sigma_HEMA <- Sigma$Haematology
     
     # Vital Signs
-    formu_VITALS <- list(SBP = as.formula(paste("~", Mod_list$Vital$SBP$formula[3], " + Na_INTAKE + ",
+    formu_VITALS <- list(SBP = as.formula(paste("~", Mod_list$Vital$SBP$formula[3], " + ",
                                                 paste0(unique(genoInfo$genoTrait$Query[genoInfo$genoTrait$PHENO == "SBP"]), collapse = " + "))), 
                          Temperature = as.formula(paste("~", Mod_list$Vital$Temperature$formula[3])), 
                          HR = as.formula(paste("~", Mod_list$Vital$HR$formula[3])), 
                          SpO2 = as.formula(paste("~", Mod_list$Vital$SpO2$formula[3])))
-    betas_VITALS <- list(SBP = c(Mod_list$Vital$SBP$coeff, 30, 
+    betas_VITALS <- list(SBP = c(Mod_list$Vital$SBP$coeff,
                                  transform_betas(genoInfo$genoTrait$Beta[genoInfo$genoTrait$PHENO == "SBP"])),
                          Temperature = Mod_list$Vital$Temperature$coeff,
                          HR = Mod_list$Vital$HR$coeff,

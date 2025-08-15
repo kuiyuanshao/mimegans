@@ -33,17 +33,17 @@ samplebatches <- function(data_original, data_training, tensor_list,
   for (i in unique(values)){
     curr_p1rows <- phase1_rows[p1 == i]
     sampled <- sample(1:length(curr_p1rows), phase1_total[m],
-                      replace = phase1_total[m] > sum(p1 == i), 
-                      prob = w1[p1 == i] / sum(w1[p1 == i]))
+                      replace = phase1_total[m] > sum(p1 == i))# , 
+                      # prob = w1[p1 == i] / sum(w1[p1 == i]))
     samp_idx <- c(samp_idx, curr_p1rows[sampled])
-    new_weights <- c(new_weights, (sum(w1[p1 == i]) / w1[p1 == i])[sampled] / phase1_total[m])
+    new_weights <- c(new_weights, (w1[p1 == i])[sampled])
     
     curr_p2rows <- phase2_rows[p2 == i]
     sampled <- sample(1:length(curr_p2rows), phase2_total[m],
-                      replace = phase2_total[m] > sum(p2 == i), 
-                      prob = w2[p2 == i] / sum(w2[p2 == i]))
+                      replace = phase2_total[m] > sum(p2 == i))# , 
+                      # prob = w2[p2 == i] / sum(w2[p2 == i]))
     samp_idx <- c(samp_idx, curr_p2rows[sampled])
-    new_weights <- c(new_weights, (sum(w2[p2 == i]) / w2[p2 == i])[sampled] / phase2_total[m])
+    new_weights <- c(new_weights, (w2[p2 == i])[sampled])
     m <- m + 1
   }
   batches <- lapply(tensor_list, function(tensor) tensor[samp_idx, , drop = FALSE])

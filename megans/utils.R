@@ -1,4 +1,4 @@
-recon_loss <- function(fake, true, I, encode_result, vars, phase2_cats, params, num_inds, cat_inds){
+recon_loss <- function(fake, true, I, encode_result, vars, phase2_cats, params, num_inds, cat_inds, W){
   mm_term <- torch_tensor(0, dtype = fake$dtype, device = fake$device)
   if (length(num_inds) > 0){
     if (params$alpha != 0){
@@ -11,13 +11,13 @@ recon_loss <- function(fake, true, I, encode_result, vars, phase2_cats, params, 
   if (length(cat_inds) > 0){
     if (params$beta != 0) {
       ce_term <- params$beta *
-        cross_entropy_loss(fake, true, I, encode_result, vars, phase2_cats)
+        cross_entropy_loss(fake, true, I, encode_result, vars, phase2_cats, params, W)
     }
   }
   return (mm_term + ce_term)
 }
 
-cross_entropy_loss <- function(fake, true, I, encode_result, vars, phase2_cats){
+cross_entropy_loss <- function(fake, true, I, encode_result, vars, phase2_cats, params, W){
   cats <- encode_result$binary_indices[which(sapply(names(encode_result$new_col_names), function(col_names) {
     any(col_names %in% phase2_cats)
   }))]
@@ -26,16 +26,26 @@ cross_entropy_loss <- function(fake, true, I, encode_result, vars, phase2_cats){
   }))]
   loss <- list()
   i <- 1
+  W_I <- W[I]
+  W_I <- (W_I / torch_sum(W_I))$reshape(c(W_I$shape[1], 1))
   for (cat in cats){
-    loss[[i]] <- nnf_cross_entropy(fake[, cat, drop = F], 
-                                   torch_argmax(true[, cat, drop = F], dim = 2), 
-                                   reduction = "mean")
+    if (params$cat_proj){
+      loss[[i]] <- nnf_cross_entropy(fake[, cat, drop = F], 
+                                     torch_argmax(true[, cat, drop = F], dim = 2), 
+                                     reduction = "mean")
+    }else{
+      ce <- nnf_cross_entropy(fake[I, cat, drop = F], 
+                              torch_argmax(true[I, cat, drop = F], dim = 2), 
+                              reduction = "none")
+      loss[[i]] <- torch_sum(W_I * ce$reshape(c(W_I$shape[1], 1)))
+    }
     i <- i + 1
   }
   for (catmode in cats_mode){
-    loss[[i]] <- nnf_cross_entropy(fake[I, catmode, drop = F], 
-                                   torch_argmax(true[I, catmode, drop = F], dim = 2), 
-                                   reduction = "mean")
+    ce <- nnf_cross_entropy(fake[I, catmode, drop = F], 
+                            torch_argmax(true[I, catmode, drop = F], dim = 2), 
+                            reduction = "none")
+    loss[[i]] <- torch_sum(W_I * ce$reshape(c(W_I$shape[1], 1)))
     i <- i + 1
   }
   
@@ -95,7 +105,7 @@ proj_to_p1 <- function(fake, X, A, I, CM_tensors, data_encode, phase2_cats, phas
   return (list(fake, X))
 }
 
-gradient_penalty <- function(D, real_samples, fake_samples, params, device) {
+gradient_penalty <- function(D, real_samples, fake_samples, params, device, W_I) {
   alp <- torch_rand(real_samples$size(1), 1, device = device)
   interpolates <- (alp * real_samples + (1 - alp) * fake_samples)$requires_grad_(TRUE)
   d_interpolates <- D(interpolates)
@@ -115,7 +125,7 @@ gradient_penalty <- function(D, real_samples, fake_samples, params, device) {
     gradients <- gradients$reshape(c(-1, params$pac * interpolates$size(2)))
   }
   gradient_penalty <- torch_mean((torch_norm(gradients, p = 2, dim = 2) - 1) ^ 2)
-  
+  # gradient_penalty <- sum((W_I * (torch_norm(gradients, p = 2, dim = 2) - 1) ^ 2) / sum(W_I))
   return (gradient_penalty)
 }
 

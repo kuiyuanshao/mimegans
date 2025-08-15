@@ -36,9 +36,9 @@ gen_rows <- function(idx_vec, gnet, A_t, C_t, params, data_original, data_traini
                      data_encode, data_norm, data_info, phase1_vars, phase2_vars, type, device){
   n <- length(idx_vec)
   z <- torch_normal(0, 1, size = c(n, params$noise_dim))$to(device = device)
-  tmp <- gnet(torch_cat(list(z, A_t[idx_vec,], C_t[idx_vec,]), dim = 2))
+  tmp <- gnet(torch_cat(list(z, A_t[idx_vec, , drop = F], C_t[idx_vec, , drop = F]), dim = 2))
   tmp <- activation_fun(tmp, data_encode, phase2_vars, gen = T)
-  tmp <- torch_cat(list(tmp, A_t[idx_vec,], C_t[idx_vec,]), dim = 2)
+  tmp <- torch_cat(list(tmp, A_t[idx_vec, , drop = F], C_t[idx_vec, , drop = F]), dim = 2)
   df <- as.data.frame(as.matrix(tmp$detach()$cpu()))
   names(df) <- names(data_training)
   
@@ -54,7 +54,7 @@ gen_rows <- function(idx_vec, gnet, A_t, C_t, params, data_original, data_traini
   
   denorm <- denorm[, names(data_original)]
   
-  if (type == "mmer"){
+  if (params$mmer){
     idx_p2 <- match(phase2_vars[phase2_vars %in% data_info$num_vars], names(denorm))
     idx_p1 <- match(phase1_vars[phase1_vars %in% data_info$num_vars], names(data_original))
     denorm[, idx_p2] <- data_original[idx_vec, idx_p1] - denorm[, idx_p2]
@@ -68,7 +68,7 @@ generateImpute <- function(gnet, m = 5,
                            phase1_vars, phase2_vars,
                            num.normalizing, cat.encoding, 
                            batch_size, device, params,
-                           tensor_list, type){
+                           tensor_list){
   imputed_data_list <- vector("list", m)
   gsample_data_list <- vector("list", m)
   batchforimpute <- create_bfi(data_original, batch_size, tensor_list)
@@ -125,7 +125,7 @@ generateImpute <- function(gnet, m = 5,
     gsamples <- curr_gsample$data
     gsamples <- gsamples[, names(data_original)]
     
-    if (type == "mmer"){
+    if (params$mmer){
       gsamples[, match(phase2_vars[phase2_vars %in% data_info$num_vars], names(gsamples))] <-
         data_original[, match(phase1_vars[phase1_vars %in% data_info$num_vars], names(data_original))] -
         gsamples[, match(phase2_vars[phase2_vars %in% data_info$num_vars], names(gsamples))]
@@ -135,24 +135,28 @@ generateImpute <- function(gnet, m = 5,
       #                                             names(data_original))], 2, log_shift, "+")) -
       #               gsamples[, match(phase2_vars[phase2_vars %in% num_vars], names(gsamples))]), 2, log_shift, "-")
     }
-    # phase2_idx <- sort(match(data_info$phase2_vars, names(gsamples)))
-    # M <- gsamples[, phase2_idx, drop = FALSE]
-    # phase2_num_idx <- match(data_info$phase2_vars[data_info$phase2_vars %in% data_info$num_vars], colnames(M))
-    # row_acc <- acc_prob_row(as.matrix(M[, phase2_num_idx]), lb, ub)
-    # accept_row <- runif(nrow(M)) < row_acc
-    # 
-    # iter <- 0L
-    # repeat {
-    #   if (all(accept_row) || iter >= max_attempt) break
-    #   bad_rows <- which(!accept_row)
-    #   M[bad_rows, ] <- gen_rows(bad_rows, gnet, A_t, C_t, params, data_original, data_training, decode, denormalize,
-    #                             data_encode, data_norm, data_info, phase1_vars, phase2_vars, type, device)[, phase2_idx]
-    #   # Recompute acceptance
-    #   row_acc <- acc_prob_row(as.matrix(M[, phase2_num_idx]), lb, ub)
-    #   accept_row <- runif(nrow(M)) < row_acc
-    #   iter <- iter + 1L
-    # }
-    # gsamples[, phase2_idx] <- M
+    phase2_idx <- sort(match(data_info$phase2_vars, names(gsamples)))
+    M <- gsamples[, phase2_idx, drop = FALSE]
+    phase2_num_idx <- match(data_info$phase2_vars[data_info$phase2_vars %in% data_info$num_vars], colnames(M))
+    row_acc <- acc_prob_row(as.matrix(M[, phase2_num_idx]), lb, ub)
+    accept_row <- runif(nrow(M)) < row_acc
+
+    iter <- 0L
+    repeat {
+      if (iter >= max_attempt){
+        break
+      }else if (sum(accept_row) == nrow(M)){
+        break
+      }
+      bad_rows <- which(!accept_row)
+      M[bad_rows, ] <- gen_rows(bad_rows, gnet, A_t, C_t, params, data_original, data_training, decode, denormalize,
+                                data_encode, data_norm, data_info, phase1_vars, phase2_vars, type, device)[, phase2_idx]
+      # Recompute acceptance
+      row_acc <- acc_prob_row(as.matrix(M[, phase2_num_idx]), lb, ub)
+      accept_row <- runif(nrow(M)) < row_acc
+      iter <- iter + 1L
+    }
+    gsamples[, phase2_idx] <- M
     
     for (phase2_nn in names(lb)){
       oob_ind <- which(gsamples[[phase2_nn]] < lb[phase2_nn] | gsamples[[phase2_nn]] > ub[phase2_nn])

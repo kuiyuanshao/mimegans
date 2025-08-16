@@ -27,7 +27,8 @@ last_rep <- min(task_id * chunk_size, replicate)
 do_mimegans <- function(samp, info, nm, digit) {
   tm <- system.time({
     mimegans_imp <- mimegans(samp, m = 20, 
-                           params = list(n_g_layers = 5, n_d_layers = 3, noise_dim = 256),
+                           params = list(n_g_layers = 5, n_d_layers = 3, 
+                                         noise_dim = 256),
                            data_info = info)
   })
   mimegans_imp$imputation <- lapply(mimegans_imp$imputation, function(dat){

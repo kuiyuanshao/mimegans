@@ -1,5 +1,5 @@
 lapply(c("dplyr", "stringr", "torch", "survival"), require, character.only = T)
-lapply(paste0("./megans/", list.files("./megans")), source)
+lapply(paste0("./mimegans/", list.files("./mimegans")), source)
 source("00_utils_functions.R")
 
 if(!dir.exists('./simulations')){dir.create('./simulations')}
@@ -7,9 +7,9 @@ if(!dir.exists('./simulations/SRS')){dir.create('./simulations/SRS')}
 if(!dir.exists('./simulations/Balance')){dir.create('./simulations/Balance')}
 if(!dir.exists('./simulations/Neyman')){dir.create('./simulations/Neyman')}
 
-if(!dir.exists('./simulations/SRS/megans')){dir.create('./simulations/SRS/megans')}
-if(!dir.exists('./simulations/Balance/megans')){dir.create('./simulations/Balance/megans')}
-if(!dir.exists('./simulations/Neyman/megans')){dir.create('./simulations/Neyman/megans')}
+if(!dir.exists('./simulations/SRS/mimegans')){dir.create('./simulations/SRS/mimegans')}
+if(!dir.exists('./simulations/Balance/mimegans')){dir.create('./simulations/Balance/mimegans')}
+if(!dir.exists('./simulations/Neyman/mimegans')){dir.create('./simulations/Neyman/mimegans')}
 
 args <- commandArgs(trailingOnly = TRUE)
 task_id <- as.integer(ifelse(length(args) >= 1,
@@ -24,16 +24,16 @@ first_rep <- (task_id - 1) * chunk_size + 1
 last_rep <- min(task_id * chunk_size, replicate)
 
 
-do_megans <- function(samp, info, nm, digit) {
+do_mimegans <- function(samp, info, nm, digit) {
   tm <- system.time({
-    megans_imp <- mmer.impute.cwgangp(samp, m = 20, 
-                                      params = list(n_g_layers = 5, n_d_layers = 3, type_d = "mlp", lambda = 0),
-                                      data_info = info)
+    mimegans_imp <- mimegans(samp, m = 20, 
+                           params = list(n_g_layers = 5, n_d_layers = 3, noise_dim = 256),
+                           data_info = info)
   })
-  megans_imp$imputation <- lapply(megans_imp$imputation, function(dat){
+  mimegans_imp$imputation <- lapply(mimegans_imp$imputation, function(dat){
     match_types(dat, data)
   })
-  imp.mids <- as.mids(megans_imp$imputation)
+  imp.mids <- as.mids(mimegans_imp$imputation)
   fit <- with(data = imp.mids,
               exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +
                             rs4506565 + I((AGE - 50) / 5) +
@@ -46,11 +46,11 @@ do_megans <- function(samp, info, nm, digit) {
   cat(sprintf("[system.time] user=%.3fs sys=%.3fs elapsed=%.3fs\n",
               tm[["user.self"]], tm[["sys.self"]], tm[["elapsed"]]))
   cat("Bias: \n")
-  cat(exp(sumry$estimate) - exp(coef(cox.true)))
+  cat(exp(sumry$estimate) - exp(coef(cox.true)), "\n")
   cat("Variance: \n")
-  cat(apply(bind_rows(lapply(fit$analyses, function(i){coef(i)})), 2, var))
+  cat(apply(bind_rows(lapply(fit$analyses, function(i){coef(i)})), 2, var), "\n")
   
-  save(megans_imp, tm, file = file.path("simulations", nm, "megans",
+  save(mimegans_imp, tm, file = file.path("simulations", nm, "mimegans",
                                         paste0(digit, ".RData")))
 }
 
@@ -77,13 +77,13 @@ for (i in 1:10){
                       rs4506565 + I((AGE - 50) / 5) + SEX + INSURANCE + 
                       RACE + I(BMI / 5) + SMOKE, data = data)
   
-  if (!file.exists(paste0("./simulations/SRS/megans/", digit, ".RData"))){
-    do_megans(samp_srs, data_info_srs, "SRS", digit)
+  if (!file.exists(paste0("./simulations/SRS/mimegans/", digit, ".RData"))){
+    do_mimegans(samp_srs, data_info_srs, "SRS", digit)
   }
-  if (!file.exists(paste0("./simulations/Balance/megans/", digit, ".RData"))){
-    do_megans(samp_balance, data_info_balance, "Balance", digit)
+  if (!file.exists(paste0("./simulations/Balance/mimegans/", digit, ".RData"))){
+    do_mimegans(samp_balance, data_info_balance, "Balance", digit)
   }
-  if (!file.exists(paste0("./simulations/Neyman/megans/", digit, ".RData"))){
-    do_megans(samp_neyman, data_info_neyman, "Neyman", digit)
+  if (!file.exists(paste0("./simulations/Neyman/mimegans/", digit, ".RData"))){
+    do_mimegans(samp_neyman, data_info_neyman, "Neyman", digit)
   }
 }

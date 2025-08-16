@@ -37,7 +37,7 @@ gen_rows <- function(idx_vec, gnet, A_t, C_t, params, data_original, data_traini
   n <- length(idx_vec)
   z <- torch_normal(0, 1, size = c(n, params$noise_dim))$to(device = device)
   tmp <- gnet(torch_cat(list(z, A_t[idx_vec, , drop = F], C_t[idx_vec, , drop = F]), dim = 2))
-  tmp <- activation_fun(tmp, data_encode, phase2_vars, gen = T)
+  tmp <- activationFun(tmp, data_encode, phase2_vars, gen = T)
   tmp <- torch_cat(list(tmp, A_t[idx_vec, , drop = F], C_t[idx_vec, , drop = F]), dim = 2)
   df <- as.data.frame(as.matrix(tmp$detach()$cpu()))
   names(df) <- names(data_training)
@@ -68,6 +68,7 @@ generateImpute <- function(gnet, m = 5,
                            phase1_vars, phase2_vars,
                            num.normalizing, cat.encoding, 
                            batch_size, device, params,
+                           allnums, allcats, 
                            tensor_list){
   imputed_data_list <- vector("list", m)
   gsample_data_list <- vector("list", m)
@@ -101,8 +102,8 @@ generateImpute <- function(gnet, m = 5,
       fakez_C <- torch_cat(list(fakez, A, C), dim = 2)
       
       gsample <- gnet(fakez_C)
-      gsample <- activation_fun(gsample, data_encode, phase2_vars, 
-                                tau = 0.2, hard = F, gen = T)
+      gsample <- activationFun(gsample, allnums, allcats, 
+                               tau = 0.2, hard = F, gen = T)
       gsample <- torch_cat(list(gsample, A, C), dim = 2)
       output_list[[i]] <- as.matrix(gsample$detach()$cpu())
     }
@@ -129,11 +130,6 @@ generateImpute <- function(gnet, m = 5,
       gsamples[, match(phase2_vars[phase2_vars %in% data_info$num_vars], names(gsamples))] <-
         data_original[, match(phase1_vars[phase1_vars %in% data_info$num_vars], names(data_original))] -
         gsamples[, match(phase2_vars[phase2_vars %in% data_info$num_vars], names(gsamples))]
-      
-      # gsamples[, match((phase2_vars[phase2_vars %in% num_vars]), names(gsamples))] <-
-      #   sweep(exp(log(sweep(data_original[, match((phase1_vars[phase1_vars %in% num_vars]),
-      #                                             names(data_original))], 2, log_shift, "+")) -
-      #               gsamples[, match(phase2_vars[phase2_vars %in% num_vars], names(gsamples))]), 2, log_shift, "-")
     }
     phase2_idx <- sort(match(data_info$phase2_vars, names(gsamples)))
     M <- gsamples[, phase2_idx, drop = FALSE]

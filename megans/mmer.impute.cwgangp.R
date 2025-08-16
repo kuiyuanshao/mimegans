@@ -144,7 +144,7 @@ mmer.impute.cwgangp <- function(data, m = 5,
         cm[is.na(cm)] <- 0 
         return (cm)
       })
-      CM_tensors <- lapply(confusmat, function(cm) torch_tensor(cm, dtype = torch_float()))
+      CM_tensors <- lapply(confusmat, function(cm) torch_tensor(cm, dtype = torch_float(), device = device))
       names(CM_tensors) <- phase2_cats
       phase1_cats_inds <- match(unlist(data_encode$new_col_names[phase1_vars[phase1_vars %in% cat_vars]]), 
                                 names(phase1_m))

@@ -32,15 +32,20 @@ do_mice <- function(dat, nm, digit) {
   mincor <- 0.15
   repeat {
     cat(sprintf("      trying mincor = %.2f\n", mincor))
-    mice_imp <- tryCatch(
-      mice(dat, m = 20, print = T, maxit = 50,
-           maxcor = 1.0001, ls.meth = "ridge", ridge = 0.05,
-           predictorMatrix = quickpred(dat, mincor = mincor)),
-      error = identity
-    )
+    tm <- system.time({
+      mice_imp <- tryCatch(
+        mice(dat, m = 20, print = T, maxit = 50,
+             maxcor = 1.0001, ls.meth = "ridge", ridge = 0.05,
+             predictorMatrix = quickpred(dat, mincor = mincor)),
+        error = identity
+      )
+    })
     
     if (!inherits(mice_imp, "error")) {
-      save(mice_imp, file = file.path("simulations", nm, "mice",
+      cat(sprintf("[system.time] user=%.3fs sys=%.3fs elapsed=%.3fs\n",
+                  tm[["user.self"]], tm[["sys.self"]], tm[["elapsed"]]))
+      
+      save(mice_imp, tm, file = file.path("simulations", nm, "mice",
                                       paste0(digit, ".RData")))
       break
     }

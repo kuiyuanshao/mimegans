@@ -12,8 +12,8 @@ if(!dir.exists('./simulations/Neyman/mice')){dir.create('./simulations/Neyman/mi
 
 args <- commandArgs(trailingOnly = TRUE)
 task_id <- as.integer(ifelse(length(args) >= 1,
-                               args[1],
-                               Sys.getenv("SLURM_ARRAY_TASK_ID", "1")))
+                             args[1],
+                             Sys.getenv("SLURM_ARRAY_TASK_ID", "1")))
 sampling_design <- ifelse(length(args) >= 2, 
                           args[2], Sys.getenv("SAMP", "All"))
 
@@ -32,29 +32,29 @@ do_mice <- function(dat, nm, digit) {
   mincor <- 0.15
   repeat {
     cat(sprintf("      trying mincor = %.2f\n", mincor))
-    fit <- tryCatch(
+    mice_imp <- tryCatch(
       mice(dat, m = 20, print = T, maxit = 50,
            maxcor = 1.0001, ls.meth = "ridge", ridge = 0.05,
            predictorMatrix = quickpred(dat, mincor = mincor)),
       error = identity
     )
     
-    if (!inherits(fit, "error")) {
-      save(fit, file = file.path("simulations", nm, "mice",
-                                 paste0(digit, ".RData")))
+    if (!inherits(mice_imp, "error")) {
+      save(mice_imp, file = file.path("simulations", nm, "mice",
+                                      paste0(digit, ".RData")))
       break
     }
-    message(sprintf("      mice() failed (%s)", fit$message))
+    message(sprintf("      mice() failed (%s)", mice_imp$message))
     
     mincor <- mincor + 0.05
   }
 }
-        
-  # mice_imp <- mice(dat, m = 20, print = T, maxit = 50,
-  #                  maxcor = 1.0001, ls.meth = "ridge", ridge = 0.05,
-  #                  predictorMatrix = quickpred(dat, mincor = 0.15))
-  # save(mice_imp, file = file.path("./simulations", nm, "mice",
-  #                                 paste0(digit, ".RData")))
+
+# mice_imp <- mice(dat, m = 20, print = T, maxit = 50,
+#                  maxcor = 1.0001, ls.meth = "ridge", ridge = 0.05,
+#                  predictorMatrix = quickpred(dat, mincor = 0.15))
+# save(mice_imp, file = file.path("./simulations", nm, "mice",
+#                                 paste0(digit, ".RData")))
 
 
 ## ---------- main loop ---------------------------------------

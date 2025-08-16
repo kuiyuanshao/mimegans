@@ -184,9 +184,13 @@ mmer.impute.cwgangp <- function(data, m = 5,
   for (i in 1:epochs){
     gnet$train()
     for (d in 1:discriminator_steps){
-      batch <- samplebatches(data, data_training, tensor_list, 
-                             phase1_rows, phase2_rows, phase2_vars_encode,
-                             data_encode$new_col_names, batch_size, at_least_p = at_least_p, 
+      # batch <- samplebatches(data, data_training, tensor_list, 
+      #                        phase1_rows, phase2_rows, phase2_vars_encode,
+      #                        data_encode$new_col_names, batch_size, at_least_p = at_least_p, 
+      #                        weights)
+      batch <- samplebatches(data, tensor_list, 
+                             phase1_rows, phase2_rows, phase2_vars,
+                             cat_vars, batch_size, at_least_p = at_least_p,
                              weights)
       
       W <- batch[[5]] 
@@ -224,7 +228,7 @@ mmer.impute.cwgangp <- function(data, m = 5,
       x_fake_I <- dnet(fake_AC_I)
       x_true_I <- dnet(true_AC_I)
 
-      W_I <- (W[I]$reshape(c(-1, params$pac))$sum(dim = 2)) 
+      W_I <- (W[I]$reshape(c(-1, params$pac))$sum(dim = 2))
       W_I <- (W_I / torch_sum(W_I))$reshape(c(W_I$shape[1], 1))
 
       if (lambda > 0){
@@ -234,20 +238,24 @@ mmer.impute.cwgangp <- function(data, m = 5,
         gp <- torch_tensor(0, dtype = fake$dtype, device = device)
       }
       
-      # d_loss <- -(torch_mean(x_true_I) - torch_mean(x_fake_I)) +
-      #   -(torch_mean(x_true_I) - torch_mean(x_fake_I_2)) +
-      #   params$lambda * gp
-      d_loss <- -(torch_sum(W_I * x_true_I) - torch_sum(W_I * x_fake_I)) +
-        -(torch_sum(W_I * x_true_I) - torch_sum(W_I * x_fake_I_2)) +
+      d_loss <- -(torch_mean(x_true_I) - torch_mean(x_fake_I)) +
+        -(torch_mean(x_true_I) - torch_mean(x_fake_I_2)) +
         params$lambda * gp
+      # d_loss <- -(torch_sum(W_I * x_true_I) - torch_sum(W_I * x_fake_I)) +
+      #   -(torch_sum(W_I * x_true_I) - torch_sum(W_I * x_fake_I_2)) +
+      #   params$lambda * gp
 
       d_solver$zero_grad()
       d_loss$backward()
       d_solver$step()
     }
-    batch <- samplebatches(data, data_training, tensor_list, 
-                           phase1_rows, phase2_rows, phase2_vars_encode,
-                           data_encode$new_col_names, batch_size, at_least_p = at_least_p, 
+    # batch <- samplebatches(data, data_training, tensor_list, 
+    #                        phase1_rows, phase2_rows, phase2_vars_encode,
+    #                        data_encode$new_col_names, batch_size, at_least_p = at_least_p, 
+    #                        weights)
+    batch <- samplebatches(data, tensor_list, 
+                           phase1_rows, phase2_rows, phase2_vars,
+                           cat_vars, batch_size, at_least_p = at_least_p,
                            weights)
     W <- batch[[5]]
     A <- batch[[4]]

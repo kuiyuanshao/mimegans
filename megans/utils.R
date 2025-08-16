@@ -44,8 +44,9 @@ cross_entropy_loss <- function(fake, true, I, encode_result, vars, phase2_cats, 
   for (catmode in cats_mode){
     ce <- nnf_cross_entropy(fake[I, catmode, drop = F], 
                             torch_argmax(true[I, catmode, drop = F], dim = 2), 
-                            reduction = "none")
-    loss[[i]] <- torch_sum(W_I * ce$reshape(c(W_I$shape[1], 1)))
+                            reduction = "mean")
+    #loss[[i]] <- torch_sum(W_I * ce$reshape(c(W_I$shape[1], 1)))
+    loss[[i]] <- ce
     i <- i + 1
   }
   
@@ -125,7 +126,9 @@ gradient_penalty <- function(D, real_samples, fake_samples, params, device, W_I)
     gradients <- gradients$reshape(c(-1, params$pac * interpolates$size(2)))
   }
   gradient_penalty <- torch_mean((torch_norm(gradients, p = 2, dim = 2) - 1) ^ 2)
-  # gradient_penalty <- sum((W_I * (torch_norm(gradients, p = 2, dim = 2) - 1) ^ 2) / sum(W_I))
+  # gradient_penalty <- (torch_norm(gradients, p = 2, dim = 2) - 1) ^ 2
+  # gradient_penalty <- gradient_penalty$reshape(c(gradient_penalty$shape[1], 1))
+  # gradient_penalty <- torch_sum(W_I * gradient_penalty)
   return (gradient_penalty)
 }
 

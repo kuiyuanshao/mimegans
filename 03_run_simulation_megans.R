@@ -23,7 +23,7 @@ chunk_size <- ceiling(replicate / n_chunks)
 first_rep <- (task_id - 1) * chunk_size + 1
 last_rep <- min(task_id * chunk_size, replicate)
 
-for (i in first_rep:last_rep){
+for (i in 1:10){ 
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))
@@ -46,18 +46,18 @@ for (i in first_rep:last_rep){
                       RACE + I(BMI / 5) + SMOKE, data = data)
   
   if (!file.exists(paste0("./simulations/SRS/megans/", digit, ".RData"))){
-    megans_imp <- mmer.impute.cwgangp(samp_srs, m = 20, params = list(n_g_layers = 5, n_d_layers = 3, 
+    megans_imp <- mmer.impute.cwgangp(samp_srs, m = 20, params = list(n_g_layers = 5, n_d_layers = 3,
                                                                       type_d = "mlp", lambda = 0),
                                       data_info = data_info_srs)
-    
+
     megans_imp$imputation <- lapply(megans_imp$imputation, function(dat){
       match_types(dat, data)
     })
     imp.mids <- as.mids(megans_imp$imputation)
-    fit <- with(data = imp.mids, 
-                exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) + 
-                              rs4506565 + I((AGE - 50) / 5) + 
-                              SEX + INSURANCE + 
+    fit <- with(data = imp.mids,
+                exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +
+                              rs4506565 + I((AGE - 50) / 5) +
+                              SEX + INSURANCE +
                               RACE + I(BMI / 5) + SMOKE))
     pooled <- mice::pool(fit)
     sumry <- summary(pooled, conf.int = TRUE)

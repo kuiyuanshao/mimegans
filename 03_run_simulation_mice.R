@@ -36,7 +36,12 @@ do_mice <- function(dat, nm, digit) {
       mice_imp <- tryCatch(
         mice(dat, m = 20, print = T, maxit = 50,
              maxcor = 1.0001, ls.meth = "ridge", ridge = 0.05,
-             predictorMatrix = quickpred(dat, mincor = mincor)),
+             predictorMatrix = quickpred(dat, mincor = mincor, 
+                                         include = c("T_I", "T_I_STAR", "EVENT", "EVENT_STAR", 
+                                                     "HbA1c", "HbA1c_STAR",
+                                                     "rs4506565", "rs4506565_STAR", 
+                                                     "AGE", "eGFR", "SEX", "INSURANCE", "RACE",
+                                                     "BMI", "SMOKE", "SMOKE_STAR"))),
         error = identity
       )
     })

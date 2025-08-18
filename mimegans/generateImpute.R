@@ -33,11 +33,11 @@ acc_prob_row <- function(mat, lb, ub, alpha = 1) {
   exp(-alpha * total_violation ^ 2)
 }
 gen_rows <- function(idx_vec, gnet, A_t, C_t, params, data_original, data_training, decode, denormalize,
-                     data_encode, data_norm, data_info, phase1_vars, phase2_vars, type, device){
+                     data_encode, data_norm, data_info, phase1_vars, phase2_vars, allnums, allcats, device){
   n <- length(idx_vec)
   z <- torch_normal(0, 1, size = c(n, params$noise_dim))$to(device = device)
   tmp <- gnet(torch_cat(list(z, A_t[idx_vec, , drop = F], C_t[idx_vec, , drop = F]), dim = 2))
-  tmp <- activationFun(tmp, data_encode, phase2_vars, gen = T)
+  tmp <- activationFun(tmp, allnums, allcats, gen = T)
   tmp <- torch_cat(list(tmp, A_t[idx_vec, , drop = F], C_t[idx_vec, , drop = F]), dim = 2)
   df <- as.data.frame(as.matrix(tmp$detach()$cpu()))
   names(df) <- names(data_training)
@@ -102,8 +102,7 @@ generateImpute <- function(gnet, m = 5,
       fakez_C <- torch_cat(list(fakez, A, C), dim = 2)
       
       gsample <- gnet(fakez_C)
-      gsample <- activationFun(gsample, allnums, allcats, 
-                               tau = 0.2, hard = F, gen = T)
+      gsample <- activationFun(gsample, allnums, allcats, gen = T)
       gsample <- torch_cat(list(gsample, A, C), dim = 2)
       output_list[[i]] <- as.matrix(gsample$detach()$cpu())
     }
@@ -146,7 +145,7 @@ generateImpute <- function(gnet, m = 5,
       }
       bad_rows <- which(!accept_row)
       M[bad_rows, ] <- gen_rows(bad_rows, gnet, A_t, C_t, params, data_original, data_training, decode, denormalize,
-                                data_encode, data_norm, data_info, phase1_vars, phase2_vars, type, device)[, phase2_idx]
+                                data_encode, data_norm, data_info, phase1_vars, phase2_vars, allnums, allcats, device)[, phase2_idx]
       # Recompute acceptance
       row_acc <- acc_prob_row(as.matrix(M[, phase2_num_idx]), lb, ub)
       accept_row <- runif(nrow(M)) < row_acc

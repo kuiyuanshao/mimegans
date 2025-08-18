@@ -50,8 +50,8 @@ generateSample <- function(data, proportion, seed){
   # Stratified Sampling with Neyman Allocation
   ### Getting Influence Function by auxiliary variables
   mod.aux <- coxph(Surv(T_I_STAR, EVENT_STAR) ~ I((HbA1c_STAR - 50) / 5) + 
-                     rs4506565_STAR + I((AGE - 50) / 5) + SEX + INSURANCE + 
-                     RACE + I(BMI / 5) + SMOKE_STAR, 
+                     rs4506565_STAR + I((AGE - 50) / 5) + I((eGFR - 90) / 10) + 
+                     SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE_STAR, 
                    data = data, y = T, x = T)
   inf <- residuals(mod.aux, type = "dfbeta")[, 2]
   data$inf <- inf
@@ -87,7 +87,7 @@ if (file.exists("./data/data_sampling_seed.RData")){
   seed <- sample(1:100000, 500)
   save(seed, file = "./data/data_sampling_seed.RData")
 }
-for (i in 1:replicate){
+for (i in 27:replicate){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))
@@ -99,5 +99,4 @@ for (i in 1:replicate){
   write.csv(samp_result$samp_neyman, 
             file = paste0("./data/Sample/Neyman/", digit, ".csv"))
 }
-
 

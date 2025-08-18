@@ -1,29 +1,32 @@
 library(torch)
 library(progress)
-
-gain <- function(data, device = "cpu", batch_size = 128, hint_rate = 0.9, 
+source("../mimegans/encoding.R")
+gain <- function(data, data_info, device = "cpu", batch_size = 128, hint_rate = 0.9, 
                  alpha = 10, beta = 1, n = 10000){
   device <- torch_device(device)
   loss_mat <- matrix(NA, nrow = n, ncol = 2)
   
-  nRow <- dim(data)[1]
-  nCol <- dim(data)[2]
-  
-  numCol <- lapply(apply(data, 2, unique), length) > 2
-  N <- t(replicate(batch_size, as.numeric(numCol)))
-  N <- torch_tensor(N, device = device)
-  
-  misCol <- as.numeric(!is.na(colSums(data)))
+  numCol <- which(names(data) %in% data_info$num_vars)
   norm_result <- normalize(data, numCol)
   norm_data <- norm_result$norm_data
   norm_parameters <- norm_result$norm_parameters
   
-  data_mask <- 1 - is.na(data)
-  norm_data[is.na(norm_data)] <- 0
-  norm_data <- as.matrix(norm_data)
+  data_encode <- encode.onehot(norm_data, data_info$cat_vars, data_info$cat_vars, 
+                               data_info$phase1_vars, data_info$phase2_vars)
+  data_training <- data_encode$data
   
-  norm_data <- torch::torch_tensor(norm_data, device = device)
-  data_mask <- torch::torch_tensor(data_mask, device = device)
+  num_inds <- which(names(data_training) %in% num_vars)
+  cat_inds <- unlist(data_encode$new_col_names)
+  
+  data_mask <- 1 - is.na(data_training)
+  data_training[is.na(data_training)] <- 0
+  data_mat <- as.matrix(data_training)
+  
+  nRow <- dim(data_training)[1]
+  nCol <- dim(data_training)[2]
+  
+  X_t <- torch::torch_tensor(data_mat, device = device)
+  M_t <- torch::torch_tensor(data_mask, device = device)
   
   GAIN_Generator <- torch::nn_module(
     initialize = function(nCol){
@@ -58,7 +61,7 @@ gain <- function(data, device = "cpu", batch_size = 128, hint_rate = 0.9,
                           name = "Linear2")
       self$seq$add_module(module = torch::nn_relu(),
                           name = "Activation2")
-      self$seq$add_module(module = torch::nn_linear(nCol, 1),
+      self$seq$add_module(module = torch::nn_linear(nCol, nCol),
                           name = "Linear3")
       self$seq$add_module(module = torch::nn_sigmoid(),
                           name = "Output")
@@ -90,11 +93,13 @@ gain <- function(data, device = "cpu", batch_size = 128, hint_rate = 0.9,
     D_prob <- discriminator(X_hat, H)
     
     G_loss1 <- -torch_mean((1 - M) * torch_log(D_prob + 1e-8))
-    mse_loss <- torch_mean((M * X * N - M * G_sample * N) ^ 2) / torch_mean(M * N)
-    
-    cross_entropy <- -torch_mean((1 - N) * X * M * 
-                                 torch_log(G_sample + 1e-8) + 
-                                 (1 - X) * (1 - N) * M * torch_log(1 - (G_sample + 1e-8)))
+
+    mse_loss <- torch_mean((M[, num_inds, drop = F] * X[, num_inds, drop = F] - 
+                             M[, num_inds, drop = F] * G_sample[, num_inds, drop = F]) ^ 2) / torch_mean(M[, num_inds, drop = F])
+    cross_entropy <- -torch_mean(X[, cat_inds, drop = F] * M[, cat_inds, drop = F] * 
+                                 torch_log(G_sample[, cat_inds, drop = F] + 1e-8) + 
+                                 (1 - X[, cat_inds, drop = F]) * M[, cat_inds, drop = F] * 
+                                   torch_log(1 - (G_sample[, cat_inds, drop = F] + 1e-8)))
     return (G_loss1 + alpha * mse_loss + beta * cross_entropy)
   }
   D_loss <- function(X, M, H){
@@ -112,7 +117,7 @@ gain <- function(data, device = "cpu", batch_size = 128, hint_rate = 0.9,
     clear = FALSE, total = n, width = 100)
   
   for (i in 1:n){
-    ind_batch <- new_batch(norm_data, data_mask, nRow, batch_size, device)
+    ind_batch <- new_batch(X_t, M_t, nRow, batch_size, device)
     X_mb <- ind_batch[[1]]
     M_mb <- ind_batch[[2]]
     
@@ -146,29 +151,24 @@ gain <- function(data, device = "cpu", batch_size = 128, hint_rate = 0.9,
   gsample_data_list <- vector("list", m)
   for (j in 1:m){
     Z <- ((-0.01) * torch::torch_rand(c(nRow, nCol)) + 0.01)$to(device = device)
-    X <- data_mask * norm_data + (1 - data_mask) * Z
+    X <- M_t * X_t + (1 - M_t) * Z
     X <- X$to(device = device)
-    M <- data_mask
+    M <- M_t
     
-    G_sample <- generator(norm_data, M)
+    G_sample <- generator(X, M)
     
-    imputed_data <- data_mask * norm_data + (1 - data_mask) * G_sample
+    imputed_data <- M_t * X + (1 - M_t) * G_sample
     imputed_data <- imputed_data$detach()$cpu()
-    imputed_data <- renormalize(imputed_data, norm_parameters, numCol)
-    imputed_data <- data.frame(as.matrix(imputed_data))
-    names(imputed_data) <- names(data)
-  
-    G_sample <- G_sample$detach()$cpu()
-    G_sample <- renormalize(G_sample, norm_parameters, numCol)
-    G_sample <- data.frame(as.matrix(G_sample))
-    names(G_sample) <- names(data)
+    imputed_data <- as.data.frame(imputed_data)
+    names(imputed_data) <- names(data_training)
+    
+    imputed_data <- decode.onehot(imputed_data, data_encode)
+    imputed_data <- renormalize(imputed_data, norm_parameters, num_inds)
     
     imputed_data_list[[j]] <- imputed_data
-    gsample_data_list[[j]] <- G_sample
   }
   loss_mat <- as.data.frame(loss_mat)
   names(loss_mat) <- c("G_loss", "D_loss")
   return (list(imputations = imputed_data_list, 
-               samples = gsample_data_list, 
                loss = loss_mat))
 }

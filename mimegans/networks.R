@@ -27,7 +27,7 @@ SpectralNorm <- nn_module(
   initialize = function(module, name = "weight",
                         n_power_iterations = 1L, eps = 1e-12) {
     
-    self$module <- module
+    self$register_module("module", module)
     self$name <- name
     self$niters <- as.integer(n_power_iterations)
     self$eps <- eps

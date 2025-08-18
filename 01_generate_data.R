@@ -83,9 +83,9 @@ generateData <- function(n, seed){
   
   # Adding Measurement Errors:
   # SMOKE:
-  SMOKE_M <- matrix(c(0.85, 0.10, 0.05,
-                      0.02, 0.96, 0.02,
-                      0.07, 0.03, 0.90), 
+  SMOKE_M <- matrix(c(0.70, 0.10, 0.20,
+                      0.10, 0.80, 0.10,
+                      0.05, 0.10, 0.85),
                     nrow = 3, byrow = TRUE,
                     dimnames = list(1:3, 1:3))
   data$SMOKE_STAR <- sapply(as.character(data$SMOKE), 
@@ -171,27 +171,32 @@ generateData <- function(n, seed){
   data$HbA1c_STAR <- selfReport(data$HbA1c, 10, 10)
   
   # T_I: Self-Reported Time Interval between Treatment Initiation SGLT2 and T2D Diagnosis (Months)
-  mm_T_I <- model.matrix(~ I((HbA1c - 50) / 5) + rs4506565 + I((AGE - 50) / 5) + 
+  data$eGFR_cap <- (pmin(pmax(data$eGFR, 0), 120) - 90) / 10
+  mm_T_I <- model.matrix(~ I((HbA1c - 50) / 5) + rs4506565 + I((AGE - 50) / 5) + I((eGFR_cap - 90) / 10) + 
                            SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE, data = data)
-  betas_T_I <- log(c(1, 1.25, 1.05, 1.10, 1.10, 1.1, 0.75, 
-                     0.90, 0.90, 1, 0.95, 1.1, 0.85, 0.9))
+  data$eGFR_cap <- NULL
+  betas_T_I <- log(c(1, 1.25, 1.02, 1.04, 1.05, 0.95,
+                     1.05, 1.2, 0.90, 0.90, 1, 0.95, 1.1, 0.85, 0.9))
   eta_I <- as.vector(mm_T_I %*% betas_T_I)
   k <- 1.2
-  lambda <- log(2) / (100 ^ k)
+  lambda <- log(2) / (150 ^ k)
   T_I <- (-log(runif(n)) / (lambda*exp(eta_I)))^(1/k) + 1
   
   C_drop <- rexp(n, rate = 0.07)
   betas <- c(
     `(Intercept)` = 1.00, 
-    EDU = -0.02,  # −0.02 per year of education
+    AGE = 0.02, 
+    EDU = -0.02,
     INCOME2 = -0.10, 
     INCOME3 = -0.20,
     INCOME4 = -0.30,
     INCOME5 = -0.40,
-    URBANTRUE = -0.10   # urban vs rural
+    URBANTRUE = -0.10,
+    SMOKE2 = 0.2,
+    SMOKE3 = -0.3
   )
   C_drop_star <- C_drop + rnorm(n, 0, 2) + 
-    abs(rnorm(n, 0, 2)) * (model.matrix(~ EDU + INCOME + URBAN, data = data) %*% betas)
+    abs(rnorm(n, 0, 2)) * (model.matrix(~ AGE + EDU + INCOME + URBAN + SMOKE, data = data) %*% betas)
   
   C <- pmax(0.01, pmin(24.001, C_drop))
   C_STAR <- pmax(0.01, pmin(24.001, C_drop_star))
@@ -908,7 +913,7 @@ if (file.exists("./data/data_generation_seed.RData")){
   save(seed, file = "./data/data_generation_seed.RData")
 }
 
-for (i in 1:replicate){
+for (i in 27:replicate){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   data <- suppressMessages({generateData(n, seed[i])})

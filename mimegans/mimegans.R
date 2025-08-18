@@ -31,9 +31,9 @@ init_weights_discriminator <- function(m) {
 cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 0, 
                             alpha = 0, beta = 1, at_least_p = 1/2, 
                             lr_g = 2e-4, lr_d = 2e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
-                            g_weight_decay = 1e-6, d_weight_decay = 1e-6, noise_dim = 64, 
+                            g_weight_decay = 1e-6, d_weight_decay = 1e-6, noise_dim = 128, 
                             g_dim = 256, d_dim = 256, pac = 10, 
-                            n_g_layers = 3, n_d_layers = 1, discriminator_steps = 1,
+                            n_g_layers = 3, n_d_layers = 2, discriminator_steps = 1,
                             tau = 0.2, hard = F, type_g = "mlp", type_d = "mlp",
                             mmer = T, cat_proj = T){
   
@@ -176,7 +176,7 @@ mimegans <- function(data, m = 5,
   
   gnet <- do.call(paste("generator", type_g, sep = "."), 
                   args = list(params, 
-                              ncols, length(phase2_vars_encode), rate = 0.5))$to(device = device)
+                              ncols, length(phase2_vars_encode), rate = 0.7))$to(device = device)
   dnet <- do.call(paste("discriminator", type_d, sep = "."), 
                   args = list(params, ncols,  
                               length(phase2_vars_encode)))$to(device = device)
@@ -227,35 +227,16 @@ mimegans <- function(data, m = 5,
       true_AC_I <- torch_cat(list(X[I, , drop = F], 
                                   A[I, , drop = F], 
                                   C[I, , drop = F]), dim = 2)
-      
-      fakez.2 <- torch_normal(mean = 0, std = 1, size = c(X$size(1), noise_dim))$to(device = device) 
-      fakez_AC.2 <- torch_cat(list(fakez.2, A, C), dim = 2)
-      
-      fake.2 <- gnet(fakez_AC.2)
-      fake.2 <- activationFun(fake.2, allnums, allcats, 
-                               tau = tau, hard = hard)
-      fake_AC_I.2 <- torch_cat(list(fake.2[I, , drop = F],
-                                    A[I, , drop = F], 
-                                    C[I, , drop = F]), dim = 2)
-      x_fake_I.2 <- dnet(fake_AC_I.2)
       x_fake_I <- dnet(fake_AC_I)
       x_true_I <- dnet(true_AC_I)
 
-      W_I <- (W[I]$reshape(c(-1, params$pac))$sum(dim = 2))
-      W_I <- (W_I / torch_sum(W_I))$reshape(c(W_I$shape[1], 1))
-
       if (lambda > 0){
-        gp <- gradientPenalty(dnet, true_AC_I, fake_AC_I, params, device = device, W_I) + 
-          gradientPenalty(dnet, true_AC_I, fake_AC_I.2, params, device = device, W_I)
+        gp <- gradientPenalty(dnet, true_AC_I, fake_AC_I, params, device = device) 
       }else{
         gp <- torch_tensor(0, dtype = fake$dtype, device = device)
       }
       
-      # d_loss <- -(torch_mean(x_true_I) - torch_mean(x_fake_I)) +
-      #   -(torch_mean(x_true_I) - torch_mean(x_fake_I.2)) +
-      #   params$lambda * gp
-      d_loss <- -(torch_sum(W_I * x_true_I) - torch_sum(W_I * x_fake_I)) +
-        -(torch_sum(W_I * x_true_I) - torch_sum(W_I * x_fake_I.2)) +
+      d_loss <- -(torch_mean(x_true_I) - torch_mean(x_fake_I)) + 
         params$lambda * gp
 
       d_solver$zero_grad()
@@ -281,38 +262,18 @@ mimegans <- function(data, m = 5,
     fake_AC <- torch_cat(list(fakeact, A, C), dim = 2)
     x_fake <- dnet(fake_AC)
     
-    
-    fakez.2 <- torch_normal(mean = 0, std = 1, size = c(X$size(1), noise_dim))$to(device = device) 
-    fakez_AC.2 <- torch_cat(list(fakez.2, A, C), dim = 2)
-    fake.2 <- gnet(fakez_AC.2)
-    fakeact.2 <- activationFun(fake.2, allnums, allcats, 
-                                tau = tau, hard = hard)
-    fake_AC.2 <- torch_cat(list(fakeact.2, A, C), dim = 2)
-    x_fake.2 <- dnet(fake_AC.2)
-    
     if (params$cat_proj){
       if (length(phase2_cats) > 0){
-        projs <- projP1(fake, X, A, I, CM_tensors, cats, 
+        projs <- projP1(fakeact, X, A, I, CM_tensors, cats, 
                         phase1_cats_inds, phase2_cats_inds)
-        fake <- projs[[1]]
-        
-        projs.2 <- projP1(fake.2, X, A, I, CM_tensors, cats, 
-                          phase1_cats_inds, phase2_cats_inds)
-        fake.2 <- projs.2[[1]]
-        X <- projs[[2]]
+        fake_proj <- projs[[1]]
+        X_proj <- projs[[2]]
       }
     }
+    adv_term <- params$gamma * -torch_mean(x_fake) 
+    xrecon_loss <- reconLoss(fake, X, fake_proj, X_proj, I, params, num_inds_p2, cat_inds_p2, cats, cats_mode)
 
-    adv_term <- params$gamma * (-torch_mean(x_fake) - torch_mean(x_fake.2))
-    
-    xrecon_loss <- reconLoss(fake, X, I, W, params, num_inds_p2, cat_inds_p2, cats, cats_mode)
-    xrecon_loss.2 <- reconLoss(fake.2, X, I, W, params, num_inds_p2, cat_inds_p2, cats, cats_mode)
-    
-    div_loss <- nnf_l1_loss(fake.2, fake, reduction = "mean") / 
-      nnf_l1_loss(fakez.2, fakez, reduction = "mean")
-    div_loss <- torch_relu(1 - div_loss) #(1 / (div_loss + 1e-5))
-    
-    g_loss <- adv_term + xrecon_loss + xrecon_loss.2 + div_loss
+    g_loss <- adv_term + xrecon_loss
     
     g_solver$zero_grad()
     g_loss$backward()
@@ -341,7 +302,7 @@ mimegans <- function(data, m = 5,
                                  num.normalizing, cat.encoding, 
                                  batch_size, device, params, 
                                  allnums, allcats, tensor_list)
-        step_result[[p]] <- result$gsample[[1]]
+        step_result[[p]] <- result
         p <- p + 1
         
       }

@@ -24,12 +24,9 @@ discriminator.sattn <- torch::nn_module(
   "DiscriminatorEncoder",
   initialize = function(params, ncols, nphase2, ...) {
     n_d_layers <- params$n_d_layers
-    # head_dim_target <- if (ncols >= 64) 32 else 16
-    # self$proj_dim <- ((ncols + 3) %/% head_dim_target + 1) * head_dim_target
-    # self$pacdim <- self$proj_dim * params$pac
     self$pacdim <- ncols * params$pac
     dim <- self$pacdim
-    # self$proj_layer <- nn_linear(ncols, self$proj_dim)
+    
     self$attn <- nn_multihead_attention(params$d_dim, 
                                         num_heads = max(1, min(8, round(params$d_dim / 128))),
                                         batch_first = T)
@@ -44,13 +41,11 @@ discriminator.sattn <- torch::nn_module(
     for (i in 1:(n_d_layers - 1)) {
       self$seq1$add_module(paste0("Linear", i), spectral_norm(nn_linear(dim, params$d_dim)))
       self$seq1$add_module(paste0("LeakyReLU", i), nn_leaky_relu(0.2))
-      self$seq1$add_module(paste0("Dropout", i), nn_dropout(0.5))
       dim <- params$d_dim
     }
     self$seq2 <- torch::nn_sequential(
       spectral_norm(nn_linear(params$d_dim, params$d_dim)),
-      nn_leaky_relu(0.2),
-      nn_dropout(0.5),
+      nn_leaky_relu(0.2)
     )
     self$seq2$add_module("Linear", spectral_norm(nn_linear(dim, 1)))
   },

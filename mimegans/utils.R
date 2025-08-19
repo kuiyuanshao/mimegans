@@ -18,36 +18,32 @@ reconLoss <- function(fake, true, fake_proj, true_proj, I, params, num_inds, cat
 }
 
 ceLoss <- function(fake, true, fake_proj, true_proj, I, params, cats, cats_mode){
-  loss <- list()
-  i <- 1
-
+  loss <- torch_tensor(0, device = fake$device)
+  notI <- I$logical_not()
   for (cat in cats){
     if (params$cat_proj){
-      ce.1 <- - (true_proj[, cat, drop = F] *
-                   (fake_proj[, cat, drop = F]$clamp_min(1e-8))$log())$sum(dim = 2)$mean()
+      ce.1 <- - 0.2 * (true_proj[notI, cat, drop = F] * 
+                 (fake_proj[notI, cat, drop = F]$clamp_min(1e-8))$log())$sum(dim = 2)
       ce.2 <- nnf_cross_entropy(fake[I, cat, drop = F], 
                                 torch_argmax(true[I, cat, drop = F], dim = 2), 
-                                reduction = "mean")
-      ce <- (ce.1 + ce.2) / 2
-      loss[[i]] <- ce 
+                                reduction = "none")
+      ce <- torch_cat(list(ce.1, ce.2), dim = 1)$mean()
+      loss <- loss + ce
       
     }else{
       ce <- nnf_cross_entropy(fake[I, cat, drop = F], 
                               torch_argmax(true[I, cat, drop = F], dim = 2), 
                               reduction = "mean")
-      loss[[i]] <- ce 
+      loss <- loss + ce
     }
-    i <- i + 1
   }
   for (catmode in cats_mode){
-    ce <- nnf_cross_entropy(fake[I, catmode, drop = F], 
-                            torch_argmax(true[I, catmode, drop = F], dim = 2), 
+    ce <- nnf_cross_entropy(fake[I, catmode, drop = F],
+                            torch_argmax(true[I, catmode, drop = F], dim = 2),
                             reduction = "mean")
-    loss[[i]] <- ce 
-    i <- i + 1
+    loss <- loss + ce
   }
-  
-  loss_t <- torch_stack(loss, dim = 1)$sum() / (length(cats) + length(cats_mode))
+  loss_t <- loss / (length(cats)+ length(cats_mode))
   return (loss_t)
 }
 
@@ -66,6 +62,9 @@ activationFun <- function(fake, nums, cats, tau = 0.2, hard = F, gen = F){
 }
 
 projP1 <- function(fake, X, A, I, CM_tensors, cats, phase1_cats_inds, phase2_cats_inds, eps = 1e-6){
+  fake_result <- fake$clone()
+  X_result <- X$clone()
+  
   A_cat <- A[, phase1_cats_inds]
   notI <- I$logical_not()
   
@@ -76,13 +75,12 @@ projP1 <- function(fake, X, A, I, CM_tensors, cats, phase1_cats_inds, phase2_cat
     prob_proj <- prob$matmul(cm)
     tmp <- fake[notI, , drop = F]
     tmp[, cat] <- prob_proj
-    fake[notI, ] <- tmp
+    fake_result[notI, ] <- tmp
   }
   for (k in 1:length(phase2_cats_inds)){
-    X[notI, phase2_cats_inds[k]] <- A_cat[notI, k]
+    X_result[notI, phase2_cats_inds[k]] <- A_cat[notI, k]
   }
-  
-  return (list(fake, X))
+  return (list(fake_result, X_result))
 }
 
 gradientPenalty <- function(D, real_samples, fake_samples, params, device) {

@@ -269,9 +269,12 @@ mimegans <- function(data, m = 5,
         fake_proj <- projs[[1]]
         X_proj <- projs[[2]]
       }
+    }else{
+      fake_proj <- X_proj <- NULL
     }
     adv_term <- params$gamma * -torch_mean(x_fake) 
-    xrecon_loss <- reconLoss(fake, X, fake_proj, X_proj, I, params, num_inds_p2, cat_inds_p2, cats, cats_mode)
+    xrecon_loss <- reconLoss(fake, X, fake_proj, X_proj, I, params, 
+                             num_inds_p2, cat_inds_p2, cats, cats_mode)
 
     g_loss <- adv_term + xrecon_loss
     

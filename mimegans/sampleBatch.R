@@ -14,12 +14,16 @@ sampleBatch <- function(data_original, tensor_list, phase1_bins,
                         batch_size, at_least_p = 0.5, 
                         weights){
   
-  curr_var <- sample(phase1_bins, 1)
-  p1 <- data_original[phase1_rows, curr_var]
-  p2 <- data_original[phase2_rows, curr_var]
-  u1 <- unique(p1)
-  u2 <- unique(p2)
-  
+  for (i in 1:20){
+    curr_var <- sample(phase1_bins, 1)
+    p1 <- data_original[phase1_rows, curr_var]
+    p2 <- data_original[phase2_rows, curr_var]
+    u1 <- unique(p1)
+    u2 <- unique(p2)
+    if (length(u1) >= 2 & length(u2) >= 2){
+      break
+    }
+  }
   phase1_total <- alloc_even(floor(batch_size * (1 - at_least_p)), u1)
   phase2_total <- alloc_even(ceiling(batch_size * at_least_p), u2)
   values <- data_original[, curr_var] # All values for the current sampled onehot encoded variable

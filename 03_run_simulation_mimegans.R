@@ -1,4 +1,3 @@
-Sys.setenv(CUDA_LAUNCH_BLOCKING = "1")
 lapply(c("dplyr", "stringr", "torch", "survival"), require, character.only = T)
 lapply(paste0("./mimegans/", list.files("./mimegans")), source)
 source("00_utils_functions.R")
@@ -29,8 +28,7 @@ do_mimegans <- function(samp, info, nm, digit) {
   tm <- system.time({
     mimegans_imp <- mimegans(samp, m = 20, epoch = 10000, 
                              params = list(n_g_layers = 5, n_d_layers = 3),
-                             data_info = info,
-                             device = "cuda")
+                             data_info = info)
   })
   mimegans_imp$imputation <- lapply(mimegans_imp$imputation, function(dat){
     match_types(dat, data)
@@ -56,7 +54,7 @@ do_mimegans <- function(samp, info, nm, digit) {
 }
 
 
-for (i in 25:100){ 
+for (i in 1:100){ 
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))

@@ -66,7 +66,7 @@ mimegans <- function(data, m = 5,
   phase1_bins <- cat_vars[!(cat_vars %in% phase2_vars)] 
   phase1_bins <- if (length(phase1_bins) > 0) {
     phase1_bins[sapply(phase1_bins, function(col) {
-      length(unique(data[phase1_rows, col])) > 1 & length(unique(data[phase1_rows, col])) > 1
+      length(unique(data[phase1_rows, col])) > 1
     })]
   } else {
     character(0)
@@ -75,7 +75,7 @@ mimegans <- function(data, m = 5,
   data_original <- data
   if (params$mmer){
     data[, match((phase2_vars[phase2_vars %in% num_vars]), names(data))] <-
-      data[, match((phase1_vars[phase1_vars %in% num_vars]), names(data))] -
+        data[, match((phase1_vars[phase1_vars %in% num_vars]), names(data))] -
       data[, match((phase2_vars[phase2_vars %in% num_vars]), names(data))]
   }
   
@@ -87,9 +87,15 @@ mimegans <- function(data, m = 5,
   
   if (num.normalizing == "mode"){
     mode_cat_vars <- c(cat_vars, setdiff(names(data_norm$data), names(data)))
+    phase1_vars_mode <- c(phase1_vars, names(data_norm$data)[
+      !names(data_norm$data) %in% names(data) &
+        names(data_norm$data) %in% paste0(phase1_vars, sep = "_mode")])
     phase2_vars_mode <- c(phase2_vars, names(data_norm$data)[
       !names(data_norm$data) %in% names(data) &
         names(data_norm$data) %in% paste0(phase2_vars, sep = "_mode")])
+    conditions_vars_mode <- c(conditions_vars, names(data_norm$data)[
+      !names(data_norm$data) %in% names(data) &
+        names(data_norm$data) %in% paste0(conditions_vars, sep = "_mode")])
   }
   
   data_encode <- do.call(encode, args = list(
@@ -101,16 +107,16 @@ mimegans <- function(data, m = 5,
   #Prepare training tensors
   data_training <- data_encode$data
   
-  phase1_vars_encode <- c(phase1_vars[!phase1_vars %in% mode_cat_vars], 
-                          unlist(data_encode$new_col_names[phase1_vars]))
+  phase1_vars_encode <- c(phase1_vars[!phase1_vars_mode %in% mode_cat_vars], 
+                          unlist(data_encode$new_col_names[phase1_vars_mode]))
   phase2_vars_encode <- c(phase2_vars[!phase2_vars_mode %in% mode_cat_vars], 
                           unlist(data_encode$new_col_names[phase2_vars_mode]))
-  conditions_vars_encode <- c(conditions_vars[!conditions_vars %in% mode_cat_vars], 
-                              unlist(data_encode$new_col_names[conditions_vars]))
+  conditions_vars_encode <- c(conditions_vars[!conditions_vars_mode %in% mode_cat_vars], 
+                              unlist(data_encode$new_col_names[conditions_vars_mode]))
   
   num_inds_p2 <- which(phase2_vars_encode %in% num_vars) # all numeric inds
   cat_inds_p2 <- which(phase2_vars_encode %in% unlist(data_encode$new_col_names)) # all one hot inds, involving modes
-  
+
   new_order <- c(phase2_vars_encode[num_inds_p2], 
                  phase2_vars_encode[cat_inds_p2],
                  setdiff(names(data_training), phase2_vars_encode))
@@ -121,7 +127,7 @@ mimegans <- function(data, m = 5,
   })
   data_encode$binary_indices <- binary_indices_reordered
   
-  data_mask <- torch_tensor(1 - is.na(data_training), dtype = torch_long(), device = device)
+  data_mask <- torch_tensor(1 - is.na(data_training), device = device)
   conditions_t <- torch_tensor(as.matrix(data_training[, names(data_training) %in% conditions_vars_encode]), 
                                device = device)
   phase2_m <- data_training[, names(data_training) %in% phase2_vars_encode, drop = F]
@@ -150,22 +156,19 @@ mimegans <- function(data, m = 5,
                                 names(phase1_m)) #
       phase2_cats_inds <- match(unlist(data_encode$new_col_names[phase2_vars[phase2_vars %in% cat_vars]]), 
                                 names(data_training)) #
-      cats_p1 <- relist(phase1_cats_inds, skeleton = data_encode$new_col_names[phase1_vars[phase1_vars %in% cat_vars]])
     }
-  }else{
-    cats_p1 <- NULL
   }
   # for categorical variables, NN outputs real categories, 
   # then times by CM_list to trasnform it to phase1 categories, and then calculate the CE
   tensor_list <- list(data_mask, conditions_t, phase2_t, phase1_t)
   
-  cats_p2 <- data_encode$binary_indices[which(sapply(names(data_encode$new_col_names), function(col_names) {
+  cats <- data_encode$binary_indices[which(sapply(names(data_encode$new_col_names), function(col_names) {
     any(col_names %in% phase2_cats)
   }))]
   cats_mode <- data_encode$binary_indices[which(sapply(data_encode$new_col_names, function(col_names) {
     any(col_names %in% phase2_vars_encode[!(phase2_vars_encode %in% unlist(data_encode$new_col_names[phase2_cats]))])
   }))]
-
+  
   allcats <- data_encode$binary_indices[which(sapply(data_encode$new_col_names, function(col_names) {
     any(col_names %in% phase2_vars_encode)
   }))]
@@ -194,7 +197,7 @@ mimegans <- function(data, m = 5,
     step_result <- list()
     p <- 1
   }
-  
+
   for (i in 1:epochs){
     gnet$train()
     for (d in 1:discriminator_steps){
@@ -215,9 +218,9 @@ mimegans <- function(data, m = 5,
       
       fake <- gnet(fakez_AC)
       fake <- activationFun(fake, allnums, allcats, 
-                            tau = tau, hard = hard)
+                             tau = tau, hard = hard)
       
-      
+    
       fake_AC_I <- torch_cat(list(fake[I, , drop = F],
                                   A[I, , drop = F], 
                                   C[I, , drop = F]), dim = 2)
@@ -226,7 +229,7 @@ mimegans <- function(data, m = 5,
                                   C[I, , drop = F]), dim = 2)
       x_fake_I <- dnet(fake_AC_I)
       x_true_I <- dnet(true_AC_I)
-      
+
       if (lambda > 0){
         gp <- gradientPenalty(dnet, true_AC_I, fake_AC_I, params, device = device) 
       }else{
@@ -235,7 +238,7 @@ mimegans <- function(data, m = 5,
       
       d_loss <- -(torch_mean(x_true_I) - torch_mean(x_fake_I)) + 
         params$lambda * gp
-      
+
       d_solver$zero_grad()
       d_loss$backward()
       d_solver$step()
@@ -255,22 +258,24 @@ mimegans <- function(data, m = 5,
     fakez_AC <- torch_cat(list(fakez, A, C), dim = 2)
     fake <- gnet(fakez_AC)
     fakeact <- activationFun(fake, allnums, allcats, 
-                             tau = tau, hard = hard)
+                              tau = tau, hard = hard)
     fake_AC <- torch_cat(list(fakeact, A, C), dim = 2)
     x_fake <- dnet(fake_AC)
     
     if (params$cat_proj){
       if (length(phase2_cats) > 0){
-        fake_proj <- projP1(fakeact, CM_tensors, cats_p2)
+        projs <- projP1(fakeact, X, A, I, CM_tensors, cats, 
+                        phase1_cats_inds, phase2_cats_inds)
+        fake_proj <- projs[[1]]
+        X_proj <- projs[[2]]
       }
     }else{
-      fake_proj <- NULL
+      fake_proj <- X_proj <- NULL
     }
     adv_term <- params$gamma * -torch_mean(x_fake) 
-    xrecon_loss <- reconLoss(fake, X, fake_proj, A, I, params, 
-                             num_inds_p2, cat_inds_p2, 
-                             cats_p1, cats_p2, cats_mode)
-    
+    xrecon_loss <- reconLoss(fake, X, fake_proj, X_proj, I, params, 
+                             num_inds_p2, cat_inds_p2, cats, cats_mode)
+
     g_loss <- adv_term + xrecon_loss
     
     g_solver$zero_grad()

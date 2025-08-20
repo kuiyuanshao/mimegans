@@ -51,10 +51,9 @@ sampleBatch <- function(data_original, tensor_list, phase1_bins,
   samp_idx <- c(samp_res_p1[[1]], samp_res_p2[[1]])
   new_weights <- c(samp_res_p1[[2]], samp_res_p2[[2]])
 
-  idx_t <- torch_tensor(samp_idx, dtype = torch_long(), device = tensor_list[[1]]$device)
-  batches <- lapply(tensor_list, function(tensor) tensor$index_select(1, idx_t))
-  batches[[length(batches) + 1]] <- torch_tensor(as.matrix(new_weights), device = tensor_list[[1]]$device)
-  batches[[length(batches) + 1]] <- idx_t
+  batches <- lapply(tensor_list, function(tensor) tensor[samp_idx, ])
+  batches[[length(batches) + 1]] <- new_weights
+  batches[[length(batches) + 1]] <- samp_idx
   return(batches)
 }
 

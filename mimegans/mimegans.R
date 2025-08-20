@@ -28,8 +28,8 @@ init_weights_discriminator <- function(m) {
   
 }
 
-cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 0, 
-                            alpha = 0, beta = 5, beta_ce = 1,at_least_p = 1/2, 
+cwgangp_default <- function(batch_size = 500, lambda = 0, 
+                            alpha = 0, beta = 0.5, beta_ce = 1, at_least_p = 0.2, 
                             lr_g = 2e-4, lr_d = 2e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
                             g_weight_decay = 1e-6, d_weight_decay = 1e-6, noise_dim = 128, 
                             g_dim = 256, d_dim = 256, pac = 10, 
@@ -37,7 +37,7 @@ cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 0,
                             tau = 0.2, hard = F, type_g = "mlp", type_d = "mlp",
                             mmer = T, cat_proj = T, autoscale = T){
   
-  list(batch_size = batch_size, gamma = gamma, lambda = lambda, alpha = alpha, beta = beta, beta_ce = beta_ce,
+  list(batch_size = batch_size, lambda = lambda, alpha = alpha, beta = beta, beta_ce = beta_ce,
        at_least_p = at_least_p, lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 
        g_weight_decay = g_weight_decay, d_weight_decay = d_weight_decay, noise_dim = noise_dim,
        g_dim = g_dim, d_dim = d_dim, pac = pac, n_g_layers = n_g_layers, n_d_layers = n_d_layers, 
@@ -47,7 +47,7 @@ cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 0,
 
 mimegans <- function(data, m = 5, 
                      num.normalizing = "mode", cat.encoding = "onehot", 
-                     device = "cpu", epochs = 10000, 
+                     device = "cpu", epochs = 250, 
                      params = list(), data_info = list(), 
                      save.step = NULL){
   params <- do.call("cwgangp_default", params)
@@ -188,7 +188,7 @@ mimegans <- function(data, m = 5,
   training_loss <- matrix(0, nrow = epochs, ncol = 2)
   pb <- progress_bar$new(
     format = paste0("Running :what [:bar] :percent eta: :eta | G Loss: :g_loss | D Loss: :d_loss | Recon: :recon_loss"),
-    clear = FALSE, total = epochs, width = 100)
+    clear = FALSE, total = epochs / 10, width = 100)
   
   if (!is.null(save.step)){
     step_result <- list()
@@ -197,15 +197,56 @@ mimegans <- function(data, m = 5,
   if (autoscale){
     params$beta <- 1
   }
+  steps_per_epoch <- nrows %/% batch_size
   for (i in 1:epochs){
     gnet$train()
-    for (d in 1:discriminator_steps){
+    for (step in 1:steps_per_epoch){
+      for (d in 1:discriminator_steps){
+        batch <- sampleBatch(data, tensor_list, phase1_bins,
+                             phase1_rows, phase2_rows,
+                             batch_size, at_least_p = at_least_p,
+                             weights)
+        W <- batch[[5]] 
+        A <- batch[[4]]
+        X <- batch[[3]]
+        C <- batch[[2]]
+        M <- batch[[1]]
+        I <- M[, 1] == 1
+        
+        fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), noise_dim))$to(device = device) 
+        fakez_AC <- torch_cat(list(fakez, A, C), dim = 2)
+        
+        fake <- gnet(fakez_AC)
+        fake <- activationFun(fake, allnums, allcats, 
+                              tau = tau, hard = hard)
+        
+        
+        fake_AC_I <- torch_cat(list(fake[I, , drop = F],
+                                    A[I, , drop = F], 
+                                    C[I, , drop = F]), dim = 2)
+        true_AC_I <- torch_cat(list(X[I, , drop = F], 
+                                    A[I, , drop = F], 
+                                    C[I, , drop = F]), dim = 2)
+        x_fake_I <- dnet(fake_AC_I)
+        x_true_I <- dnet(true_AC_I)
+        
+        if (lambda > 0){
+          gp <- gradientPenalty(dnet, true_AC_I, fake_AC_I, params, device = device) 
+          d_loss <- -(torch_mean(x_true_I) - torch_mean(x_fake_I)) + 
+            params$lambda * gp
+        }else{
+          d_loss <- -(torch_mean(x_true_I) - torch_mean(x_fake_I))
+        }
+        
+        d_solver$zero_grad()
+        d_loss$backward()
+        d_solver$step()
+      }
       batch <- sampleBatch(data, tensor_list, phase1_bins,
                            phase1_rows, phase2_rows,
                            batch_size, at_least_p = at_least_p,
                            weights)
-      
-      W <- batch[[5]] 
+      W <- batch[[5]]
       A <- batch[[4]]
       X <- batch[[3]]
       C <- batch[[2]]
@@ -214,102 +255,64 @@ mimegans <- function(data, m = 5,
       
       fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), noise_dim))$to(device = device) 
       fakez_AC <- torch_cat(list(fakez, A, C), dim = 2)
-      
       fake <- gnet(fakez_AC)
-      fake <- activationFun(fake, allnums, allcats, 
-                            tau = tau, hard = hard)
+      fakeact <- activationFun(fake, allnums, allcats, 
+                               tau = tau, hard = hard)
+      fake_AC <- torch_cat(list(fakeact, A, C), dim = 2)
+      x_fake <- dnet(fake_AC)
       
-      
-      fake_AC_I <- torch_cat(list(fake[I, , drop = F],
-                                  A[I, , drop = F], 
-                                  C[I, , drop = F]), dim = 2)
-      true_AC_I <- torch_cat(list(X[I, , drop = F], 
-                                  A[I, , drop = F], 
-                                  C[I, , drop = F]), dim = 2)
-      x_fake_I <- dnet(fake_AC_I)
-      x_true_I <- dnet(true_AC_I)
-      
-      if (lambda > 0){
-        gp <- gradientPenalty(dnet, true_AC_I, fake_AC_I, params, device = device) 
+      if (params$cat_proj){
+        if (length(phase2_cats) > 0){
+          fake_proj <- projP1(fakeact, CM_tensors, cats_p2)
+        }
       }else{
-        gp <- torch_tensor(0, dtype = fake$dtype, device = device)
+        fake_proj <- NULL
       }
+      adv_term <- -torch_mean(x_fake) 
+      recon_loss <- reconLoss(fake, X, fake_proj, A, I, params, 
+                              num_inds_p2, cat_inds_p2, 
+                              cats_p1, cats_p2, cats_mode)
       
-      d_loss <- -(torch_mean(x_true_I) - torch_mean(x_fake_I)) + 
-        params$lambda * gp
-      
-      d_solver$zero_grad()
-      d_loss$backward()
-      d_solver$step()
-    }
-    batch <- sampleBatch(data, tensor_list, phase1_bins,
-                         phase1_rows, phase2_rows,
-                         batch_size, at_least_p = at_least_p,
-                         weights)
-    W <- batch[[5]]
-    A <- batch[[4]]
-    X <- batch[[3]]
-    C <- batch[[2]]
-    M <- batch[[1]]
-    I <- M[, 1] == 1
-    
-    fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), noise_dim))$to(device = device) 
-    fakez_AC <- torch_cat(list(fakez, A, C), dim = 2)
-    fake <- gnet(fakez_AC)
-    fakeact <- activationFun(fake, allnums, allcats, 
-                             tau = tau, hard = hard)
-    fake_AC <- torch_cat(list(fakeact, A, C), dim = 2)
-    x_fake <- dnet(fake_AC)
-    
-    if (params$cat_proj){
-      if (length(phase2_cats) > 0){
-        fake_proj <- projP1(fakeact, CM_tensors, cats_p2)
+      if (autoscale){
+        adv_grads <- autograd_grad(
+          outputs = adv_term, 
+          inputs = gnet$parameters,
+          retain_graph = TRUE
+        )[[1]]
+        
+        recon_grads <- autograd_grad(
+          outputs = recon_loss,
+          inputs = gnet$parameters,
+          retain_graph = TRUE
+        )[[1]]
+        
+        g_adv <- adv_grads$pow(2)$sum()$sqrt()
+        g_recon <- recon_grads$pow(2)$sum()$sqrt()
+        
+        with_no_grad({
+          beta_ce <- beta_ce * torch_exp(0.5 * (torch_log(g_adv + 1e-12) -
+                                                      torch_log(g_recon + 1e-12)))
+          beta_ce <- torch_clamp(beta_ce, 1e-6, 10.0)
+        })
+        recon_loss <- beta_ce * recon_loss
       }
-    }else{
-      fake_proj <- NULL
+      g_loss <- adv_term + recon_loss
+      
+      g_solver$zero_grad()
+      g_loss$backward()
+      g_solver$step()
     }
-    adv_term <- params$gamma * -torch_mean(x_fake) 
-    recon_loss <- reconLoss(fake, X, fake_proj, A, I, params, 
-                            num_inds_p2, cat_inds_p2, 
-                            cats_p1, cats_p2, cats_mode)
-    
-    if (autoscale){
-      adv_grads <- autograd_grad(
-        outputs = adv_term, 
-        inputs = gnet$parameters,
-        retain_graph = TRUE
-      )[[1]]
-      
-      recon_grads <- autograd_grad(
-        outputs = recon_loss,
-        inputs = gnet$parameters,
-        retain_graph = TRUE
-      )[[1]]
-      
-      g_adv <- adv_grads$pow(2)$sum()$sqrt()
-      g_recon <- recon_grads$pow(2)$sum()$sqrt()
-      
-      with_no_grad({
-        beta_ce <- beta_ce * torch_exp(0.5 * (torch_log(g_adv + 1e-12) -
-                                                    torch_log(g_recon + 1e-12)))
-        beta_ce <- torch_clamp(beta_ce, 1e-6, 10.0)
-      })
-      recon_loss <- beta_ce * recon_loss
-    }
-    g_loss <- adv_term + recon_loss
-    
-    g_solver$zero_grad()
-    g_loss$backward()
-    g_solver$step()
-    
     training_loss[i, ] <- c(g_loss$item(), d_loss$item())
-    pb$tick(tokens = list(
-      what = "cWGAN-GP",
-      g_loss = sprintf("%.4f", adv_term$item()),
-      d_loss = sprintf("%.4f", d_loss$item()),
-      recon_loss = sprintf("%.4f", recon_loss$item())
-    ))
-    Sys.sleep(1 / 100000)
+    
+    if (i %% 10 == 0){
+      pb$tick(tokens = list(
+        what = "cWGAN-GP",
+        g_loss = sprintf("%.4f", adv_term$item()),
+        d_loss = sprintf("%.4f", d_loss$item()),
+        recon_loss = sprintf("%.4f", recon_loss$item())
+      ))
+      Sys.sleep(1 / 100000)
+    }
     
     if (!is.null(save.step)){
       if (i %% save.step == 0){

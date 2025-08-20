@@ -1,34 +1,25 @@
 reconLoss <- function(fake, true, fake_proj, true_proj, I, params, num_inds, cat_inds, cats_p1, cats_p2, cats_mode){
-  mm_term <- torch_tensor(0, dtype = fake$dtype, device = fake$device)
-  if (length(num_inds) > 0){
-    if (params$alpha != 0){
-      mm_term <- params$alpha * 
-        nnf_mse_loss(fake[I, num_inds, drop = F],
-                     true[I, num_inds, drop = F], reduction = "mean")
-    }
-  }
-  ce_term <- torch_tensor(0, dtype = fake$dtype, device = fake$device)
-  if (length(cat_inds) > 0){
-    if (params$beta != 0) {
-      ce_term <- params$beta *
-        ceLoss(fake, true, fake_proj, true_proj, I, params, cats_p1, cats_p2, cats_mode)
-    }
-  }
-  return (mm_term + ce_term)
-}
-
-grad_norm <- function(params) {
-  s <- torch_zeros(1)
-  for (p in params) if (!is.null(p$grad)) s <- s + p$grad$detach()$pow(2)$sum()
-  as.numeric(s$sqrt()$item())
-}
-
-grad_norm_from_list <- function(grad_list) {
-  # (Implementation depends on your original grad_norm, but a common way is:)
-  norms <- sapply(grad_list, function(g) {
-    if (!is.null(g)) g$norm(p = 2)$item() else 0
-  })
-  sqrt(sum(norms^2))
+  use_mm <- (length(num_inds) > 0L) && (params$alpha != 0)
+  use_ce <- (length(cat_inds) > 0L) && (params$beta  != 0)
+  
+  if (!use_mm && !use_ce)
+    return (.zero_like_scalar(fake))
+  
+  mm <- if (use_mm) {
+    params$alpha * nnf_mse_loss(
+      fake[I, num_inds, drop = FALSE],
+      true[I, num_inds, drop = FALSE],
+      reduction = "mean"
+    )
+  } else NULL
+  ce <- if (use_ce) {
+    params$beta *
+      ceLoss(fake, true, fake_proj, true_proj, I, params, cats_p1, cats_p2, cats_mode)
+  } else NULL
+  
+  if (is.null(mm)) return(ce)
+  if (is.null(ce)) return(mm)
+  mm + ce
 }
 
 ceLoss <- function(fake, true, fake_proj, A, I, params, cats_p1, cats_p2, cats_mode){
@@ -59,7 +50,7 @@ ceLoss <- function(fake, true, fake_proj, A, I, params, cats_p1, cats_p2, cats_m
                             reduction = "mean")
     loss <- loss + ce
   }
-  loss_t <- loss / (length(cats_p2)+ length(cats_mode))
+  loss_t <- loss / (length(cats_p2) + length(cats_mode))
   return (loss_t)
 }
 

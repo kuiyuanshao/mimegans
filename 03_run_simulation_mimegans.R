@@ -2,7 +2,7 @@ Sys.setenv(CUDA_LAUNCH_BLOCKING = "1")
 lapply(c("dplyr", "stringr", "torch", "survival"), require, character.only = T)
 lapply(paste0("./mimegans/", list.files("./mimegans")), source)
 source("00_utils_functions.R")
-
+torch_set_default_dtype(torch_float32())
 if(!dir.exists('./simulations')){dir.create('./simulations')}
 if(!dir.exists('./simulations/SRS')){dir.create('./simulations/SRS')}
 if(!dir.exists('./simulations/Balance')){dir.create('./simulations/Balance')}
@@ -27,10 +27,12 @@ last_rep <- min(task_id * chunk_size, replicate)
 
 do_mimegans <- function(samp, info, nm, digit) {
   tm <- system.time({
-    mimegans_imp <- mimegans(samp, m = 20, epoch = 10000, 
-                             params = list(n_g_layers = 5, n_d_layers = 3),
+    mimegans_imp <- mimegans(samp, m = 20, epoch = 125, 
+                             params = list(batch_size = 1000, 
+                                           n_g_layers = 5, n_d_layers = 3,
+                                           autoscale = F),
                              data_info = info,
-                             device = "cpu")
+                             device = "cuda")
   })
   mimegans_imp$imputation <- lapply(mimegans_imp$imputation, function(dat){
     match_types(dat, data)
@@ -51,12 +53,12 @@ do_mimegans <- function(samp, info, nm, digit) {
   cat("Variance: \n")
   cat(apply(bind_rows(lapply(fit$analyses, function(i){coef(i)})), 2, var), "\n")
   
-  save(mimegans_imp, tm, file = file.path("simulations", nm, "mimegans",
-                                        paste0(digit, ".RData")))
+  #save(mimegans_imp, tm, file = file.path("simulations", nm, "mimegans",
+  #                                      paste0(digit, ".RData")))
 }
 
 
-for (i in 1:500){
+for (i in 100:150){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))

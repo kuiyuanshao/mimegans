@@ -17,31 +17,40 @@ sampleBatch <- function(data_original, tensor_list, phase1_bins,
   curr_var <- sample(phase1_bins, 1)
   p1 <- data_original[phase1_rows, curr_var]
   p2 <- data_original[phase2_rows, curr_var]
-  u1 <- unique(p1)
-  u2 <- unique(p2)
   
-  phase1_total <- alloc_even(floor(batch_size * (1 - at_least_p)), u1)
-  phase2_total <- alloc_even(ceiling(batch_size * at_least_p), u2)
-  values <- data_original[, curr_var] # All values for the current sampled onehot encoded variable
-  samp_idx <- c()
-  w1 <- weights[phase1_rows]
-  w2 <- weights[phase2_rows]
-  new_weights <- c()
+  phase1_total <- alloc_even(floor(batch_size * (1 - at_least_p)), unique(p1))
+  phase2_total <- alloc_even(ceiling(batch_size * at_least_p), unique(p2))
+  
+  sampleFun <- function(indices, elements, total, w){
+    remaining_pool <- indices
+    total_deficit <- 0
+    w <- w[indices]
+    samp_idx <- NULL
+    new_weights <- NULL
+    for (i in unique(elements)){
+      curr_rows <- indices[elements == i]
+      #num_to_sample <- min(total[[i]], length(curr_rows))
+      sampled <- sample(1:length(curr_rows), total[[i]],
+                        replace = total[[i]] > length(curr_rows))
+      samp_idx <- c(samp_idx, curr_rows[sampled])
+      new_weights <- c(new_weights, (w[elements == i])[sampled])
+      # remaining_pool <- setdiff(remaining_pool, curr_rows[sampled])
+      # total_deficit <- total_deficit + (total[[i]] - num_to_sample)
+    }
+    
+    # if (total_deficit > 0 && length(remaining_pool) > 0){
+    #   num_to_fill <- min(total_deficit[1], length(remaining_pool))
+    #   fallback_indices <- sample(remaining_pool, num_to_fill, replace = FALSE)
+    #   samp_idx <- c(samp_idx, fallback_indices)
+    # }
+    return (list(samp_idx, new_weights))
+  }
+  samp_res_p1 <- sampleFun(phase1_rows, p1, phase1_total, weights)
+  samp_res_p2 <- sampleFun(phase2_rows, p2, phase2_total, weights)
+  
+  samp_idx <- c(samp_res_p1[[1]], samp_res_p2[[1]])
+  new_weights <- c(samp_res_p1[[2]], samp_res_p2[[2]])
 
-  for (i in unique(p1)){
-    curr_p1rows <- phase1_rows[p1 == i]
-    sampled <- sample(1:length(curr_p1rows), phase1_total[[i]],
-                      replace = phase1_total[[i]] > sum(p1 == i))
-    samp_idx <- c(samp_idx, curr_p1rows[sampled])
-    new_weights <- c(new_weights, (w1[p1 == i])[sampled])
-  }
-  for (i in unique(p2)){
-    curr_p2rows <- phase2_rows[p2 == i]
-    sampled <- sample(1:length(curr_p2rows), phase2_total[[i]],
-                      replace = phase2_total[[i]] > sum(p2 == i))
-    samp_idx <- c(samp_idx, curr_p2rows[sampled])
-    new_weights <- c(new_weights, (w2[p2 == i])[sampled])
-  }
   idx_t <- torch_tensor(samp_idx, dtype = torch_long(), device = tensor_list[[1]]$device)
   batches <- lapply(tensor_list, function(tensor) tensor$index_select(1, idx_t))
   batches[[length(batches) + 1]] <- torch_tensor(as.matrix(new_weights), device = tensor_list[[1]]$device)

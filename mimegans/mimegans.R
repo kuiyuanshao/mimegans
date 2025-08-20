@@ -29,20 +29,20 @@ init_weights_discriminator <- function(m) {
 }
 
 cwgangp_default <- function(batch_size = 500, gamma = 1, lambda = 0, 
-                            alpha = 0, beta = 1, at_least_p = 1/2, 
+                            alpha = 0, beta = 5, beta_ce = 1,at_least_p = 1/2, 
                             lr_g = 2e-4, lr_d = 2e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
                             g_weight_decay = 1e-6, d_weight_decay = 1e-6, noise_dim = 128, 
                             g_dim = 256, d_dim = 256, pac = 10, 
                             n_g_layers = 3, n_d_layers = 2, discriminator_steps = 1,
                             tau = 0.2, hard = F, type_g = "mlp", type_d = "mlp",
-                            mmer = T, cat_proj = T){
+                            mmer = T, cat_proj = T, autoscale = T){
   
-  list(batch_size = batch_size, gamma = gamma, lambda = lambda, alpha = alpha, beta = beta, 
+  list(batch_size = batch_size, gamma = gamma, lambda = lambda, alpha = alpha, beta = beta, beta_ce = beta_ce,
        at_least_p = at_least_p, lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 
        g_weight_decay = g_weight_decay, d_weight_decay = d_weight_decay, noise_dim = noise_dim,
        g_dim = g_dim, d_dim = d_dim, pac = pac, n_g_layers = n_g_layers, n_d_layers = n_d_layers, 
        discriminator_steps = discriminator_steps, tau = tau, hard = hard,
-       type_g = type_g, type_d = type_d, mmer = mmer, cat_proj = cat_proj)
+       type_g = type_g, type_d = type_d, mmer = mmer, cat_proj = cat_proj, autoscale = autoscale)
 }
 
 mimegans <- function(data, m = 5, 
@@ -194,7 +194,9 @@ mimegans <- function(data, m = 5,
     step_result <- list()
     p <- 1
   }
-  lambda_ce <- 1
+  if (autoscale){
+    params$beta <- 1
+  }
   for (i in 1:epochs){
     gnet$train()
     for (d in 1:discriminator_steps){
@@ -271,20 +273,30 @@ mimegans <- function(data, m = 5,
                             num_inds_p2, cat_inds_p2, 
                             cats_p1, cats_p2, cats_mode)
     
-      g_solver$zero_grad()
-      adv_term$backward(retain_graph = TRUE)
-      g_adv <- grad_norm(gnet$parameters)
+    if (autoscale){
+      adv_grads <- autograd_grad(
+        outputs = adv_term, 
+        inputs = gnet$parameters,
+        retain_graph = TRUE
+      )[[1]]
       
-      g_solver$zero_grad()
-      recon_loss$backward(retain_graph = TRUE)
-      g_recon <- grad_norm(gnet$parameters)
+      recon_grads <- autograd_grad(
+        outputs = recon_loss,
+        inputs = gnet$parameters,
+        retain_graph = TRUE
+      )[[1]]
       
-      lambda_ce <- lambda_ce * exp(0.5 * (log(g_adv + 1e-12) - log(g_recon + 1e-12)))
-      lambda_ce <- max(1e-6, min(10.0, lambda_ce))
-
-    #lambda_ce <- g_adv / (g_recon + 1e-8)
-    
-    g_loss <- adv_term + lambda_ce * recon_loss
+      g_adv <- adv_grads$pow(2)$sum()$sqrt()
+      g_recon <- recon_grads$pow(2)$sum()$sqrt()
+      
+      with_no_grad({
+        beta_ce <- beta_ce * torch_exp(0.5 * (torch_log(g_adv + 1e-12) -
+                                                    torch_log(g_recon + 1e-12)))
+        beta_ce <- torch_clamp(beta_ce, 1e-6, 10.0)
+      })
+      recon_loss <- beta_ce * recon_loss
+    }
+    g_loss <- adv_term + recon_loss
     
     g_solver$zero_grad()
     g_loss$backward()
@@ -295,7 +307,7 @@ mimegans <- function(data, m = 5,
       what = "cWGAN-GP",
       g_loss = sprintf("%.4f", adv_term$item()),
       d_loss = sprintf("%.4f", d_loss$item()),
-      recon_loss = sprintf("%.4f", lambda_ce * recon_loss$item())
+      recon_loss = sprintf("%.4f", recon_loss$item())
     ))
     Sys.sleep(1 / 100000)
     

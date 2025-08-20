@@ -23,6 +23,14 @@ grad_norm <- function(params) {
   as.numeric(s$sqrt()$item())
 }
 
+grad_norm_from_list <- function(grad_list) {
+  # (Implementation depends on your original grad_norm, but a common way is:)
+  norms <- sapply(grad_list, function(g) {
+    if (!is.null(g)) g$norm(p = 2)$item() else 0
+  })
+  sqrt(sum(norms^2))
+}
+
 ceLoss <- function(fake, true, fake_proj, A, I, params, cats_p1, cats_p2, cats_mode){
   loss <- torch_tensor(0, device = fake$device)
   notI <- I$logical_not()
@@ -30,8 +38,8 @@ ceLoss <- function(fake, true, fake_proj, A, I, params, cats_p1, cats_p2, cats_m
     cat_p2 <- cats_p2[[i]]
     if (params$cat_proj){
       cat_p1 <- cats_p1[[i]]
-      ce.1 <- params$tau * (-(A[notI, cat_p1, drop = F] * 
-                 (fake_proj[notI, cat_p2, drop = F]$clamp_min(1e-8))$log())$sum(dim = 2))
+      curr_proj <- torch_clamp(fake_proj[notI, cat_p2, drop = F], 1e-8, 1 - 1e-8)
+      ce.1 <- params$tau * (-(A[notI, cat_p1, drop = F] * curr_proj$log())$sum(dim = 2))
       ce.2 <- nnf_cross_entropy(fake[I, cat_p2, drop = F], 
                                 torch_argmax(true[I, cat_p2, drop = F], dim = 2), 
                                 reduction = "none")

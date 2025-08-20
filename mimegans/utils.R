@@ -17,6 +17,12 @@ reconLoss <- function(fake, true, fake_proj, true_proj, I, params, num_inds, cat
   return (mm_term + ce_term)
 }
 
+grad_norm <- function(params) {
+  s <- torch_zeros(1)
+  for (p in params) if (!is.null(p$grad)) s <- s + p$grad$detach()$pow(2)$sum()
+  as.numeric(s$sqrt()$item())
+}
+
 ceLoss <- function(fake, true, fake_proj, A, I, params, cats_p1, cats_p2, cats_mode){
   loss <- torch_tensor(0, device = fake$device)
   notI <- I$logical_not()
@@ -24,8 +30,8 @@ ceLoss <- function(fake, true, fake_proj, A, I, params, cats_p1, cats_p2, cats_m
     cat_p2 <- cats_p2[[i]]
     if (params$cat_proj){
       cat_p1 <- cats_p1[[i]]
-      ce.1 <- - 0.2 * (A[notI, cat_p1, drop = F] * 
-                 (fake_proj[notI, cat_p2, drop = F]$clamp_min(1e-8))$log())$sum(dim = 2)
+      ce.1 <- params$tau * (-(A[notI, cat_p1, drop = F] * 
+                 (fake_proj[notI, cat_p2, drop = F]$clamp_min(1e-8))$log())$sum(dim = 2))
       ce.2 <- nnf_cross_entropy(fake[I, cat_p2, drop = F], 
                                 torch_argmax(true[I, cat_p2, drop = F], dim = 2), 
                                 reduction = "none")
@@ -64,16 +70,14 @@ activationFun <- function(fake, nums, cats, tau = 0.2, hard = F, gen = F){
 }
 
 projP1 <- function(fake, CM_tensors, cats){
-  with_no_grad({
-    fake_result <- fake$clone()
-    for (c in seq_along(cats)) {
-      cat_idx <- cats[[c]]   
-      cm <- CM_tensors[[c]] 
-      
-      proj <- fake[, cat_idx, drop = FALSE]$matmul(cm) 
-      fake_result[, cat_idx] <- proj
-    }
-  })
+  fake_result <- fake$clone()
+  for (c in seq_along(cats)) {
+    cat_idx <- cats[[c]]   
+    cm <- CM_tensors[[c]] 
+    
+    proj <- fake[, cat_idx, drop = FALSE]$matmul(cm) 
+    fake_result[, cat_idx] <- proj
+  }
   return (fake_result)
 }
 

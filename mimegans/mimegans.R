@@ -187,14 +187,14 @@ mimegans <- function(data, m = 5,
   
   training_loss <- matrix(0, nrow = epochs, ncol = 2)
   pb <- progress_bar$new(
-    format = paste0("Running :what [:bar] :percent eta: :eta | G Loss: :g_loss | D Loss: :d_loss"),
+    format = paste0("Running :what [:bar] :percent eta: :eta | G Loss: :g_loss | D Loss: :d_loss | Recon: :recon_loss"),
     clear = FALSE, total = epochs, width = 100)
   
   if (!is.null(save.step)){
     step_result <- list()
     p <- 1
   }
-  
+  lambda_ce <- 1
   for (i in 1:epochs){
     gnet$train()
     for (d in 1:discriminator_steps){
@@ -267,11 +267,24 @@ mimegans <- function(data, m = 5,
       fake_proj <- NULL
     }
     adv_term <- params$gamma * -torch_mean(x_fake) 
-    xrecon_loss <- reconLoss(fake, X, fake_proj, A, I, params, 
-                             num_inds_p2, cat_inds_p2, 
-                             cats_p1, cats_p2, cats_mode)
+    recon_loss <- reconLoss(fake, X, fake_proj, A, I, params, 
+                            num_inds_p2, cat_inds_p2, 
+                            cats_p1, cats_p2, cats_mode)
     
-    g_loss <- adv_term + xrecon_loss
+      g_solver$zero_grad()
+      adv_term$backward(retain_graph = TRUE)
+      g_adv <- grad_norm(gnet$parameters)
+      
+      g_solver$zero_grad()
+      recon_loss$backward(retain_graph = TRUE)
+      g_recon <- grad_norm(gnet$parameters)
+      
+      lambda_ce <- lambda_ce * exp(0.5 * (log(g_adv + 1e-12) - log(g_recon + 1e-12)))
+      lambda_ce <- max(1e-6, min(10.0, lambda_ce))
+
+    #lambda_ce <- g_adv / (g_recon + 1e-8)
+    
+    g_loss <- adv_term + lambda_ce * recon_loss
     
     g_solver$zero_grad()
     g_loss$backward()
@@ -280,8 +293,9 @@ mimegans <- function(data, m = 5,
     training_loss[i, ] <- c(g_loss$item(), d_loss$item())
     pb$tick(tokens = list(
       what = "cWGAN-GP",
-      g_loss = sprintf("%.4f", g_loss$item()),
-      d_loss = sprintf("%.4f", d_loss$item())
+      g_loss = sprintf("%.4f", adv_term$item()),
+      d_loss = sprintf("%.4f", d_loss$item()),
+      recon_loss = sprintf("%.4f", lambda_ce * recon_loss$item())
     ))
     Sys.sleep(1 / 100000)
     

@@ -1,8 +1,6 @@
-Sys.setenv(CUDA_LAUNCH_BLOCKING = "1")
 lapply(c("dplyr", "stringr", "torch", "survival"), require, character.only = T)
 lapply(paste0("./mimegans/", list.files("./mimegans")), source)
 source("00_utils_functions.R")
-torch_set_default_dtype(torch_float32())
 if(!dir.exists('./simulations')){dir.create('./simulations')}
 if(!dir.exists('./simulations/SRS')){dir.create('./simulations/SRS')}
 if(!dir.exists('./simulations/Balance')){dir.create('./simulations/Balance')}
@@ -18,11 +16,16 @@ task_id <- as.integer(ifelse(length(args) >= 1,
                              Sys.getenv("SLURM_ARRAY_TASK_ID", "1")))
 sampling_design <- ifelse(length(args) >= 2, 
                           args[2], Sys.getenv("SAMP", "All"))
-replicate <- 500
-n_chunks <- 20
-chunk_size <- ceiling(replicate / n_chunks)
-first_rep <- (task_id - 1) * chunk_size + 1
-last_rep <- min(task_id * chunk_size, replicate)
+start_rep <- 1
+end_rep   <- 500
+n_chunks  <- 20
+task_id   <- as.integer(Sys.getenv("SLURM_ARRAY_TASK_ID"))
+
+n_in_window <- end_rep - start_rep + 1L
+chunk_size  <- ceiling(n_in_window / n_chunks)
+
+first_rep <- start_rep + (task_id - 1L) * chunk_size
+last_rep  <- min(start_rep + task_id * chunk_size - 1L, end_rep)
 
 
 do_mimegans <- function(samp, info, nm, digit) {
@@ -32,7 +35,7 @@ do_mimegans <- function(samp, info, nm, digit) {
                                            n_g_layers = 5, n_d_layers = 3,
                                            autoscale = F),
                              data_info = info,
-                             device = "cuda")
+                             device = "cpu")
   })
   mimegans_imp$imputation <- lapply(mimegans_imp$imputation, function(dat){
     match_types(dat, data)
@@ -58,7 +61,7 @@ do_mimegans <- function(samp, info, nm, digit) {
 }
 
 
-for (i in 101:150){
+for (i in 1:100){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))

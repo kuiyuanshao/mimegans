@@ -27,8 +27,8 @@ last_rep <- min(task_id * chunk_size, replicate)
 
 do_mimegans <- function(samp, info, nm, digit) {
   tm <- system.time({
-    mimegans_imp <- mimegans(samp, m = 20, epoch = 125, 
-                             params = list(batch_size = 1000, 
+    mimegans_imp <- mimegans(samp, m = 20, epoch = 250, 
+                             params = list(batch_size = 500, 
                                            n_g_layers = 5, n_d_layers = 3,
                                            autoscale = F),
                              data_info = info,
@@ -53,12 +53,12 @@ do_mimegans <- function(samp, info, nm, digit) {
   cat("Variance: \n")
   cat(apply(bind_rows(lapply(fit$analyses, function(i){coef(i)})), 2, var), "\n")
   
-  #save(mimegans_imp, tm, file = file.path("simulations", nm, "mimegans",
-  #                                      paste0(digit, ".RData")))
+  save(mimegans_imp, tm, file = file.path("simulations", nm, "mimegans",
+                                          paste0(digit, ".RData")))
 }
 
 
-for (i in 100:150){
+for (i in 101:150){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))

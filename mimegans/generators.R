@@ -17,6 +17,33 @@ generator.mlp <- torch::nn_module(
   }
 )
 
+generator.mcmlp <- torch::nn_module(
+  "Generator",
+  initialize = function(params, ncols, nphase2, rate, dimensions){
+    dim1 <- params$noise_dim + ncols - nphase2
+    dim2 <- params$g_dim
+    self$seq <- torch::nn_sequential()
+    for (i in 1:params$n_g_layers){
+      self$seq$add_module(paste0("Residual_", i), Residual(dim1, dim2, rate))
+      dim1 <- dim1 + dim2
+    }
+    self$out <- nn_module_list()
+    for (i in 1:length(dimensions)){
+      self$out$append(nn_linear(dim1, dimensions[i]))
+    }
+    
+  },
+  forward = function(input, ...){
+    hidden_output <- self$seq(input)
+    
+    outs <- vector("list", length(self$out))
+    for (i in seq_along(outs)){
+      outs[[i]] <- self$out[[i]](hidden_output)
+    }
+    return (torch_cat(outs, dim = 2))
+  }
+)
+
 generator.sattn <- torch::nn_module(
   "Generator",
   initialize = function(params, ncols, nphase2, rate, ...){

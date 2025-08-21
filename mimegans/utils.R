@@ -68,13 +68,13 @@ activationFun <- function(fake, nums, cats, tau = 0.2, hard = F, gen = F){
   return (fake)
 }
 
-projP1 <- function(fake, CM_tensors, cats){
-  fake_result <- fake$clone()
+projP1 <- function(fakeact, CM_tensors, cats){
+  fake_result <- fakeact$clone()
   for (c in seq_along(cats)) {
     cat_idx <- cats[[c]]   
     cm <- CM_tensors[[c]] 
     
-    proj <- fake[, cat_idx, drop = FALSE]$matmul(cm) 
+    proj <- fakeact[, cat_idx, drop = FALSE]$matmul(cm) 
     fake_result[, cat_idx] <- proj
   }
   return (fake_result)

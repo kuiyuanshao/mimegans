@@ -171,9 +171,11 @@ mimegans <- function(data, m = 5,
   }))]
   allnums <- (1:length(phase2_vars_encode))[!(1:length(phase2_vars_encode) %in% unlist(allcats))]
   
+  dimensions <- c(length(num_inds_p2), sapply(allcats, length))
   gnet <- do.call(paste("generator", type_g, sep = "."), 
                   args = list(params, 
-                              ncols, length(phase2_vars_encode), rate = 0.7))$to(device = device)
+                              ncols, length(phase2_vars_encode), rate = 0.7,
+                              dimensions))$to(device = device)
   dnet <- do.call(paste("discriminator", type_d, sep = "."), 
                   args = list(params, ncols,  
                               length(phase2_vars_encode)))$to(device = device)
@@ -188,7 +190,7 @@ mimegans <- function(data, m = 5,
   training_loss <- matrix(0, nrow = epochs, ncol = 2)
   pb <- progress_bar$new(
     format = paste0("Running :what [:bar] :percent eta: :eta | G Loss: :g_loss | D Loss: :d_loss | Recon: :recon_loss"),
-    clear = FALSE, total = epochs / 10, width = 100)
+    clear = FALSE, total = epochs, width = 100)
   
   if (!is.null(save.step)){
     step_result <- list()
@@ -304,16 +306,14 @@ mimegans <- function(data, m = 5,
     }
     training_loss[i, ] <- c(g_loss$item(), d_loss$item())
     
-    if (i %% 10 == 0){
-      pb$tick(tokens = list(
-        what = "cWGAN-GP",
-        g_loss = sprintf("%.4f", adv_term$item()),
-        d_loss = sprintf("%.4f", d_loss$item()),
-        recon_loss = sprintf("%.4f", recon_loss$item())
-      ))
-      Sys.sleep(1 / 100000)
-    }
-    
+    pb$tick(tokens = list(
+      what = "cWGAN-GP",
+      g_loss = sprintf("%.4f", adv_term$item()),
+      d_loss = sprintf("%.4f", d_loss$item()),
+      recon_loss = sprintf("%.4f", recon_loss$item())
+    ))
+    Sys.sleep(1 / 100000)
+
     if (!is.null(save.step)){
       if (i %% save.step == 0){
         gnet$eval()

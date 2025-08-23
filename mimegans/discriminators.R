@@ -16,12 +16,13 @@ discriminator.mlp <- torch::nn_module(
   forward = function(input, ...) {
     input <- input$reshape(c(-1, self$pacdim))
     out <- self$seq(input)
-    return(out)
+    return (out)
   }
 )
 
+
 discriminator.sattn <- torch::nn_module(
-  "DiscriminatorEncoder",
+  "DiscriminatorSAttn",
   initialize = function(params, ncols, nphase2, ...) {
     n_d_layers <- params$n_d_layers
     head_dim <- if (ncols >= 64) {32} else {16}
@@ -60,7 +61,7 @@ discriminator.sattn <- torch::nn_module(
 
 
 discriminator.cattn <- torch::nn_module(
-  "DiscriminatorEncoder",
+  "DiscriminatorCAttn",
   initialize = function(params, ncols, nphase2, ...) {
     self$nphase2 <- nphase2
     self$ncols <- ncols

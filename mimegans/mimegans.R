@@ -29,13 +29,13 @@ init_weights_discriminator <- function(m) {
 }
 
 cwgangp_default <- function(batch_size = 500, lambda = 0, 
-                            alpha = 0, beta = 0.5, beta_ce = 1, at_least_p = 0.2, 
+                            alpha = 0, beta = 1, beta_ce = 1, at_least_p = NULL, 
                             lr_g = 2e-4, lr_d = 2e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
                             g_weight_decay = 1e-6, d_weight_decay = 1e-6, noise_dim = 128, 
                             g_dim = 256, d_dim = 256, pac = 10, 
                             n_g_layers = 3, n_d_layers = 2, discriminator_steps = 1,
                             tau = 0.2, hard = F, type_g = "mlp", type_d = "mlp",
-                            mmer = T, cat_proj = T, autoscale = T){
+                            mmer = T, cat_proj = T, autoscale = F){
   
   list(batch_size = batch_size, lambda = lambda, alpha = alpha, beta = beta, beta_ce = beta_ce,
        at_least_p = at_least_p, lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 
@@ -54,10 +54,13 @@ mimegans <- function(data, m = 5,
   device <- torch_device(device)
   list2env(params, envir = environment())
   list2env(data_info, envir = environment())
-  
+
   conditions_vars <- names(data)[which(!(names(data) %in% c(phase1_vars, phase2_vars)))]
   phase1_rows <- which(is.na(data[, phase2_vars[1]]))
   phase2_rows <- which(!is.na(data[, phase2_vars[1]]))
+  if (is.null(at_least_p)){
+    at_least_p <- length(phase2_rows) / nrow(data)
+  }
   
   normalize <- paste("normalize", num.normalizing, sep = ".")
   encode <- paste("encode", cat.encoding, sep = ".")
@@ -207,14 +210,12 @@ mimegans <- function(data, m = 5,
         batch <- sampleBatch(data, tensor_list, phase1_bins,
                              phase1_rows, phase2_rows,
                              batch_size, at_least_p = at_least_p,
-                             weights)
-        W <- batch[[5]] 
+                             weights, net = "D")
         A <- batch[[4]]
         X <- batch[[3]]
         C <- batch[[2]]
         M <- batch[[1]]
-        I <- M[, 1] == 1
-        
+
         fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), noise_dim))$to(device = device) 
         fakez_AC <- torch_cat(list(fakez, A, C), dim = 2)
         
@@ -223,21 +224,17 @@ mimegans <- function(data, m = 5,
                               tau = tau, hard = hard)
         
         
-        fake_AC_I <- torch_cat(list(fake[I, , drop = F],
-                                    A[I, , drop = F], 
-                                    C[I, , drop = F]), dim = 2)
-        true_AC_I <- torch_cat(list(X[I, , drop = F], 
-                                    A[I, , drop = F], 
-                                    C[I, , drop = F]), dim = 2)
-        x_fake_I <- dnet(fake_AC_I)
-        x_true_I <- dnet(true_AC_I)
-        
+        fake_AC <- torch_cat(list(fake, A, C), dim = 2)
+        true_AC <- torch_cat(list(X, A, C), dim = 2)
+        x_fake <- dnet(fake_AC)
+        x_true <- dnet(true_AC)
+      
         if (lambda > 0){
-          gp <- gradientPenalty(dnet, true_AC_I, fake_AC_I, params, device = device) 
-          d_loss <- -(torch_mean(x_true_I) - torch_mean(x_fake_I)) + 
+          gp <- gradientPenalty(dnet, fake_AC, true_AC, params, device = device) 
+          d_loss <- -(torch_mean(x_true) - torch_mean(x_fake)) + 
             params$lambda * gp
         }else{
-          d_loss <- -(torch_mean(x_true_I) - torch_mean(x_fake_I))
+          d_loss <- -(torch_mean(x_true) - torch_mean(x_fake))
         }
         
         d_solver$zero_grad()
@@ -247,8 +244,7 @@ mimegans <- function(data, m = 5,
       batch <- sampleBatch(data, tensor_list, phase1_bins,
                            phase1_rows, phase2_rows,
                            batch_size, at_least_p = at_least_p,
-                           weights)
-      W <- batch[[5]]
+                           weights, net = "G")
       A <- batch[[4]]
       X <- batch[[3]]
       C <- batch[[2]]

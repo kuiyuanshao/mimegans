@@ -23,12 +23,8 @@ for (i in first_rep:last_rep){
   samp_balance <- read.csv(paste0("./data/Sample/Balance/", digit, ".csv"))
   samp_neyman <- read.csv(paste0("./data/Sample/Neyman/", digit, ".csv"))
   
-  samp_balance <- match_types(samp_balance, data) %>% 
-    mutate(across(all_of(data_info_balance$cat_vars), as.factor, .names = "{.col}"),
-           across(all_of(data_info_balance$num_vars), as.numeric, .names = "{.col}"))
-  samp_neyman <- match_types(samp_neyman, data) %>% 
-    mutate(across(all_of(data_info_neyman$cat_vars), as.factor, .names = "{.col}"),
-           across(all_of(data_info_neyman$num_vars), as.numeric, .names = "{.col}"))
+  samp_balance <- match_types(samp_balance, data)
+  samp_neyman <- match_types(samp_neyman, data)
   
   rakingest <- calibrateFun(samp_balance)
   save(rakingest, file = paste0("./simulations/Balance/raking/", digit, ".RData"))

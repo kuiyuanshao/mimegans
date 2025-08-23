@@ -32,8 +32,7 @@ do_mimegans <- function(samp, info, nm, digit) {
   tm <- system.time({
     mimegans_imp <- mimegans(samp, m = 20, epoch = 250, 
                              params = list(batch_size = 500, 
-                                           n_g_layers = 5, n_d_layers = 3,
-                                           autoscale = F, type_g = "mcmlp"),
+                                           n_g_layers = 5, n_d_layers = 3),
                              data_info = info,
                              device = "cpu")
   })
@@ -61,7 +60,7 @@ do_mimegans <- function(samp, info, nm, digit) {
 }
 
 
-for (i in 19:100){
+for (i in 46:100){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))
@@ -69,6 +68,7 @@ for (i in 19:100){
   samp_balance <- read.csv(paste0("./data/Sample/Balance/", digit, ".csv"))
   samp_neyman <- read.csv(paste0("./data/Sample/Neyman/", digit, ".csv"))
   
+  samp_srs$W <- 20
   samp_srs <- match_types(samp_srs, data) %>% 
     mutate(across(all_of(data_info_srs$cat_vars), as.factor, .names = "{.col}"),
            across(all_of(data_info_srs$num_vars), as.numeric, .names = "{.col}"))

@@ -1,4 +1,4 @@
-lapply(c("dplyr", "stringr", "torch", "survival"), require, character.only = T)
+lapply(c("dplyr", "stringr", "torch", "survival", "mclust"), require, character.only = T)
 lapply(paste0("./mimegans/", list.files("./mimegans")), source)
 source("00_utils_functions.R")
 if(!dir.exists('./simulations')){dir.create('./simulations')}
@@ -30,8 +30,8 @@ last_rep  <- min(start_rep + task_id * chunk_size - 1L, end_rep)
 
 do_mimegans <- function(samp, info, nm, digit) {
   tm <- system.time({
-    mimegans_imp <- mimegans(samp, m = 20, epoch = 250, 
-                             params = list(batch_size = 500, 
+    mimegans_imp <- mimegans(samp, m = 20, 
+                             params = list(batch_size = 500,
                                            n_g_layers = 5, n_d_layers = 3),
                              data_info = info,
                              device = "cpu")
@@ -60,7 +60,7 @@ do_mimegans <- function(samp, info, nm, digit) {
 }
 
 
-for (i in 46:100){
+for (i in 1:500){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))

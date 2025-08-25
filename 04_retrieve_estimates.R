@@ -2,7 +2,7 @@ lapply(c("survival", "dplyr", "stringr", "survey", "mice"), require, character.o
 source("00_utils_functions.R")
 options(survey.lonely.psu = "certainty")
 
-replicate <- 10
+replicate <- 6
 sampling_designs <- c("SRS", "Balance", "Neyman")
 methods <- c("mimegans", "gain", "mice", "mixgb", "raking")
 
@@ -16,9 +16,9 @@ for (i in 1:replicate){
   cox.true <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +
                       rs4506565 + I((AGE - 50) / 5) + I((eGFR - 90) / 10) +
                       SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE, data = data)
-  cox.me <- coxph(Surv(T_I_STAR, EVENT_STAR) ~ I((HbA1c - 50) / 5) +
-                    rs4506565 + I((AGE - 50) / 5) + I((eGFR - 90) / 10) +
-                    SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE, data = data)
+  cox.me <- coxph(Surv(T_I_STAR, EVENT_STAR) ~ I((HbA1c_STAR - 50) / 5) +
+                    rs4506565_STAR + I((AGE - 50) / 5) + I((eGFR - 90) / 10) +
+                    SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE_STAR, data = data)
   resultCoeff <- rbind(resultCoeff, c(exp(coef(cox.me)), "ME", "ME", digit))
   resultCoeff <- rbind(resultCoeff, c(exp(coef(cox.true)), "TRUE", "TRUE", digit))
   resultStdError <- rbind(resultStdError, c(sqrt(diag(vcov(cox.me))), "ME", "ME", digit))

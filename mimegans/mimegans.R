@@ -29,25 +29,25 @@ init_weights_discriminator <- function(m) {
 }
 
 cwgangp_default <- function(batch_size = 500, lambda = 0, 
-                            alpha = 0, beta = 1, beta_ce = 1, at_least_p = NULL, 
+                            alpha = 0, beta = 1, at_least_p = 0.5, 
                             lr_g = 2e-4, lr_d = 2e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
                             g_weight_decay = 1e-6, d_weight_decay = 1e-6, noise_dim = 128, 
                             g_dim = 256, d_dim = 256, pac = 10, 
                             n_g_layers = 3, n_d_layers = 2, discriminator_steps = 1,
                             tau = 0.2, hard = F, type_g = "mlp", type_d = "mlp",
-                            mmer = T, cat_proj = T, autoscale = F){
+                            mmer = T, cat_proj = T){
   
-  list(batch_size = batch_size, lambda = lambda, alpha = alpha, beta = beta, beta_ce = beta_ce,
+  list(batch_size = batch_size, lambda = lambda, alpha = alpha, beta = beta,
        at_least_p = at_least_p, lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 
        g_weight_decay = g_weight_decay, d_weight_decay = d_weight_decay, noise_dim = noise_dim,
        g_dim = g_dim, d_dim = d_dim, pac = pac, n_g_layers = n_g_layers, n_d_layers = n_d_layers, 
        discriminator_steps = discriminator_steps, tau = tau, hard = hard,
-       type_g = type_g, type_d = type_d, mmer = mmer, cat_proj = cat_proj, autoscale = autoscale)
+       type_g = type_g, type_d = type_d, mmer = mmer, cat_proj = cat_proj)
 }
 
 mimegans <- function(data, m = 5, 
                      num.normalizing = "mode", cat.encoding = "onehot", 
-                     device = "cpu", epochs = 250, 
+                     device = "cpu", epochs = 10000, 
                      params = list(), data_info = list(), 
                      save.step = NULL){
   params <- do.call("cwgangp_default", params)
@@ -58,8 +58,8 @@ mimegans <- function(data, m = 5,
   conditions_vars <- names(data)[which(!(names(data) %in% c(phase1_vars, phase2_vars)))]
   phase1_rows <- which(is.na(data[, phase2_vars[1]]))
   phase2_rows <- which(!is.na(data[, phase2_vars[1]]))
-  if (is.null(at_least_p)){
-    at_least_p <- length(phase2_rows) / nrow(data)
+  if (at_least_p == 1){
+    params$cat_proj <- F
   }
   
   normalize <- paste("normalize", num.normalizing, sep = ".")
@@ -69,7 +69,7 @@ mimegans <- function(data, m = 5,
   phase1_bins <- cat_vars[!(cat_vars %in% phase2_vars)] 
   phase1_bins <- if (length(phase1_bins) > 0) {
     phase1_bins[sapply(phase1_bins, function(col) {
-      length(unique(data[phase1_rows, col])) > 1 & length(unique(data[phase1_rows, col])) > 1
+      length(unique(data[phase1_rows, col])) > 1 & length(unique(data[phase2_rows, col])) > 1
     })]
   } else {
     character(0)
@@ -85,7 +85,7 @@ mimegans <- function(data, m = 5,
   data_norm <- do.call(normalize, args = list(
     data = data,
     num_vars = num_vars, 
-    c(conditions_vars, phase1_vars), phase2_vars
+    c(conditions_vars, phase1_vars)
   ))
   
   if (num.normalizing == "mode"){
@@ -199,107 +199,77 @@ mimegans <- function(data, m = 5,
     step_result <- list()
     p <- 1
   }
-  if (autoscale){
-    params$beta <- 1
-  }
-  steps_per_epoch <- nrows %/% batch_size
   for (i in 1:epochs){
     gnet$train()
-    for (step in 1:steps_per_epoch){
-      for (d in 1:discriminator_steps){
-        batch <- sampleBatch(data, tensor_list, phase1_bins,
-                             phase1_rows, phase2_rows,
-                             batch_size, at_least_p = at_least_p,
-                             weights, net = "D")
-        A <- batch[[4]]
-        X <- batch[[3]]
-        C <- batch[[2]]
-        M <- batch[[1]]
-
-        fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), noise_dim))$to(device = device) 
-        fakez_AC <- torch_cat(list(fakez, A, C), dim = 2)
-        
-        fake <- gnet(fakez_AC)
-        fake <- activationFun(fake, allnums, allcats, 
-                              tau = tau, hard = hard)
-        
-        
-        fake_AC <- torch_cat(list(fake, A, C), dim = 2)
-        true_AC <- torch_cat(list(X, A, C), dim = 2)
-        x_fake <- dnet(fake_AC)
-        x_true <- dnet(true_AC)
-      
-        if (lambda > 0){
-          gp <- gradientPenalty(dnet, fake_AC, true_AC, params, device = device) 
-          d_loss <- -(torch_mean(x_true) - torch_mean(x_fake)) + 
-            params$lambda * gp
-        }else{
-          d_loss <- -(torch_mean(x_true) - torch_mean(x_fake))
-        }
-        
-        d_solver$zero_grad()
-        d_loss$backward()
-        d_solver$step()
-      }
+    for (d in 1:discriminator_steps){
       batch <- sampleBatch(data, tensor_list, phase1_bins,
                            phase1_rows, phase2_rows,
-                           batch_size, at_least_p = at_least_p,
-                           weights, net = "G")
+                           batch_size * at_least_p, at_least_p = at_least_p,
+                           weights, net = "D")
       A <- batch[[4]]
       X <- batch[[3]]
       C <- batch[[2]]
       M <- batch[[1]]
-      I <- M[, 1] == 1
       
       fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), noise_dim))$to(device = device) 
       fakez_AC <- torch_cat(list(fakez, A, C), dim = 2)
+      
       fake <- gnet(fakez_AC)
-      fakeact <- activationFun(fake, allnums, allcats, 
-                               tau = tau, hard = hard)
-      fake_AC <- torch_cat(list(fakeact, A, C), dim = 2)
+      fake <- activationFun(fake, allnums, allcats, 
+                            tau = tau, hard = hard)
+      
+      
+      fake_AC <- torch_cat(list(fake, A, C), dim = 2)
+      true_AC <- torch_cat(list(X, A, C), dim = 2)
       x_fake <- dnet(fake_AC)
+      x_true <- dnet(true_AC)
       
-      if (params$cat_proj){
-        if (length(phase2_cats) > 0){
-          fake_proj <- projP1(fakeact, CM_tensors, cats_p2)
-        }
+      if (lambda > 0){
+        gp <- gradientPenalty(dnet, fake_AC, true_AC, params, device = device) 
+        d_loss <- -(torch_mean(x_true) - torch_mean(x_fake)) + 
+          params$lambda * gp
       }else{
-        fake_proj <- NULL
+        d_loss <- -(torch_mean(x_true) - torch_mean(x_fake))
       }
-      adv_term <- -torch_mean(x_fake) 
-      recon_loss <- reconLoss(fake, X, fake_proj, A, I, params, 
-                              num_inds_p2, cat_inds_p2, 
-                              cats_p1, cats_p2, cats_mode)
       
-      if (autoscale){
-        adv_grads <- autograd_grad(
-          outputs = adv_term, 
-          inputs = gnet$parameters,
-          retain_graph = TRUE
-        )[[1]]
-        
-        recon_grads <- autograd_grad(
-          outputs = recon_loss,
-          inputs = gnet$parameters,
-          retain_graph = TRUE
-        )[[1]]
-        
-        g_adv <- adv_grads$pow(2)$sum()$sqrt()
-        g_recon <- recon_grads$pow(2)$sum()$sqrt()
-        
-        with_no_grad({
-          beta_ce <- beta_ce * torch_exp(0.5 * (torch_log(g_adv + 1e-12) -
-                                                      torch_log(g_recon + 1e-12)))
-          beta_ce <- torch_clamp(beta_ce, 1e-6, 10.0)
-        })
-        recon_loss <- beta_ce * recon_loss
-      }
-      g_loss <- adv_term + recon_loss
-      
-      g_solver$zero_grad()
-      g_loss$backward()
-      g_solver$step()
+      d_solver$zero_grad()
+      d_loss$backward()
+      d_solver$step()
     }
+    batch <- sampleBatch(data, tensor_list, phase1_bins,
+                         phase1_rows, phase2_rows,
+                         batch_size, at_least_p = at_least_p,
+                         weights, net = "G")
+    A <- batch[[4]]
+    X <- batch[[3]]
+    C <- batch[[2]]
+    M <- batch[[1]]
+    I <- M[, 1] == 1
+    
+    fakez <- torch_normal(mean = 0, std = 1, size = c(X$size(1), noise_dim))$to(device = device) 
+    fakez_AC <- torch_cat(list(fakez, A, C), dim = 2)
+    fake <- gnet(fakez_AC)
+    fakeact <- activationFun(fake, allnums, allcats, 
+                             tau = tau, hard = hard)
+    fake_AC <- torch_cat(list(fakeact, A, C), dim = 2)
+    x_fake <- dnet(fake_AC)
+    
+    if (params$cat_proj){
+      if (length(phase2_cats) > 0){
+        fake_proj <- projP1(fake, CM_tensors, cats_p2)
+      }
+    }else{
+      fake_proj <- NULL
+    }
+    adv_term <- -torch_mean(x_fake) 
+    recon_loss <- reconLoss(fake, X, fake_proj, A, I, params, 
+                            num_inds_p2, cat_inds_p2, 
+                            cats_p1, cats_p2, cats_mode)
+    g_loss <- adv_term + recon_loss
+    
+    g_solver$zero_grad()
+    g_loss$backward()
+    g_solver$step()
     training_loss[i, ] <- c(g_loss$item(), d_loss$item())
     
     pb$tick(tokens = list(
@@ -309,7 +279,7 @@ mimegans <- function(data, m = 5,
       recon_loss = sprintf("%.4f", recon_loss$item())
     ))
     Sys.sleep(1 / 100000)
-
+    
     if (!is.null(save.step)){
       if (i %% save.step == 0){
         gnet$eval()
@@ -355,3 +325,4 @@ mimegans <- function(data, m = 5,
   }
   return (out)
 }
+

@@ -39,8 +39,6 @@ discriminator.sattn <- torch::nn_module(
         self$attn[[i]] <- spectral_norm(layer)
       }
     }
-    self$dropout <- nn_dropout()
-    self$norm <- nn_layer_norm(proj_dim)
     
     self$seq <- torch::nn_sequential()
     for (i in 1:n_d_layers) {
@@ -52,7 +50,7 @@ discriminator.sattn <- torch::nn_module(
   },
   forward = function(input) {
     input <- self$proj_layer(input)$unsqueeze(2)
-    attn_out <- self$norm(input + (self$dropout(self$attn(input, input, input)[[1]])))$squeeze(2)
+    attn_out <- (input + self$attn(input, input, input)[[1]])$squeeze(2)
     attn_out <- attn_out$reshape(c(-1, self$pacdim))
     out <- self$seq(attn_out)
     return (out)

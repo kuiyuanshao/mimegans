@@ -16,7 +16,6 @@ sampleFun <- function(indices, elements, total, pi){
   samp_idx <- NULL
   samp_pi <- NULL
   
-  ncat <- table(elements) / total
   for (i in unique(elements)){
     curr_rows <- indices[elements == i]
     sampled <- sample(1:length(curr_rows), total[[i]],
@@ -36,8 +35,8 @@ sampleBatch <- function(data_original, tensor_list, phase1_bins,
     p1 <- data_original[phase1_rows, curr_var]
     p2 <- data_original[phase2_rows, curr_var]
     
-    phase1_total <- alloc_even(floor(batch_size * (1 - at_least_p)), unique(p1))
-    phase2_total <- alloc_even(ceiling(batch_size * at_least_p), unique(p2))
+    phase1_total <- alloc_even(round(batch_size * (1 - at_least_p)), unique(p1))
+    phase2_total <- alloc_even(round(batch_size * at_least_p), unique(p2))
     samp_res_p1 <- sampleFun(phase1_rows, p1, phase1_total, 1 - 1 / (weights[phase1_rows]))
     samp_res_p2 <- sampleFun(phase2_rows, p2, phase2_total, 1 / (weights[phase1_rows]))
     

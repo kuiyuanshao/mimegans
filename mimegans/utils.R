@@ -3,7 +3,7 @@ reconLoss <- function(fake, true, fake_proj, true_proj, I, params, num_inds, cat
   use_ce <- (length(cat_inds) > 0L) && (params$beta  != 0)
   
   if (!use_mm && !use_ce)
-    return (.zero_like_scalar(fake))
+    return (torch_tensor(0, device = fake$device))
   
   mm <- if (use_mm) {
     params$alpha * (torch_norm(torch_mean(fake[I, ]$view(c(fake[I, ]$size(1), -1)), dim = 1) - 
@@ -26,7 +26,7 @@ ceLoss <- function(fake, true, fake_proj, A, I, params, cats_p1, cats_p2, cats_m
   notI <- I$logical_not()
   for (i in 1:length(cats_p2)){
     cat_p2 <- cats_p2[[i]]
-    if (params$cat_proj){
+    if (params$cat == "projp1" | params$cat == "projp2"){
       cat_p1 <- cats_p1[[i]]
       ce.1 <- nnf_cross_entropy(fake_proj[notI, cat_p2, drop = F], 
                                 torch_argmax(A[notI, cat_p1, drop = F], dim = 2), 
@@ -36,7 +36,7 @@ ceLoss <- function(fake, true, fake_proj, A, I, params, cats_p1, cats_p2, cats_m
                                 reduction = "none")
       ce <- torch_cat(list(ce.1, ce.2), dim = 1)$mean()
       loss <- loss + ce
-    }else{
+    } else{
       ce <- nnf_cross_entropy(fake[I, cat_p2, drop = F], 
                               torch_argmax(true[I, cat_p2, drop = F], dim = 2), 
                               reduction = "mean")
@@ -54,29 +54,27 @@ ceLoss <- function(fake, true, fake_proj, A, I, params, cats_p1, cats_p2, cats_m
   return (loss_t)
 }
 
-activationFun <- function(fake, nums, cats, tau = 0.2, hard = F, gen = F){
+activationFun <- function(fake, cats_mode, cats_p2, params, gen = F){
+  cats <- c(cats_mode, cats_p2)
   for (cat in cats){
     if (gen){
-      # p <- nnf_softmax(fake[, cat, drop = F], dim = 2)
-      p <- nnf_gumbel_softmax(fake[, cat, drop = F], tau = tau, hard = T)
-      # idx <- torch_multinomial(p, 1)
-      # onehot <- nnf_one_hot(idx, num_classes = length(cat))$squeeze(2)$float()
+      p <- nnf_gumbel_softmax(fake[, cat, drop = F], tau = params$tau, hard = T)
       fake[, cat] <- p
     }else{
-      fake[, cat] <- nnf_gumbel_softmax(fake[, cat, drop = F], tau = tau, hard = hard)
+      fake[, cat] <- nnf_gumbel_softmax(fake[, cat, drop = F], tau = params$tau, hard = params$hard)
     }
   }
   return (fake)
 }
 
-projP1 <- function(fake, CM_tensors, cats){
+projCat <- function(fake, CM_tensors, cats){
   fake_result <- fake$clone()
   for (c in seq_along(cats)) {
     cat_idx <- cats[[c]]   
     cm <- CM_tensors[[c]] 
     prob <- nnf_softmax(fake[, cat_idx, drop = F], dim = 2)
     proj <- prob$matmul(cm) 
-    logits_obs <- torch_log(proj)
+    logits_obs <- torch_log(proj$clamp(1e-8, 1 - 1e-8))
     fake_result[, cat_idx] <- logits_obs
   }
   return (fake_result)

@@ -32,16 +32,22 @@ acc_prob_row <- function(mat, lb, ub, alpha = 1) {
   total_violation <- rowSums(d)
   exp(-alpha * total_violation ^ 2)
 }
-gen_rows <- function(idx_vec, gnet, A_t, C_t, params, data_original, data_training, decode, denormalize,
-                     data_encode, data_norm, data_info, phase1_vars, phase2_vars, allnums, allcats, device){
+
+gen_rows <- function(idx_vec, gnet, A_t, C_t, params, 
+                     data_original, data_training, decode, denormalize,
+                     data_encode, data_norm, data_info, 
+                     num_inds_gen, num_inds_ori, CM_tensors,
+                     cats_mode, cats_p1, cats_p2, device){
   n <- length(idx_vec)
   z <- torch_normal(0, 1, size = c(n, params$noise_dim))$to(device = device)
   tmp <- gnet(torch_cat(list(z, A_t[idx_vec, , drop = F], C_t[idx_vec, , drop = F]), dim = 2))
-  tmp <- activationFun(tmp, allnums, allcats, gen = T)
+  if (params$cat == "projp2"){
+    tmp <- projCat(tmp, CM_tensors, cats_p2)
+  }
+  tmp <- activationFun(tmp, cats_mode, cats_p2, params, gen = T)
   tmp <- torch_cat(list(tmp, A_t[idx_vec, , drop = F], C_t[idx_vec, , drop = F]), dim = 2)
   df <- as.data.frame(as.matrix(tmp$detach()$cpu()))
   names(df) <- names(data_training)
-  
   deco <- do.call(decode, args = list(
     data = df,
     encode_obj = data_encode
@@ -54,10 +60,8 @@ gen_rows <- function(idx_vec, gnet, A_t, C_t, params, data_original, data_traini
   
   denorm <- denorm[, names(data_original)]
   
-  if (params$mmer){
-    idx_p2 <- match(phase2_vars[phase2_vars %in% data_info$num_vars], names(denorm))
-    idx_p1 <- match(phase1_vars[phase1_vars %in% data_info$num_vars], names(data_original))
-    denorm[, idx_p2] <- data_original[idx_vec, idx_p1] - denorm[, idx_p2]
+  if (params$num == "mmer"){
+    denorm[, num_inds_gen] <- data_original[idx_vec, num_inds_ori] - denorm[, num_inds_gen]
   }
   denorm
 }
@@ -67,8 +71,8 @@ generateImpute <- function(gnet, m = 5,
                            data_encode, data_training,
                            phase1_vars, phase2_vars,
                            num.normalizing, cat.encoding, 
-                           batch_size, device, params,
-                           allnums, allcats, 
+                           batch_size, device, params, CM_tensors,
+                           cats_mode, cats_p1, cats_p2, 
                            tensor_list){
   imputed_data_list <- vector("list", m)
   gsample_data_list <- vector("list", m)
@@ -102,7 +106,10 @@ generateImpute <- function(gnet, m = 5,
       fakez_C <- torch_cat(list(fakez, A, C), dim = 2)
       
       gsample <- gnet(fakez_C)
-      gsample <- activationFun(gsample, allnums, allcats, gen = T)
+      if (params$cat == "projp2"){
+        fake <- projCat(gsample, CM_tensors, cats_p2)
+      }
+      gsample <- activationFun(gsample, cats_mode, cats_p2, params, gen = T)
       gsample <- torch_cat(list(gsample, A, C), dim = 2)
       output_list[[i]] <- as.matrix(gsample$detach()$cpu())
     }
@@ -125,10 +132,10 @@ generateImpute <- function(gnet, m = 5,
     gsamples <- curr_gsample$data
     gsamples <- gsamples[, names(data_original)]
     
-    if (params$mmer){
-      gsamples[, match(phase2_vars[phase2_vars %in% data_info$num_vars], names(gsamples))] <-
-        data_original[, match(phase1_vars[phase1_vars %in% data_info$num_vars], names(data_original))] -
-        gsamples[, match(phase2_vars[phase2_vars %in% data_info$num_vars], names(gsamples))]
+    num_inds_gen <- match(phase2_vars[phase2_vars %in% data_info$num_vars], names(gsamples))
+    num_inds_ori <- match(phase1_vars[phase1_vars %in% data_info$num_vars], names(data_original))
+    if (params$num == "mmer"){
+      gsamples[, num_inds_gen] <- data_original[, num_inds_ori] - gsamples[, num_inds_gen]
     }
     phase2_idx <- sort(match(data_info$phase2_vars, names(gsamples)))
     M <- gsamples[, phase2_idx, drop = FALSE]
@@ -144,8 +151,11 @@ generateImpute <- function(gnet, m = 5,
         break
       }
       bad_rows <- which(!accept_row)
-      M[bad_rows, ] <- gen_rows(bad_rows, gnet, A_t, C_t, params, data_original, data_training, decode, denormalize,
-                                data_encode, data_norm, data_info, phase1_vars, phase2_vars, allnums, allcats, device)[, phase2_idx]
+      M[bad_rows, ] <- gen_rows(bad_rows, gnet, A_t, C_t, params, 
+                                data_original, data_training, decode, denormalize,
+                                data_encode, data_norm, data_info, 
+                                num_inds_gen, num_inds_ori, CM_tensors,
+                                cats_mode, cats_p1, cats_p2, device)[, phase2_idx]
       # Recompute acceptance
       row_acc <- acc_prob_row(as.matrix(M[, phase2_num_idx]), lb, ub)
       accept_row <- runif(nrow(M)) < row_acc

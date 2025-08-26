@@ -32,7 +32,7 @@ do_mimegans <- function(samp, info, nm, digit) {
   tm <- system.time({
     mimegans_imp <- mimegans(samp, m = 20, 
                              params = list(batch_size = 500,
-                                           n_g_layers = 5, n_d_layers = 3),
+                                           n_g_layers = 5, n_d_layers = 3, type_g = "mlp"),
                              data_info = info,
                              device = "cpu")
   })

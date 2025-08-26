@@ -1,5 +1,10 @@
 calibrateFun <- function(samp){
   samp$R <- as.logical(samp$R)
+  n_sampled <- table(samp$STRATA, samp$R)
+  if (any(n_sampled[, 2] == 0)){
+    idx <- which(n_sampled[, 2] == 0)
+    samp$STRATA[samp$STRATA == rownames(n_sampled)[idx]] <- rownames(n_sampled)[idx - 1]
+  }
   twophase_des <- twophase(id = list(~1, ~1), strata = list(NULL, ~STRATA), 
                            subset = ~R, data = samp)
   twophase_des_2 <- subset(svydesign(ids = ~1, strata = ~STRATA, weights = ~W, data = samp), R)

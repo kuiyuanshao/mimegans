@@ -2,14 +2,14 @@ lapply(c("survival", "dplyr", "stringr", "survey", "mice"), require, character.o
 source("00_utils_functions.R")
 options(survey.lonely.psu = "certainty")
 
-replicate <- 13
+replicate <- 3
 sampling_designs <- c("SRS", "Balance", "Neyman")
 methods <- c("mimegans", "gain", "mice", "mixgb", "raking")
 
 resultCoeff <- NULL
 resultStdError <- NULL
 resultCI <- NULL
-for (i in 3:replicate){
+for (i in 1:replicate){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))
@@ -78,7 +78,9 @@ for (i in 3:replicate){
         resultStdError <- rbind(resultStdError, c(sumry$std.error, toupper(j), toupper(k), digit))
         resultCI <- rbind(resultCI, c(exp(sumry$`2.5 %`), exp(sumry$`97.5 %`), j, k, digit))
       }else{
-        sumry <- summary(rakingest)
+        resultCoeff <- rbind(resultCoeff, c(exp(coef(rakingest)), toupper(j), toupper(k), digit))
+        resultStdError <- rbind(resultStdError, c(sqrt(diag(vcov(rakingest))), toupper(j), toupper(k), digit))
+        resultCI <- rbind(resultCI, c(exp(confint(rakingest))[, 1], exp(confint(rakingest))[, 2], j, k, digit))
       }
     }
   }

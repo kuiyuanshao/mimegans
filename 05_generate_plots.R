@@ -53,7 +53,7 @@ ggplot(resultCoeff_long) +
     breaks = c("SRS", "BALANCE", "NEYMAN")) + 
   facetted_pos_scales(y = range_coef)
 
-ggsave("./simulations/Imputation_Coeff_Boxplot.png", width = 20, height = 10, limitsize = F)
+ggsave("./simulations/Imputation_Coeff_Boxplot.png", width = 30, height = 10, limitsize = F)
 
 ggplot(resultStdError) + 
   geom_boxplot(aes(x = factor(Method, levels = c("TRUE", "ME", "COMPLETE", "MIMEGANS", "MICE", "MIXGB", "RAKING")), 

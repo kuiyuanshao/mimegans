@@ -59,7 +59,6 @@ do_mimegans <- function(samp, info, nm, digit) {
                                           paste0(digit, ".RData")))
 }
 
-setwd("/Volumes/kuiyuanshao/Documents/GitHub/mimegans")
 for (i in 1:500){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
@@ -94,4 +93,3 @@ for (i in 1:500){
   }
 }
 
-load("./simulations/Balance/mimegans/0005.RData")

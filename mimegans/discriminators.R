@@ -36,8 +36,17 @@ discriminator.infomlp <- torch::nn_module(
     }
     self$seq$add_module("Linear", nn_linear(dim, 1))
     
-    self$seq_info <- torch::nn_sequential(nn_linear(self$pacdim, params$d_dim),
-                                          nn_leaky_relu(0.2))
+    self$seq_info <- torch::nn_sequential()
+    dim <- self$pacdim
+    for (i in 1:params$n_d_layers) {
+      self$seq$add_module(paste0("Linear", i), nn_linear(dim, params$d_dim))
+      self$seq$add_module(paste0("LeakyReLU", i), nn_leaky_relu(0.2))
+      if (i != params$n_d_layers){
+        self$seq$add_module(paste0("Dropout", i), nn_dropout(0.5))
+      }
+      dim <- params$d_dim
+    }
+    
   },
   forward = function(input, ...) {
     input <- input$reshape(c(-1, self$pacdim))

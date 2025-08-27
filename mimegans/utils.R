@@ -6,9 +6,13 @@ reconLoss <- function(fake, true, fake_proj, true_proj, C, I, params, num_inds, 
     return (torch_tensor(0, device = fake$device))
   
   if (use_mm){
-    scale <- fake[, num_inds, drop = F]$abs()$clamp_min(0.05)
-    diff <- (fake[, num_inds, drop = F] - true[, num_inds, drop = F]) / scale
-    mm <- torch_where(abs(diff) < 1, 0.5 * diff$pow(2), diff$abs() - 0.5)$mean()
+    if (params$num == "mmer"){
+      scale <- fake[I, num_inds, drop = F]$abs()$clamp_min(0.05)
+      diff <- (fake[I, num_inds, drop = F] - true[I, num_inds, drop = F]) / scale
+      mm <- params$alpha * (torch_where(abs(diff) < 1, 0.5 * diff$pow(2), diff$abs() - 0.5)$mean())
+    }else{
+      mm <- params$alpha * nnf_mse_loss(fake[I, num_inds, drop = F], true[I, num_inds, drop = F])
+    }
   }else{
     mm <- NULL
   }

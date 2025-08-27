@@ -29,7 +29,7 @@ init_weights_discriminator <- function(m) {
 }
 
 cwgangp_default <- function(batch_size = 500, lambda = 10, 
-                            alpha = 0, beta = 1, at_least_p = 0.5, 
+                            alpha = 0.2, beta = 1, at_least_p = 0.5, 
                             lr_g = 2e-4, lr_d = 2e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
                             g_weight_decay = 1e-6, d_weight_decay = 1e-6, noise_dim = 128, 
                             g_dim = 256, d_dim = 256, pac = 10, 
@@ -38,6 +38,9 @@ cwgangp_default <- function(batch_size = 500, lambda = 10,
                             num = "mmer", cat = "projp1"){
   if (type_d == "snmlp" | type_d == "sninfomlp"){
     lambda <- 0
+  }
+  if (num != "mmer"){
+    alpha <- 0
   }
   list(batch_size = batch_size, lambda = lambda, alpha = alpha, beta = beta,
        at_least_p = at_least_p, lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 

@@ -93,3 +93,4 @@ for (i in 5:500){
     do_mimegans(samp_neyman, data_info_neyman, "Neyman", digit)
   }
 }
+

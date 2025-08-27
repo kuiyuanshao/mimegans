@@ -6,14 +6,9 @@ reconLoss <- function(fake, true, fake_proj, true_proj, C, I, params, num_inds, 
     return (torch_tensor(0, device = fake$device))
   
   if (use_mm){
-    conditions <- torch_cat(list(true_proj, C), dim = 2)
-    n <- true[I, ]$size(1)
-    fake_X <- fake - fake$mean(dim = 1, keepdim = TRUE)
-    true_X <- true - true$mean(dim = 1, keepdim = TRUE)
-    conditions <- conditions - conditions$mean(dim = 1, keepdim = TRUE)
-    covXfC <- fake_X$t()$matmul(conditions) / (n - 1)  
-    covXtC <- true_X$t()$matmul(conditions) / (n - 1)  
-    mm <- params$alpha * nnf_mse_loss(covXfC, covXtC)
+    scale <- fake[, num_inds, drop = F]$abs()$clamp_min(0.05)
+    diff <- (fake[, num_inds, drop = F] - true[, num_inds, drop = F]) / scale
+    mm <- torch_where(abs(diff) < 1, 0.5 * diff$pow(2), diff$abs() - 0.5)$mean()
   }else{
     mm <- NULL
   }

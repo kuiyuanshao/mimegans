@@ -2,14 +2,14 @@ lapply(c("survival", "dplyr", "stringr", "survey", "mice"), require, character.o
 source("00_utils_functions.R")
 options(survey.lonely.psu = "certainty")
 
-replicate <- 3
+replicate <- 20
 sampling_designs <- c("SRS", "Balance", "Neyman")
 methods <- c("mimegans", "gain", "mice", "mixgb", "raking")
 
 resultCoeff <- NULL
 resultStdError <- NULL
 resultCI <- NULL
-for (i in 1:replicate){
+for (i in 13:replicate){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))

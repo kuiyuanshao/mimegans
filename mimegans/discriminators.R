@@ -21,7 +21,7 @@ discriminator.mlp <- torch::nn_module(
   }
 )
 
-discriminator.sninfomlp <- torch::nn_module(
+discriminator.infomlp <- torch::nn_module(
   "Discriminator",
   initialize = function(params, ncols, ...) {
     self$pacdim <- ncols * params$pac
@@ -36,14 +36,8 @@ discriminator.sninfomlp <- torch::nn_module(
     }
     self$seq$add_module("Linear", nn_linear(dim, 1))
     
-    self$seq_info <- torch::nn_sequential()
-    dim <- self$pacdim
-    for (i in 1:(params$n_d_layers - 1)) {
-      self$seq_info$add_module(paste0("Linear_info", i), nn_linear(dim, params$d_dim))
-      self$seq_info$add_module(paste0("LeakyReLU_info", i), nn_leaky_relu(0.2))
-      self$seq_info$add_module(paste0("Dropout_info", i), nn_dropout(0.5))
-      dim <- params$d_dim
-    }
+    self$seq_info <- torch::nn_sequential(nn_linear(self$pacdim, params$d_dim),
+                                          nn_leaky_relu(0.2))
     
   },
   forward = function(input, ...) {

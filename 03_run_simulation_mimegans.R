@@ -32,7 +32,7 @@ do_mimegans <- function(samp, info, nm, digit) {
   tm <- system.time({
     mimegans_imp <- mimegans(samp, m = 20, 
                              params = list(batch_size = 500,
-                                           n_g_layers = 5, n_d_layers = 3, type_g = "mlp"),
+                                           n_g_layers = 5, n_d_layers = 3, type_d = "infomlp"),
                              data_info = info,
                              device = "cpu")
   })
@@ -60,7 +60,7 @@ do_mimegans <- function(samp, info, nm, digit) {
 }
 
 
-for (i in 1:500){
+for (i in 5:500){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))

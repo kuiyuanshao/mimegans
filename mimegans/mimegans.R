@@ -234,8 +234,13 @@ mimegans <- function(data, m = 5,
       fake <- activationFun(fake, cats_mode, cats_p2, params)
       fake_AC <- torch_cat(list(fake, A, C), dim = 2)
       true_AC <- torch_cat(list(X, A, C), dim = 2)
-      x_fake <- dnet(fake_AC)
-      x_true <- dnet(true_AC)
+      if (params$type_d == "infomlp"){
+        x_fake <- dnet(fake_AC)[[1]]
+        x_true <- dnet(true_AC)[[1]]
+      }else{
+        x_fake <- dnet(fake_AC)
+        x_true <- dnet(true_AC)
+      }
       
       if (lambda > 0){
         gp <- gradientPenalty(dnet, fake_AC, true_AC, params, device = device) 
@@ -274,10 +279,18 @@ mimegans <- function(data, m = 5,
     }
     fakeact <- activationFun(fake, cats_mode, cats_p2, params)
     fake_AC <- torch_cat(list(fakeact, A, C), dim = 2)
-    x_fake <- dnet(fake_AC)
-    
-    adv_term <- -torch_mean(x_fake) 
-    recon_loss <- reconLoss(fake, X, fake_proj, A, I, params, 
+    true_AC <- torch_cat(list(X, A, C), dim = 2)
+    if (params$type_d == "infomlp"){
+      x_fake <- dnet(fake_AC)[[1]]
+      info_fake_I <- dnet(fake_AC[I, ])[[2]]
+      info_true_I <- dnet(true_AC[I, ])[[2]]
+      info_loss <- infoLoss(info_fake_I, info_true_I)
+      adv_term <- -torch_mean(x_fake) + info_loss
+    }else{
+      x_fake <- dnet(fake_AC)
+      adv_term <- -torch_mean(x_fake)
+    }
+    recon_loss <- reconLoss(fake, X, fake_proj, A, C, I, params, 
                             num_inds_p2, cat_inds_p2, 
                             cats_p1, cats_p2, cats_mode)
     g_loss <- adv_term + recon_loss

@@ -1,16 +1,22 @@
-reconLoss <- function(fake, true, fake_proj, true_proj, I, params, num_inds, cat_inds, cats_p1, cats_p2, cats_mode){
+reconLoss <- function(fake, true, fake_proj, true_proj, C, I, params, num_inds, cat_inds, cats_p1, cats_p2, cats_mode){
   use_mm <- (length(num_inds) > 0L) && (params$alpha != 0)
   use_ce <- (length(cat_inds) > 0L) && (params$beta  != 0)
   
   if (!use_mm && !use_ce)
     return (torch_tensor(0, device = fake$device))
   
-  mm <- if (use_mm) {
-    params$alpha * (torch_norm(torch_mean(fake[I, ]$view(c(fake[I, ]$size(1), -1)), dim = 1) - 
-                                 torch_mean(true[I, ]$view(c(fake[I, ]$size(1), -1)), dim = 1), 2) +
-                      torch_norm(torch_std(fake[I, ]$view(c(fake[I, ]$size(1), -1)), dim = 1) - 
-                                   torch_std(true[I, ]$view(c(fake[I, ]$size(1), -1)), dim = 1), 2))
-  } else NULL
+  if (use_mm){
+    conditions <- torch_cat(list(true_proj, C), dim = 2)
+    n <- true[I, ]$size(1)
+    fake_X <- fake - fake$mean(dim = 1, keepdim = TRUE)
+    true_X <- true - true$mean(dim = 1, keepdim = TRUE)
+    conditions <- conditions - conditions$mean(dim = 1, keepdim = TRUE)
+    covXfC <- fake_X$t()$matmul(conditions) / (n - 1)  
+    covXtC <- true_X$t()$matmul(conditions) / (n - 1)  
+    mm <- params$alpha * nnf_mse_loss(covXfC, covXtC)
+  }else{
+    mm <- NULL
+  }
   ce <- if (use_ce) {
     params$beta *
       ceLoss(fake, true, fake_proj, true_proj, I, params, cats_p1, cats_p2, cats_mode)
@@ -19,6 +25,13 @@ reconLoss <- function(fake, true, fake_proj, true_proj, I, params, num_inds, cat
   if (is.null(mm)) return(ce)
   if (is.null(ce)) return(mm)
   mm + ce
+}
+
+infoLoss <- function(fake, true){
+  return (torch_norm(torch_mean(fake$view(c(fake$size(1), -1)), dim = 1) - 
+                       torch_mean(true$view(c(fake$size(1), -1)), dim = 1), 2) +
+            torch_norm(torch_std(fake$view(c(fake$size(1), -1)), dim = 1) - 
+                         torch_std(true$view(c(fake$size(1), -1)), dim = 1), 2))
 }
 
 ceLoss <- function(fake, true, fake_proj, A, I, params, cats_p1, cats_p2, cats_mode){

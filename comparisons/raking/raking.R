@@ -1,4 +1,5 @@
 calibrateFun <- function(samp){
+  dimnames.twophase2 <- function(object,...) dimnames(object$phase1$sample$variables)
   samp$R <- as.logical(samp$R)
   n_sampled <- table(samp$STRATA, samp$R)
   if (any(n_sampled[, 2] == 0)){
@@ -23,14 +24,14 @@ calibrateFun <- function(samp){
                              LDL + HDL + Triglyceride + Phosphate + Magnesium + Calcium + 
                              Bicarbonate + Potassium + Urea + eGFR + Creatinine + SpO2 + 
                              HR + Temperature + SBP + MED_Count, 
-                           family = "multinomial", design = twophase_des_2)
+                           family = "multinomial", design = twophase_des)
   samp$SMOKE_impute <- apply(predict(modimp.SMOKE$fit, newdata = samp, 
                                      type = "response", se.fit = FALSE), 1, which.max)
   modimp.rs4506565 <- svy_vglm(rs4506565 ~ rs4506565_STAR + T_I_STAR + 
                                  AGE + SEX + RACE + INSURANCE + HbA1c_STAR + 
                                  SMOKE_STAR + EVENT_STAR + eGFR + F_Glucose_STAR +
                                  Albumin + BMI, 
-                               family = "multinomial", design = twophase_des_2)
+                               family = "multinomial", design = twophase_des)
   samp$rs4506565_impute <- apply(predict(modimp.rs4506565$fit, newdata = samp, 
                                          type = "response", se.fit = FALSE), 1, which.max)
   modimp.EVENT <- svyglm(EVENT ~ EVENT_STAR + HbA1c_STAR + rs4506565_STAR + 

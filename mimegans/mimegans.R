@@ -36,7 +36,9 @@ cwgangp_default <- function(batch_size = 500, lambda = 10,
                             n_g_layers = 3, n_d_layers = 2, discriminator_steps = 1,
                             tau = 0.2, hard = F, type_g = "mlp", type_d = "mlp",
                             num = "mmer", cat = "projp1"){
-  
+  if (type_d == "snmlp" | type_d == "sninfomlp"){
+    lambda <- 0
+  }
   list(batch_size = batch_size, lambda = lambda, alpha = alpha, beta = beta,
        at_least_p = at_least_p, lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 
        g_weight_decay = g_weight_decay, d_weight_decay = d_weight_decay, noise_dim = noise_dim,

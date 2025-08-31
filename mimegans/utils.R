@@ -95,7 +95,7 @@ projCat <- function(fake, CM_tensors, cats){
 gradientPenalty <- function(D, real_samples, fake_samples, params, device) {
   alp <- torch_rand(real_samples$size(1), 1, device = device)
   interpolates <- (alp * real_samples + (1 - alp) * fake_samples)$requires_grad_(TRUE)
-  if (params$type_d == "infomlp" | params$type_d == "sninfomlp"){
+  if (params$type_d == "infomlp" | params$type_d == "sninfomlp" | params$type_d == "infosagan"){
     d_interpolates <- D(interpolates)[[1]]
   }else{
     d_interpolates <- D(interpolates)

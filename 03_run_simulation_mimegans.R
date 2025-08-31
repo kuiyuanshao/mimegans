@@ -31,8 +31,9 @@ last_rep  <- min(start_rep + task_id * chunk_size - 1L, end_rep)
 do_mimegans <- function(samp, info, nm, digit) {
   tm <- system.time({
     mimegans_imp <- mimegans(samp, m = 20, 
-                             params = list(batch_size = 500,
-                                           n_g_layers = 5, n_d_layers = 3, type_d = "infomlp"),
+                             params = list(batch_size = 500, 
+                                           n_g_layers = 5, n_d_layers = 3,
+                                           type_g = "mlp", type_d = "mlp"),
                              data_info = info,
                              device = "cpu")
   })
@@ -53,7 +54,7 @@ do_mimegans <- function(samp, info, nm, digit) {
   cat("Bias: \n")
   cat(exp(sumry$estimate) - exp(coef(cox.true)), "\n")
   cat("Variance: \n")
-  cat(apply(bind_rows(lapply(fit$analyses, function(i){coef(i)})), 2, var), "\n")
+  cat(apply(bind_rows(lapply(fit$analyses, function(i){exp(coef(i))})), 2, var), "\n")
   
   save(mimegans_imp, tm, file = file.path("simulations", nm, "mimegans",
                                           paste0(digit, ".RData")))
@@ -83,7 +84,7 @@ for (i in 1:500){
                       SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE, data = data)
   
   if (!file.exists(paste0("./simulations/SRS/mimegans/", digit, ".RData"))){
-   do_mimegans(samp_srs, data_info_srs, "SRS", digit)
+    do_mimegans(samp_srs, data_info_srs, "SRS", digit)
   }
   if (!file.exists(paste0("./simulations/Balance/mimegans/", digit, ".RData"))){
     do_mimegans(samp_balance, data_info_balance, "Balance", digit)

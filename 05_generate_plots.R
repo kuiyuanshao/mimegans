@@ -19,6 +19,7 @@ means.coef <- resultCoeff_long %>%
   group_by(Covariate) %>%
   summarise(mean = mean(Coefficient))
 
+
 range_coef <- list(Covariate == "HbA1c" ~ scale_y_continuous(limits = c(means.coef$mean[1] - 0.15, means.coef$mean[1] + 0.15)),
                    Covariate == "rs4506565 1" ~ scale_y_continuous(limits = c(means.coef$mean[2] - 0.25, means.coef$mean[2] + 0.25)),
                    Covariate == "rs4506565 2" ~ scale_y_continuous(limits = c(means.coef$mean[3] - 0.25, means.coef$mean[3] + 0.25)),

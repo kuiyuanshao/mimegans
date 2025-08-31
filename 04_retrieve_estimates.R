@@ -2,14 +2,14 @@ lapply(c("survival", "dplyr", "stringr", "survey", "mice"), require, character.o
 source("00_utils_functions.R")
 options(survey.lonely.psu = "certainty")
 
-replicate <- 5
+replicate <- 108
 sampling_designs <- c("SRS", "Balance", "Neyman")
 methods <- c("mimegans", "gain", "mice", "mixgb", "raking")
 
 resultCoeff <- NULL
 resultStdError <- NULL
 resultCI <- NULL
-for (i in 1:replicate){
+for (i in 1:9){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))
@@ -96,4 +96,3 @@ names(resultCI) <- c(paste0(names(coef(cox.true)), ".lower"),
                      "Design", "Method", "ID")
 
 save(resultCoeff, resultStdError, resultCI, file = "./simulations/results.RData")
-

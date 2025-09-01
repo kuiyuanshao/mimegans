@@ -5,17 +5,10 @@ reconLoss <- function(fake, true, fake_proj, true_proj, C, I, params, num_inds, 
   if (!use_mm && !use_ce)
     return (torch_tensor(0, device = fake$device))
   
-  if (use_mm){
-    if (params$num == "mmer"){
-      scale <- fake[I, num_inds, drop = F]$abs()$clamp_min(0.05)
-      diff <- (fake[I, num_inds, drop = F] - true[I, num_inds, drop = F]) / scale
-      mm <- params$alpha * (torch_where(abs(diff) < 1, 0.5 * diff$pow(2), diff$abs() - 0.5)$mean())
-    }else{
-      mm <- params$alpha * nnf_mse_loss(fake[I, num_inds, drop = F], true[I, num_inds, drop = F])
-    }
-  }else{
-    mm <- NULL
-  }
+  mm <- if (use_mm) {
+    params$alpha * 
+      nnf_mse_loss(fake[I, num_inds, drop = F], true[I, num_inds, drop = F])
+  } else NULL
   ce <- if (use_ce) {
     params$beta *
       ceLoss(fake, true, fake_proj, true_proj, I, params, cats_p1, cats_p2, cats_mode)
@@ -24,13 +17,6 @@ reconLoss <- function(fake, true, fake_proj, true_proj, C, I, params, num_inds, 
   if (is.null(mm)) return(ce)
   if (is.null(ce)) return(mm)
   mm + ce
-}
-
-infoLoss <- function(fake, true){
-  return (torch_norm(torch_mean(fake$view(c(fake$size(1), -1)), dim = 1) - 
-                       torch_mean(true$view(c(fake$size(1), -1)), dim = 1), 2) +
-            torch_norm(torch_std(fake$view(c(fake$size(1), -1)), dim = 1) - 
-                         torch_std(true$view(c(fake$size(1), -1)), dim = 1), 2))
 }
 
 ceLoss <- function(fake, true, fake_proj, A, I, params, cats_p1, cats_p2, cats_mode){
@@ -66,9 +52,8 @@ ceLoss <- function(fake, true, fake_proj, A, I, params, cats_p1, cats_p2, cats_m
   return (loss_t)
 }
 
-activationFun <- function(fake, cats_mode, cats_p2, params, gen = F){
-  cats <- c(cats_mode, cats_p2)
-  for (cat in cats){
+activationFun <- function(fake, all_cats, params, gen = F){
+  for (cat in all_cats){
     if (gen){
       p <- nnf_gumbel_softmax(fake[, cat, drop = F], tau = params$tau, hard = T)
       fake[, cat] <- p

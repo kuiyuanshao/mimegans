@@ -36,15 +36,11 @@ acc_prob_row <- function(mat, lb, ub, alpha = 1) {
 gen_rows <- function(idx_vec, gnet, A_t, C_t, params, 
                      data_original, data_training, decode, denormalize,
                      data_encode, data_norm, data_info, 
-                     num_inds_gen, num_inds_ori, CM_tensors,
-                     cats_mode, cats_p1, cats_p2, device){
+                     num_inds_gen, num_inds_ori, all_cats_p2, device){
   n <- length(idx_vec)
   z <- torch_normal(0, 1, size = c(n, params$noise_dim))$to(device = device)
   tmp <- gnet(torch_cat(list(z, A_t[idx_vec, , drop = F], C_t[idx_vec, , drop = F]), dim = 2))
-  if (params$cat == "projp2"){
-    tmp <- projCat(tmp, CM_tensors, cats_p2)
-  }
-  tmp <- activationFun(tmp, cats_mode, cats_p2, params, gen = T)
+  tmp <- activationFun(tmp, all_cats_p2, params, gen = T)
   tmp <- torch_cat(list(tmp, A_t[idx_vec, , drop = F], C_t[idx_vec, , drop = F]), dim = 2)
   df <- as.data.frame(as.matrix(tmp$detach()$cpu()))
   names(df) <- names(data_training)
@@ -71,8 +67,7 @@ generateImpute <- function(gnet, m = 5,
                            data_encode, data_training,
                            phase1_vars, phase2_vars,
                            num.normalizing, cat.encoding, 
-                           batch_size, device, params, CM_tensors,
-                           cats_mode, cats_p1, cats_p2, 
+                           batch_size, device, params, all_cats_p2,
                            tensor_list){
   imputed_data_list <- vector("list", m)
   gsample_data_list <- vector("list", m)
@@ -106,10 +101,7 @@ generateImpute <- function(gnet, m = 5,
       fakez_C <- torch_cat(list(fakez, A, C), dim = 2)
       
       gsample <- gnet(fakez_C)
-      if (params$cat == "projp2"){
-        fake <- projCat(gsample, CM_tensors, cats_p2)
-      }
-      gsample <- activationFun(gsample, cats_mode, cats_p2, params, gen = T)
+      gsample <- activationFun(gsample, all_cats_p2, params, gen = T)
       gsample <- torch_cat(list(gsample, A, C), dim = 2)
       output_list[[i]] <- as.matrix(gsample$detach()$cpu())
     }
@@ -154,8 +146,8 @@ generateImpute <- function(gnet, m = 5,
       M[bad_rows, ] <- gen_rows(bad_rows, gnet, A_t, C_t, params, 
                                 data_original, data_training, decode, denormalize,
                                 data_encode, data_norm, data_info, 
-                                num_inds_gen, num_inds_ori, CM_tensors,
-                                cats_mode, cats_p1, cats_p2, device)[, phase2_idx]
+                                num_inds_gen, num_inds_ori, 
+                                all_cats_p2, device)[, phase2_idx]
       # Recompute acceptance
       row_acc <- acc_prob_row(as.matrix(M[, phase2_num_idx]), lb, ub)
       accept_row <- runif(nrow(M)) < row_acc

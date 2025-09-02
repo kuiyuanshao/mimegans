@@ -30,10 +30,10 @@ last_rep  <- min(start_rep + task_id * chunk_size - 1L, end_rep)
 
 do_mimegans <- function(samp, info, nm, digit) {
   tm <- system.time({
-    mimegans_imp <- mimegans.proj(samp, m = 20, epochs = 10000,
+    mimegans_imp <- mimegans(samp, m = 20, epochs = 10000,
                              params = list(batch_size = 500, 
-                                           n_g_layers = 5, n_d_layers = 3, beta = 2, alpha = 0.1,
-                                           type_g = "mlp", type_d = "mlp", cat = "normal"),
+                                           n_g_layers = 5, n_d_layers = 3, beta = 1, 
+                                           type_g = "mlp", type_d = "mlp"),
                              data_info = info,
                              device = "cpu")
   })
@@ -60,7 +60,7 @@ do_mimegans <- function(samp, info, nm, digit) {
                                           paste0(digit, ".RData")))
 }
 
-for (i in 71:500){
+for (i in first_rep:last_rep){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))

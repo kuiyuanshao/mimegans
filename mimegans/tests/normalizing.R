@@ -59,16 +59,13 @@ denormalize.mode <- function(data, num_vars, norm_obj){
     
     mode_means <- mode_params[[col]][["mode_means"]]
     mode_sds <- mode_params[[col]][["mode_sds"]]
-    
-    if (length(mode_means) == 1){
-      if (!is.na(mode_sds) & mode_sds != 0){
+    for (mode in 1:length(unique(mode_means))){
+      idx <- which(curr_labels == mode)
+      if (is.na(mode_sds[as.integer(mode)])){
+        curr_transform[idx] <- curr_col[idx] + mode_means[as.integer(mode)]
+      }else if (length(mode_means) == 1){
         curr_transform <- curr_col * mode_sds + mode_means
       }else{
-        curr_transform <- curr_col + mode_means
-      }
-    }else {
-      for (mode in 1:length(unique(mode_means))){
-        idx <- which(curr_labels == mode)
         curr_transform[idx] <- curr_col[idx] * mode_sds[as.integer(mode)] + mode_means[as.integer(mode)] 
       }
     }

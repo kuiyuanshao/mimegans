@@ -1,4 +1,4 @@
-lapply(c("xgboost", "dplyr", "tidymodels"), require, character.only = T)
+lapply(c("xgboost", "dplyr"), require, character.only = T)
 source("../../00_utils_functions.R")
 samp_srs <- read.csv("../../data/Sample/SRS/0001.csv")
 samp_balance <- read.csv("../../data/Sample/Balance/0001.csv")
@@ -40,14 +40,25 @@ Outcomes_neyman <- samp_neyman %>%
   select(data_info_neyman$phase2_vars) %>%
   as.list()
 
-types <- ifelse(data_info_srs$phase2_vars %in% data_info_srs$num_vars, "reg:squarederror", "multi:softmax")
-types[unlist(lapply(Outcomes_srs, FUN = function(i) length(unique(i)))) == 2] <- "binary:logistic"
-eval_metric <- ifelse(data_info_srs$phase2_vars %in% data_info_srs$num_vars, "rmse", "mlogloss")
-eval_metric[unlist(lapply(Outcomes_srs, FUN = function(i) length(unique(i)))) == 2] <- "logloss"
+types.srs <- ifelse(data_info_srs$phase2_vars %in% data_info_srs$num_vars, "reg:squarederror", "multi:softmax")
+types.srs[unlist(lapply(Outcomes_srs, FUN = function(i) length(unique(i)))) == 2] <- "binary:logistic"
+eval_metric.srs <- ifelse(data_info_srs$phase2_vars %in% data_info_srs$num_vars, "rmse", "mlogloss")
+eval_metric.srs[unlist(lapply(Outcomes_srs, FUN = function(i) length(unique(i)))) == 2] <- "logloss"
 
-grid <- tidyr::expand_grid(max_depth = c(1, 2, 3),
-                           eta = seq(0.01, 0.1, by = 0.01),
-                           colsample_bytree = seq(0.1, 1, by = 0.1))
+types.balance <- ifelse(data_info_balance$phase2_vars %in% data_info_balance$num_vars, "reg:squarederror", "multi:softmax")
+types.balance[unlist(lapply(Outcomes_balance, FUN = function(i) length(unique(i)))) == 2] <- "binary:logistic"
+eval_metric.balance <- ifelse(data_info_balance$phase2_vars %in% data_info_balance$num_vars, "rmse", "mlogloss")
+eval_metric.balance[unlist(lapply(Outcomes_balance, FUN = function(i) length(unique(i)))) == 2] <- "logloss"
+
+types.neyman <- ifelse(data_info_neyman$phase2_vars %in% data_info_neyman$num_vars, "reg:squarederror", "multi:softmax")
+types.neyman[unlist(lapply(Outcomes_neyman, FUN = function(i) length(unique(i)))) == 2] <- "binary:logistic"
+eval_metric.neyman <- ifelse(data_info_neyman$phase2_vars %in% data_info_neyman$num_vars, "rmse", "mlogloss")
+eval_metric.neyman[unlist(lapply(Outcomes_neyman, FUN = function(i) length(unique(i)))) == 2] <- "logloss"
+
+grid <- tidyr::expand_grid(max_depth = 1:5,
+                           eta = seq(0.05, 1, by = 0.05),
+                           colsample_bytree = seq(0.1, 1, by = 0.1),
+                           subsample = seq(0.6, 0.9, by = 0.1))
 
 
 tuning <- function(X, outcomes, types, eval_metric, grid, nrounds = 500, k = 5, seed = 1){
@@ -64,6 +75,7 @@ tuning <- function(X, outcomes, types, eval_metric, grid, nrounds = 500, k = 5, 
     md <- grid$max_depth[i]
     lr <- grid$eta[i]
     cs <- grid$colsample_bytree[i]
+    ss <- grid$subsample[i]
     per_outcome_scores <- numeric(length(outcomes))
     
     for (j in seq_along(outcomes)) {
@@ -75,11 +87,11 @@ tuning <- function(X, outcomes, types, eval_metric, grid, nrounds = 500, k = 5, 
       if (obj == "multi:softmax"){
         num_class <- length(unique(yj))
         params <- list(max_depth = md, eta = lr, objective = obj,
-                       subsample = 0.7, colsample_bytree = cs, 
+                       subsample = ss, colsample_bytree = cs, 
                        num_class = num_class)
       }else{
         params <- list(max_depth = md, eta = lr, objective = obj,
-                       subsample = 0.7, colsample_bytree = cs)
+                       subsample = ss, colsample_bytree = cs)
       }
       
       cv <- xgb.cv(params = params, data = dtrain, nrounds = nrounds, 
@@ -97,6 +109,7 @@ tuning <- function(X, outcomes, types, eval_metric, grid, nrounds = 500, k = 5, 
       max_depth = md,
       eta = lr,
       colsample_bytree = cs,
+      subsample = ss,
       agg_loss = agg_loss,
       t(per_outcome_scores)
     )
@@ -104,13 +117,16 @@ tuning <- function(X, outcomes, types, eval_metric, grid, nrounds = 500, k = 5, 
   
   res <- do.call(rbind, res_rows)
   best_idx <- which.min(res$agg_loss)
-  best <- res[best_idx, c("max_depth", "eta", "colsample_bytree", "agg_loss")]
+  best <- res[best_idx, c("max_depth", "eta", "colsample_bytree", "subsample", "agg_loss")]
   
 
   list(best_params = best,
        cv_table = res[order(res$agg_loss), ])
 }
 
-tuning(X_srs, Outcomes_srs, types, eval_metric, grid, nrounds = 500, k = 5, seed = 1)
-tuning(X_balance, Outcomes_balance, types, eval_metric, grid, nrounds = 500, k = 5, seed = 1)
-tuning(X_neyman, Outcomes_neyman, types, eval_metric, grid, nrounds = 500, k = 5, seed = 1)
+srs_tune <- tuning(X_srs, Outcomes_srs, types.srs, eval_metric.srs, grid, nrounds = 100, k = 5, seed = 1)
+save(srs_tune, file = "../../data/mixgb_srsParams.RData")
+balance_tune <- tuning(X_balance, Outcomes_balance, types.balance, eval_metric.balance, grid, nrounds = 100, k = 5, seed = 1)
+save(balance_tune, file = "../../data/mixgb_balanceParams.RData")
+neyman_tune <- tuning(X_neyman, Outcomes_neyman, types.neyman, eval_metric.neyman, grid, nrounds = 100, k = 5, seed = 1)
+save(neyman_tune, file = "../../data/mixgb_neymanParams.RData")

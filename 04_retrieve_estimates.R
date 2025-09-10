@@ -4,12 +4,12 @@ options(survey.lonely.psu = "certainty")
 
 replicate <- 108
 sampling_designs <- c("SRS", "Balance", "Neyman")
-methods <- c("mimegans", "gain", "mice", "mixgb", "raking")
+methods <- c("mimegans", "mimegans.mlp", "gain", "mice", "mixgb", "raking")
 
 resultCoeff <- NULL
 resultStdError <- NULL
 resultCI <- NULL
-for (i in 61:66){
+for (i in 1:14){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))
@@ -46,7 +46,7 @@ for (i in 61:66){
       }
       load(paste0("./simulations/", j, "/", k, "/", digit, ".RData"))
       if (k != "raking"){
-        if (k == "mimegans"){
+        if (k == "mimegans" | k == "mimegans.mlp"){
           mimegans_imp$imputation <- lapply(mimegans_imp$imputation, function(dat){
             match_types(dat, data)
           })

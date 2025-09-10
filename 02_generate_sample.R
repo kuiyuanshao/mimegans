@@ -100,3 +100,43 @@ for (i in 1:replicate){
             file = paste0("./data/Sample/Neyman/", digit, ".csv"))
 }
 
+if(!dir.exists('./data/EncodedSample')){dir.create('./data/EncodedSample')}
+if(!dir.exists('./data/EncodedSample/SRS')){dir.create('./data/EncodedSample/SRS')}
+if(!dir.exists('./data/EncodedSample/Balance')){dir.create('./data/EncodedSample/Balance')}
+if(!dir.exists('./data/EncodedSample/Neyman')){dir.create('./data/EncodedSample/Neyman')}
+for (i in 83:replicate){
+  digit <- stringr::str_pad(i, 4, pad = 0)
+  cat("Current:", digit, "\n")
+  load(paste0("./data/Complete/", digit, ".RData"))
+  samp_srs <- read.csv(paste0("./data/Sample/SRS/", digit, ".csv"))
+  samp_balance <- read.csv(paste0("./data/Sample/Balance/", digit, ".csv"))
+  samp_neyman <- read.csv(paste0("./data/Sample/Neyman/", digit, ".csv"))
+  
+  samp_srs <- match_types(samp_srs, data) %>% 
+    mutate(across(all_of(data_info_srs$cat_vars), as.factor, .names = "{.col}"),
+           across(all_of(data_info_srs$num_vars), as.numeric, .names = "{.col}"))
+  samp_balance <- match_types(samp_balance, data) %>% 
+    mutate(across(all_of(data_info_balance$cat_vars), as.factor, .names = "{.col}"),
+           across(all_of(data_info_balance$num_vars), as.numeric, .names = "{.col}"))
+  samp_neyman <- match_types(samp_neyman, data) %>% 
+    mutate(across(all_of(data_info_neyman$cat_vars), as.factor, .names = "{.col}"),
+           across(all_of(data_info_neyman$num_vars), as.numeric, .names = "{.col}"))
+  
+  samp_srs.encode <- encode.onehot(samp_srs, data_info_srs$cat_vars, data_info_srs$cat_vars, 
+                                   data_info_srs$phase1_vars, data_info_srs$phase2_vars)
+  write.csv(samp_srs.encode$data, file = paste0("./data/EncodedSample/SRS/", digit, ".csv"))
+  
+  samp_balance.encode <- encode.onehot(samp_balance, data_info_balance$cat_vars, data_info_balance$cat_vars, 
+                                       data_info_balance$phase1_vars, data_info_balance$phase2_vars)
+  write.csv(samp_balance.encode$data, file = paste0("./data/EncodedSample/Balance/", digit, ".csv"))
+  
+  samp_neyman.encode <- encode.onehot(samp_neyman, data_info_neyman$cat_vars, data_info_neyman$cat_vars, 
+                                      data_info_neyman$phase1_vars, data_info_neyman$phase2_vars)
+  write.csv(samp_neyman.encode$data, file = paste0("./data/EncodedSample/Neyman/", digit, ".csv"))
+  
+  if (i == 1){
+    save(samp_srs.encode, file = "./data/EncodedSample/SRS/EncodeInfo.RData")
+    save(samp_balance.encode, file = "./data/EncodedSample/Balance/EncodeInfo.RData")
+    save(samp_neyman.encode, file = "./data/EncodedSample/Neyman/EncodeInfo.RData")
+  }
+}

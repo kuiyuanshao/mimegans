@@ -7,7 +7,7 @@ resultCoeff_long <- resultCoeff %>%
     values_to = "Coefficient"
   ) %>%
   mutate(Coefficient = as.numeric(Coefficient), 
-         Method = factor(Method, levels = c("TRUE", "ME", "COMPLETE", "MIMEGANS", "MICE", "MIXGB", "RAKING")),
+         Method = factor(Method, levels = c("TRUE", "ME", "COMPLETE", "MIMEGANS", "MIMEGANS.MLP", "MICE", "MIXGB", "RAKING")),
          `Sampling Design` = factor(Design, levels = c("SRS", "BALANCE", "NEYMAN")),
          Covariate = factor(Covariate, levels = names(resultCoeff)[1:14], labels = 
                               c("HbA1c", "rs4506565 1", "rs4506565 2", "AGE", "eGFR", "SEX TRUE", "INSURANCE TRUE", 
@@ -19,6 +19,24 @@ means.coef <- resultCoeff_long %>%
   group_by(Covariate) %>%
   summarise(mean = mean(Coefficient))
 
+true.coeff <- resultCoeff %>% filter(Method == "TRUE") %>%
+  select(-c("Design", "Method", "ID")) %>%
+  mutate(across(everything(), as.numeric))
+cols <- intersect(names(true.coeff), names(resultCoeff))
+rmse_result <- resultCoeff %>%
+  filter(!Method %in% c("ME", "TRUE")) %>%
+  select(Method, Design, any_of("ID"), all_of(cols)) %>%
+  mutate(across(all_of(cols), as.numeric)) %>%
+  group_by(Method, Design) %>%
+  summarise(across(
+    all_of(cols),
+    ~ {
+      t <- true.coeff[[cur_column()]]
+      sqrt(mean((.x - t)^2, na.rm = TRUE))
+    }
+  ), .groups = "drop")
+
+rmse_result[rmse_result$Method == "MIMEGANS", 1:16] - rmse_result[rmse_result$Method == "MICE", 3:16]
 
 range_coef <- list(Covariate == "HbA1c" ~ scale_y_continuous(limits = c(means.coef$mean[1] - 0.15, means.coef$mean[1] + 0.15)),
                    Covariate == "rs4506565 1" ~ scale_y_continuous(limits = c(means.coef$mean[2] - 0.25, means.coef$mean[2] + 0.25)),
@@ -54,7 +72,7 @@ ggplot(resultCoeff_long) +
     breaks = c("SRS", "BALANCE", "NEYMAN")) + 
   facetted_pos_scales(y = range_coef)
 
-ggsave("./simulations/Imputation_Coeff_Boxplot3.png", width = 30, height = 10, limitsize = F)
+ggsave("./simulations/Imputation_Coeff_Boxplot.png", width = 30, height = 10, limitsize = F)
 
 ggplot(resultStdError) + 
   geom_boxplot(aes(x = factor(Method, levels = c("TRUE", "ME", "COMPLETE", "MIMEGANS", "MICE", "MIXGB", "RAKING")), 

@@ -1,5 +1,7 @@
 lapply(c("dplyr", "stringr", "torch", "survival", "mclust"), require, character.only = T)
-lapply(paste0("./mimegans/", list.files("./mimegans")), source)
+files <- list.files("./mimegans", full.names = TRUE, recursive = FALSE)
+files <- files[!grepl("tests", files)]
+lapply(files, source)
 source("00_utils_functions.R")
 if(!dir.exists('./simulations')){dir.create('./simulations')}
 if(!dir.exists('./simulations/SRS')){dir.create('./simulations/SRS')}
@@ -32,8 +34,7 @@ do_mimegans <- function(samp, info, nm, digit) {
   tm <- system.time({
     mimegans_imp <- mimegans(samp, m = 20, epochs = 10000,
                              params = list(batch_size = 500, 
-                                           n_g_layers = 5, n_d_layers = 3, beta = 1, 
-                                           type_g = "mlp", type_d = "mlp"),
+                                           n_g_layers = 5, n_d_layers = 3),
                              data_info = info,
                              device = "cpu")
   })
@@ -41,26 +42,22 @@ do_mimegans <- function(samp, info, nm, digit) {
     match_types(dat, data)
   })
   imp.mids <- as.mids(mimegans_imp$imputation)
-  fit <- with(data = imp.mids,
-              exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +
-                            rs4506565 + I((AGE - 50) / 5) + I((eGFR - 90) / 10) +
-                            SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE))
-  pooled <- mice::pool(fit)
+  cox.fit <- with(data = imp.mids, 
+                  exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +
+                                rs4506565 + I((AGE - 50) / 5) + I((eGFR - 90) / 10) +
+                                SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE))
+  pooled <- mice::pool(cox.fit)
   sumry <- summary(pooled, conf.int = TRUE)
-  cat("Current: ", nm, "\n")
-  
-  cat(sprintf("[system.time] user=%.3fs sys=%.3fs elapsed=%.3fs\n",
-              tm[["user.self"]], tm[["sys.self"]], tm[["elapsed"]]))
   cat("Bias: \n")
   cat(exp(sumry$estimate) - exp(coef(cox.true)), "\n")
   cat("Variance: \n")
-  cat(apply(bind_rows(lapply(fit$analyses, function(i){exp(coef(i))})), 2, var), "\n")
+  cat(apply(bind_rows(lapply(cox.fit$analyses, function(i){exp(coef(i))})), 2, var), "\n")
   
   save(mimegans_imp, tm, file = file.path("simulations", nm, "mimegans",
                                           paste0(digit, ".RData")))
 }
 
-for (i in first_rep:last_rep){
+for (i in 1:500){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))

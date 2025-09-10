@@ -1,6 +1,6 @@
-reconLoss <- function(fake, true, fake_proj, true_proj, I, params, num_inds, cat_inds, cats_p1, cats_p2, cats_mode){
+reconLoss <- function(fake, true, fake_proj, true_proj, C, I, params, num_inds, cat_inds, cats_p1, cats_p2, cats_mode){
   use_mm <- (length(num_inds) > 0L) && (params$alpha != 0)
-  use_ce <- (length(cat_inds) > 0L) && (params$beta != 0)
+  use_ce <- (length(cat_inds) > 0L) && (params$beta  != 0)
   
   if (!use_mm && !use_ce)
     return (torch_tensor(0, device = fake$device))
@@ -20,9 +20,9 @@ reconLoss <- function(fake, true, fake_proj, true_proj, I, params, num_inds, cat
 
 infoLoss <- function(fake, true){
   return (torch_norm(torch_mean(fake$view(c(fake$size(1), -1)), dim = 1) - 
-                       torch_mean(true$view(c(true$size(1), -1)), dim = 1), 2) +
+                       torch_mean(true$view(c(fake$size(1), -1)), dim = 1), 2) +
             torch_norm(torch_std(fake$view(c(fake$size(1), -1)), dim = 1) - 
-                         torch_std(true$view(c(true$size(1), -1)), dim = 1), 2))
+                         torch_std(true$view(c(fake$size(1), -1)), dim = 1), 2))
 }
 
 ceLoss <- function(fake, true, fake_proj, A, I, params, cats_p1, cats_p2, cats_mode){
@@ -59,16 +59,20 @@ ceLoss <- function(fake, true, fake_proj, A, I, params, cats_p1, cats_p2, cats_m
 }
 
 activationFun <- function(fake, all_cats, params, gen = F){
-  hard_flag <- if (gen) TRUE else isTRUE(params$hard)
   for (cat in all_cats){
-    fake[, cat] <- nnf_gumbel_softmax(fake[, cat, drop = F], tau = params$tau, hard = hard_flag)
+    if (gen){
+      p <- nnf_gumbel_softmax(fake[, cat, drop = F], tau = params$tau, hard = T)
+      fake[, cat] <- p
+    }else{
+      fake[, cat] <- nnf_gumbel_softmax(fake[, cat, drop = F], tau = params$tau, hard = params$hard)
+    }
   }
   return (fake)
 }
 
 projCat <- function(fake, CM_tensors, cats){
   fake_result <- fake$clone()
-  for (c in names(cats)) {
+  for (c in seq_along(cats)) {
     cat_idx <- cats[[c]]
     cm <- CM_tensors[[c]]
     prob <- nnf_softmax(fake[, cat_idx, drop = F], dim = 2)
@@ -82,7 +86,11 @@ projCat <- function(fake, CM_tensors, cats){
 gradientPenalty <- function(D, real_samples, fake_samples, params, device) {
   alp <- torch_rand(real_samples$size(1), 1, device = device)
   interpolates <- (alp * real_samples + (1 - alp) * fake_samples)$requires_grad_(TRUE)
-  d_interpolates <- D(interpolates)[[1]]
+  if (params$type_d == "infomlp" | params$type_d == "sninfomlp" | params$type_d == "infosagan"){
+    d_interpolates <- D(interpolates)[[1]]
+  }else{
+    d_interpolates <- D(interpolates)
+  }
   fake <- torch_ones(d_interpolates$size(), device = device)
   fake$requires_grad <- FALSE
   
@@ -93,6 +101,8 @@ gradientPenalty <- function(D, real_samples, fake_samples, params, device) {
     create_graph = TRUE,
     retain_graph = TRUE
   )[[1]]
+  
+  # Reshape gradients to group the pac samples together
   if (params$pac > 1){
     gradients <- gradients$reshape(c(-1, params$pac * interpolates$size(2)))
   }

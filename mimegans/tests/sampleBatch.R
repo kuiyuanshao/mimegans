@@ -26,14 +26,14 @@ sampleFun <- function(indices, elements, total, pi){
   return (list(samp_idx, samp_pi))
 }
 
-sampleBatch <- function(data_original, tensor_list, 
-                        phase1_bins, phase1_rows, phase2_rows, 
+sampleBatch <- function(data_original, tensor_list, phase1_bins,
+                        phase1_rows, phase2_rows, 
                         batch_size, at_least_p = 0.5, 
                         weights, net){
   curr_var <- sample(phase1_bins, 1)
   if (net == "G"){
     p1 <- data_original[phase1_rows, curr_var]
-    p2 <- data_original[phase2_rows, curr_var]
+    p2 <- data_original[phase2_rows, curr_var]   
     
     phase1_total <- alloc_even(round(batch_size * (1 - at_least_p)), unique(p1))
     phase2_total <- alloc_even(round(batch_size * at_least_p), unique(p2))

@@ -1,4 +1,4 @@
-lapply(c("dplyr", "stringr"), require, character.only = T)
+lapply(c("dplyr", "stringr", "survival"), require, character.only = T)
 lapply(paste0("./comparisons/gain/", list.files("./comparisons/gain/")), source)
 source("00_utils_functions.R")
 
@@ -11,12 +11,33 @@ if(!dir.exists('./simulations/SRS/gain')){dir.create('./simulations/SRS/gain')}
 if(!dir.exists('./simulations/Balance/gain')){dir.create('./simulations/Balance/gain')}
 if(!dir.exists('./simulations/Neyman/gain')){dir.create('./simulations/Neyman/gain')}
 
+args <- commandArgs(trailingOnly = TRUE)
+task_id <- as.integer(ifelse(length(args) >= 1,
+                             args[1],
+                             Sys.getenv("SLURM_ARRAY_TASK_ID", "1")))
+sampling_design <- ifelse(length(args) >= 2, 
+                          args[2], Sys.getenv("SAMP", "All"))
+start_rep <- 1
+end_rep   <- 500
+n_chunks  <- 20
+task_id   <- as.integer(Sys.getenv("SLURM_ARRAY_TASK_ID"))
 
-replicate <- 500
-n_chunks <- 20
-chunk_size <- ceiling(replicate / n_chunks)
-first_rep <- (task_id - 1) * chunk_size + 1
-last_rep <- min(task_id * chunk_size, replicate)
+n_in_window <- end_rep - start_rep + 1L
+chunk_size  <- ceiling(n_in_window / n_chunks)
+
+first_rep <- start_rep + (task_id - 1L) * chunk_size
+last_rep  <- min(start_rep + task_id * chunk_size - 1L, end_rep)
+
+
+do_gain <- function(samp, info, nm, digit) {
+  tm <- system.time({
+    gain_imp <- gain(samp_srs, m = 20, data_info_srs, device = "cpu", batch_size = 128, hint_rate = 0.9, 
+                     alpha = 100, beta = 10, n = 10000)
+  })
+  
+  save(gain_imp, tm, file = file.path("simulations", nm, "gain",
+                                      paste0(digit, ".RData")))
+}
 
 for (i in first_rep:last_rep){
   digit <- stringr::str_pad(i, 4, pad = 0)
@@ -37,15 +58,15 @@ for (i in first_rep:last_rep){
            across(all_of(data_info_neyman$num_vars), as.numeric, .names = "{.col}"))
   
   # GAIN:
-  gain_imp.srs <- gain(samp_srs, device = "cpu", batch_size = 128, hint_rate = 0.9, 
-                       alpha = 10, beta = 1, n = 10000)
-  save(mice_imp.srs, file = paste0("./simulations/SRS/gain/", digit, ".RData"))
-  gain_imp.balance <- gain(samp_balance, device = "cpu", batch_size = 128, hint_rate = 0.9, 
-                           alpha = 10, beta = 1, n = 10000)
-  save(gain_imp.balance, file = paste0("./simulations/Balance/gain/", digit, ".RData"))
-  gain_imp.neyman <- gain(samp_neyman, device = "cpu", batch_size = 128, hint_rate = 0.9, 
-                          alpha = 10, beta = 1, n = 10000)
-  save(gain_imp.neyman, file = paste0("./simulations/Neyman/gain/", digit, ".RData"))
-  
-  
+  if (!file.exists(paste0("./simulations/SRS/gain/", digit, ".RData"))){
+    do_gain(samp_srs, data_info_srs, "SRS", digit)
+  }
+  if (!file.exists(paste0("./simulations/Balance/gain/", digit, ".RData"))){
+    do_gain(samp_balance, data_info_balance, "Balance", digit)
+  }
+  if (!file.exists(paste0("./simulations/Neyman/gain/", digit, ".RData"))){
+    do_gain(samp_neyman, data_info_neyman, "Neyman", digit)
+  }
 }
+
+

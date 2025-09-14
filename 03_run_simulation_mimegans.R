@@ -57,7 +57,7 @@ do_mimegans <- function(samp, info, nm, digit) {
                                           paste0(digit, ".RData")))
 }
 
-for (i in 1:500){
+for (i in 231:500){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))

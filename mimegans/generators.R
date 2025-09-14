@@ -5,7 +5,7 @@ generator.mlp <- torch::nn_module(
     dim1 <- params$noise_dim + ncols - nphase2
     dim2 <- params$g_dim
     self$params <- params
-    self$seq <- torch::nn_sequential(nn_dropout(0.2))
+    self$seq <- torch::nn_sequential(nn_dropout(0.25))
     for (i in 1:params$n_g_layers){
       self$seq$add_module(paste0("Residual_", i), Residual(dim1, dim2, rate))
       dim1 <- dim1 + dim2
@@ -19,9 +19,9 @@ generator.mlp <- torch::nn_module(
     
     if (params$component == "match_p1"){
       dim1 <- nphase2
-      self$seqA <- torch::nn_sequential()
+      self$seqA <- torch::nn_sequential(nn_dropout(0.25))
       for (i in 1:2){
-        self$seqA$add_module(paste0("Residual_", i), Residual(dim1, dim2, 0))
+        self$seqA$add_module(paste0("Residual_", i), Residual(dim1, dim2, rate))
         dim1 <- dim1 + dim2
       }
       self$seqA$add_module("Linear", nn_linear(dim1, nphase1))

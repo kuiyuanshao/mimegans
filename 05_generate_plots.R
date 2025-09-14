@@ -7,7 +7,7 @@ resultCoeff_long <- resultCoeff %>%
     values_to = "Coefficient"
   ) %>%
   mutate(Coefficient = as.numeric(Coefficient), 
-         Method = factor(Method, levels = c("TRUE", "ME", "COMPLETE", "MIMEGANS", "MIMEGANS.MLP", "MICE", "MIXGB", "RAKING")),
+         Method = factor(Method, levels = c("TRUE", "ME", "COMPLETE", "MIMEGANS", "MICE", "MIXGB", "RAKING")),
          `Sampling Design` = factor(Design, levels = c("SRS", "BALANCE", "NEYMAN")),
          Covariate = factor(Covariate, levels = names(resultCoeff)[1:14], labels = 
                               c("HbA1c", "rs4506565 1", "rs4506565 2", "AGE", "eGFR", "SEX TRUE", "INSURANCE TRUE", 
@@ -36,7 +36,7 @@ rmse_result <- resultCoeff %>%
     }
   ), .groups = "drop")
 
-rmse_result[rmse_result$Method == "MIMEGANS", 1:16] - rmse_result[rmse_result$Method == "MICE", 3:16]
+rmse_result[rmse_result$Method == "MIMEGANS", 3:16] - rmse_result[rmse_result$Method == "MICE", 3:16]
 
 range_coef <- list(Covariate == "HbA1c" ~ scale_y_continuous(limits = c(means.coef$mean[1] - 0.15, means.coef$mean[1] + 0.15)),
                    Covariate == "rs4506565 1" ~ scale_y_continuous(limits = c(means.coef$mean[2] - 0.25, means.coef$mean[2] + 0.25)),

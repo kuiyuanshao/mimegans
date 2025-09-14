@@ -99,3 +99,15 @@ gradientPenalty <- function(D, real_samples, fake_samples, params, device) {
   gradient_penalty <- torch_mean((torch_norm(gradients, p = 2, dim = 2) - 1) ^ 2)
   return (gradient_penalty)
 }
+
+lossCalc <- function(gen, true, info){
+  rmse_num <- sum(sqrt(colMeans((gen$gsample[[1]][, info$phase2_vars[info$phase2_vars %in% info$num_vars]] - 
+                                   true[, info$phase2_vars[info$phase2_vars %in% info$num_vars]])^2)))
+  mis_cat <- 0
+  for (i in info$phase2_vars[info$phase2_vars %in% info$cat_vars]){
+    tb <- table(gen$gsample[[1]][[i]], true[[i]])
+    mis_num <- sum(tb) - sum(diag(tb))
+    mis_cat <- mis_cat + mis_num / nrow(true)
+  }
+  return (c(rmse_num, mis_cat))
+}

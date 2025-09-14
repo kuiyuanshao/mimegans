@@ -4,12 +4,12 @@ options(survey.lonely.psu = "certainty")
 
 replicate <- 108
 sampling_designs <- c("SRS", "Balance", "Neyman")
-methods <- c("mimegans", "mimegans.mlp", "gain", "mice", "mixgb", "raking")
+methods <- c("mimegans", "gain", "mice", "mixgb", "raking")
 
 resultCoeff <- NULL
 resultStdError <- NULL
 resultCI <- NULL
-for (i in 1:14){
+for (i in 1:500){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))
@@ -46,7 +46,7 @@ for (i in 1:14){
       }
       load(paste0("./simulations/", j, "/", k, "/", digit, ".RData"))
       if (k != "raking"){
-        if (k == "mimegans" | k == "mimegans.mlp"){
+        if (k == "mimegans"){
           mimegans_imp$imputation <- lapply(mimegans_imp$imputation, function(dat){
             match_types(dat, data)
           })
@@ -96,9 +96,5 @@ names(resultCI) <- c(paste0(names(coef(cox.true)), ".lower"),
                      "Design", "Method", "ID")
 
 save(resultCoeff, resultStdError, resultCI, file = "./simulations/results.RData")
-
-
-
-
 
 

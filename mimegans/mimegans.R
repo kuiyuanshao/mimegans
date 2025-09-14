@@ -4,10 +4,19 @@ cwgangp_default <- function(batch_size = 500, lambda = 10,
                             alpha = 0, beta = 1, at_least_p = 0.5, 
                             lr_g = 2e-4, lr_d = 2e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
                             g_weight_decay = 1e-6, d_weight_decay = 1e-6, noise_dim = 128, 
-                            g_dim = 256, d_dim = 256, pac = 10, 
-                            n_g_layers = 3, n_d_layers = 2, discriminator_steps = 1,
+                            g_dim = 256, d_dim = 256, pac = 5, 
+                            n_g_layers = 3, n_d_layers = 1, discriminator_steps = 1,
                             tau = 0.2, hard = F, type_g = "mlp", type_d = "mlp",
-                            num = "mmer", cat = "projp1", component = "match_p1", info_loss = T){
+                            num = "mmer", cat = "projp1", component = "none", info_loss = F){
+  if (component == "match_p1"){
+    alpha <- 0.05
+  }
+  if (info_loss){
+    req <- ceiling(at_least_p * batch_size)
+    n <- ceiling(req / pac) * pac
+    if (n > batch_size) n <- floor(batch_size / pac) * pac
+    at_least_p <- n / batch_size
+  }
   list(batch_size = batch_size, lambda = lambda, alpha = alpha, beta = beta,
        at_least_p = at_least_p, lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 
        g_weight_decay = g_weight_decay, d_weight_decay = d_weight_decay, noise_dim = noise_dim,
@@ -164,9 +173,16 @@ mimegans <- function(data, m = 5,
                                 betas = params$d_betas, weight_decay = params$d_weight_decay)
   
   training_loss <- matrix(0, nrow = epochs, ncol = 2)
-  pb <- progress_bar$new(
-    format = paste0("Running :what [:bar] :percent eta: :eta | G Loss: :g_loss | D Loss: :d_loss | Recon: :recon_loss"),
-    clear = FALSE, total = epochs, width = 100)
+  
+  if (params$info_loss){
+    pb <- progress_bar$new(
+      format = paste0("Running [:bar] :percent eta: :eta | G Loss: :g_loss | D Loss: :d_loss | Recon: :recon_loss | Info: :info_loss"),
+      clear = FALSE, total = epochs, width = 100)
+  }else{
+    pb <- progress_bar$new(
+      format = paste0("Running [:bar] :percent eta: :eta | G Loss: :g_loss | D Loss: :d_loss | Recon: :recon_loss"),
+      clear = FALSE, total = epochs, width = 100)
+  }
   
   if (!is.null(save.step)){
     step_result <- list()
@@ -247,17 +263,17 @@ mimegans <- function(data, m = 5,
       A_fakeact <- activationFun(A_fake, cats_p1, params)
       fake_AC <- torch_cat(list(A_fakeact, C), dim = 2)
       true_AC <- torch_cat(list(A, C), dim = 2)
-      mse_loss <- nnf_mse_loss(A_fake[, num_inds_p1, drop = F],
-                               A[, num_inds_p1, drop = F])
-      ce_loss <- torch_tensor(0, device = device)
-      if (length(cats_p1) > 0){
-        for (p1_inds in cats_p1){
-          ce_loss <- ce_loss + nnf_cross_entropy(A_fake[, p1_inds, drop = F],
-                                                 torch_argmax(A[, p1_inds, drop = F], dim = 2))
-        }
-        ce_loss <- ce_loss / length(cats_p1)
-      }
-      recon_loss <- recon_loss + params$alpha * mse_loss + params$beta * ce_loss
+      # mse_loss <- nnf_mse_loss(A_fake[, num_inds_p1, drop = F],
+      #                          A[, num_inds_p1, drop = F])
+      # ce_loss <- torch_tensor(0, device = device)
+      # if (length(cats_p1) > 0){
+      #   for (p1_inds in cats_p1){
+      #     ce_loss <- ce_loss + nnf_cross_entropy(A_fake[, p1_inds, drop = F],
+      #                                            torch_argmax(A[, p1_inds, drop = F], dim = 2))
+      #   }
+      #   ce_loss <- ce_loss / length(cats_p1)
+      # }
+      # recon_loss <- recon_loss + params$alpha * mse_loss + params$beta * ce_loss
     }else if (params$component == "gen_loss"){
       curr_var <- batch[[7]]
       curr_inds <- data_encode$binary_indices[[curr_var]]
@@ -275,29 +291,38 @@ mimegans <- function(data, m = 5,
       fake_AC <- torch_cat(list(X_fakeact, A, C), dim = 2)
       true_AC <- torch_cat(list(X, A, C), dim = 2)
     }
+    d_fake <- dnet(fake_AC)
+    x_fake <- d_fake[[1]]
+    adv_term <- -torch_mean(x_fake)
+    
     if (params$info_loss){
-      d_fake <- dnet(fake_AC)
       info_true <- dnet(true_AC[I, ])[[2]]
-      info_fake <- d_fake[[2]]
-      x_fake <- d_fake[[1]]
-      adv_term <- -torch_mean(x_fake) + infoLoss(info_fake, info_true)
+      info_fake <- d_fake[[2]] # dnet(fake_AC[I, ])[[2]]
+      info_loss <- infoLoss(info_fake, info_true)
+      g_loss <- adv_term + recon_loss + info_loss
     }else{
-      x_fake <- dnet(fake_AC)[[1]]
-      adv_term <- -torch_mean(x_fake)
+      g_loss <- adv_term + recon_loss
     }
-    g_loss <- adv_term + recon_loss
     
     g_solver$zero_grad()
     g_loss$backward()
     g_solver$step()
     training_loss[i, ] <- c(g_loss$item(), d_loss$item())
     
-    pb$tick(tokens = list(
-      what = "cWGAN-GP",
-      g_loss = sprintf("%.4f", adv_term$item()),
-      d_loss = sprintf("%.4f", d_loss$item()),
-      recon_loss = sprintf("%.4f", recon_loss$item())
-    ))
+    if (params$info_loss){
+      pb$tick(tokens = list(
+        g_loss = sprintf("%.3f", adv_term$item()),
+        d_loss = sprintf("%.3f", d_loss$item()),
+        recon_loss = sprintf("%.3f", recon_loss$item()),
+        info_loss = sprintf("%.3f", info_loss$item())
+      ))
+    }else{
+      pb$tick(tokens = list(
+        g_loss = sprintf("%.3f", adv_term$item()),
+        d_loss = sprintf("%.3f", d_loss$item()),
+        recon_loss = sprintf("%.3f", recon_loss$item())
+      ))
+    }
     Sys.sleep(1 / 100000)
     
     if (!is.null(save.step)){
@@ -342,4 +367,38 @@ mimegans <- function(data, m = 5,
     out$step_result <- step_result
   }
   return (out)
+}
+
+
+mimegans.cv <- function(data, fold = 5, data_info, parameters_grid, seed = 1){
+  set.seed(seed)
+  phase2_data <- data[!is.na(data[[data_info$phase2_vars[1]]]), ]
+  ind <- sample(1:nrow(phase2_data)) 
+  map <- setNames(rep_len(seq_len(fold), length(ind)), ind)
+  map <- map[as.character(1:nrow(phase2_data))]
+  cv_split <- function(data, map, i){
+    inds <- list(train = which(map != i), val = which(map == i))
+    curr_data <- data
+    curr_data[inds[[2]], data_info$phase2_vars] <- NA
+    return (curr_data)
+  }
+  splits <- lapply(1:fold, function(i) cv_split(phase2_data, map, i))
+  result <- parameters_grid
+  result$rmse_num <- 0
+  result$mis_cat <- 0 
+  for (i in 1:nrow(parameters_grid)){
+    params <- as.list(parameters_grid[i, , drop = FALSE])
+    curr_loss <- c(0, 0)
+    for (j in 1:fold){
+      curr_data <- splits[[j]]
+      curr_imp <- mimegans(curr_data, epochs = 1000,
+                           m = 1, params = params, data_info = data_info)
+      curr_foldloss <- lossCalc(curr_imp, phase2_data, data_info)
+      curr_loss <- curr_loss + curr_foldloss 
+    }
+    result$rmse_num[i] <- curr_loss[1]
+    result$mis_cat[i] <- curr_loss[2]
+    cat(i, ":", curr_loss, "\n")
+  }
+  return (result)
 }

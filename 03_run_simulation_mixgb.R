@@ -1,5 +1,5 @@
 lapply(c("mixgb", "dplyr", "stringr"), require, character.only = T)
-lapply(paste0("./comparisons/mixgb/", list.files("./comparisons/mixgb/")), source)
+#lapply(paste0("./comparisons/mixgb/", list.files("./comparisons/mixgb/")), source)
 source("00_utils_functions.R")
 
 if(!dir.exists('./simulations')){dir.create('./simulations')}
@@ -23,6 +23,37 @@ chunk_size <- ceiling(replicate / n_chunks)
 first_rep <- (task_id - 1) * chunk_size + 1
 last_rep <- min(task_id * chunk_size, replicate)
 
+load("./data/Params/mixgb/mixgb_srsParams.RData")
+load("./data/Params/mixgb/mixgb_balanceParams.RData")
+load("./data/Params/mixgb/mixgb_neymanParams.RData")
+params_srs <- as.list(srs_tune$cv_table["864", 1:4])
+params_balance <- as.list(balance_tune$best_params[-5])
+params_neyman <- as.list(neyman_tune$best_params[-5])
+
+do_mixgb <- function(samp, params, nm, digit) {
+  cv_results <- mixgb_cv(samp, xgb.params = params, verbose = F, nrounds = 100)
+  tm <- system.time({
+    mixgb_imp <- mixgb(samp, m = 20, xgb.params = params,
+                       initial.fac = "sample", nrounds = cv_results$best.nrounds)
+  })
+  mixgb_imp <- lapply(mixgb_imp, function(dat){
+    match_types(as.data.frame(dat), data)
+  })
+  imp.mids <- as.mids(mixgb_imp)
+  cox.fit <- with(data = imp.mids, 
+                  exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +
+                                rs4506565 + I((AGE - 50) / 5) + I((eGFR - 90) / 10) +
+                                SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE))
+  pooled <- mice::pool(cox.fit)
+  sumry <- summary(pooled, conf.int = TRUE)
+  cat("Bias: \n")
+  cat(exp(sumry$estimate) - exp(coef(cox.true)), "\n")
+  cat("Variance: \n")
+  cat(apply(bind_rows(lapply(cox.fit$analyses, function(i){exp(coef(i))})), 2, var), "\n")
+  
+  save(mixgb_imp, tm, cv_results, file = file.path("simulations", nm, "mixgb",
+                                                                paste0(digit, ".RData")))
+}
 for (i in first_rep:last_rep){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
@@ -41,8 +72,15 @@ for (i in first_rep:last_rep){
     mutate(across(all_of(data_info_neyman$cat_vars), as.factor, .names = "{.col}"),
            across(all_of(data_info_neyman$num_vars), as.numeric, .names = "{.col}"))
   
-  
-  
+  if (!file.exists(paste0("./simulations/SRS/mixgb/", digit, ".RData"))){
+    do_mixgb(samp_srs, params_srs, "SRS", digit)
+  }
+  if (!file.exists(paste0("./simulations/Balance/mixgb/", digit, ".RData"))){
+    do_mixgb(samp_balance, params_balance, "Balance", digit)
+  }
+  if (!file.exists(paste0("./simulations/Neyman/mixgb/", digit, ".RData"))){
+    do_mixgb(samp_neyman, params_neyman, "Neyman", digit)
+  }
 }
 
 

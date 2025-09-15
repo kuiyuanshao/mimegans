@@ -61,7 +61,7 @@ gen_rows <- function(idx_vec, gnet, A_t, C_t, params,
   denorm
 }
 
-generateImpute <- function(gnet, m = 5, 
+generateImpute <- function(gnet, dnet, m = 5, 
                            data_original, data_info, data_norm, 
                            data_encode, data_training,
                            phase1_vars, phase2_vars,
@@ -70,6 +70,7 @@ generateImpute <- function(gnet, m = 5,
                            tensor_list){
   imputed_data_list <- vector("list", m)
   gsample_data_list <- vector("list", m)
+  w_loss <- 1:m
   
   denormalize <- paste("denormalize", num.normalizing, sep = ".")
   decode <- paste("decode", cat.encoding, sep = ".")
@@ -77,6 +78,7 @@ generateImpute <- function(gnet, m = 5,
   batchforimpute <- create_bfi(data_original, params$batch_size, tensor_list)
   data_mask <- as.matrix(1 - is.na(data_original))
   
+  phase2_rows <- which(!is.na(data_original[, data_info$phase2_vars[1]]))
   p2_num <- intersect(phase2_vars, data_info$num_vars)
   lb <- vapply(p2_num, function(v) min(data_original[[v]], na.rm = TRUE), numeric(1))
   ub <- vapply(p2_num, function(v) max(data_original[[v]], na.rm = TRUE), numeric(1))
@@ -97,7 +99,8 @@ generateImpute <- function(gnet, m = 5,
   
   A_t <- tensor_list[[4]]
   C_t <- tensor_list[[2]]
-
+  true <- torch_cat(list(tensor_list[[3]], tensor_list[[4]], tensor_list[[2]]), dim = 2)
+  true_score <- torch_mean(dnet(true[phase2_rows, ])[[1]])
   for (z in 1:m){
     output_list <- vector("list", length(batchforimpute))
     for (i in 1:length(batchforimpute)){
@@ -112,13 +115,16 @@ generateImpute <- function(gnet, m = 5,
       gsample <- gnet(fakez_C)[[1]]
       gsample <- activationFun(gsample, all_cats_p2, params, gen = T)
       gsample <- torch_cat(list(gsample, A, C), dim = 2)
-      output_list[[i]] <- as.matrix(gsample$detach()$cpu())
+      output_list[[i]] <- gsample
     }
-    output_mat <- as.data.frame(do.call(rbind, output_list))
-    names(output_mat) <- names(data_training)
+    output_mat <- torch_cat(output_list)
+    fake_score <- dnet(output_mat[phase2_rows, ])[[1]]
+    w_loss[z] <- (-(true_score - torch_mean(fake_score)))$item()
+    output_frame <- as.data.frame(as.matrix(output_mat$detach()$cpu()))
+    names(output_frame) <- names(data_training)
     
     curr_gsample <- do.call(decode, args = list(
-      data = output_mat,
+      data = output_frame,
       encode_obj = data_encode
     ))
     curr_gsample <- do.call(denormalize, args = list(
@@ -186,5 +192,5 @@ generateImpute <- function(gnet, m = 5,
     imputed_data_list[[z]] <- imputations
     gsample_data_list[[z]] <- gsamples
   }
-  return (list(imputation = imputed_data_list, gsample = gsample_data_list))
+  return (list(imputation = imputed_data_list, gsample = gsample_data_list, w_loss = w_loss))
 }

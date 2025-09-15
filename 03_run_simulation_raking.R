@@ -3,7 +3,6 @@ lapply(paste0("./comparisons/raking/", list.files("./comparisons/raking/")), sou
 source("00_utils_functions.R")
 options(survey.lonely.psu = "certainty")
 if(!dir.exists('./simulations')){dir.create('./simulations')}
-if(!dir.exists('./simulations/SRS')){dir.create('./simulations/SRS')}
 if(!dir.exists('./simulations/Balance')){dir.create('./simulations/Balance')}
 if(!dir.exists('./simulations/Neyman')){dir.create('./simulations/Neyman')}
 
@@ -16,7 +15,7 @@ if(!dir.exists('./simulations/Neyman/raking')){dir.create('./simulations/Neyman/
 # first_rep <- (task_id - 1) * chunk_size + 1
 # last_rep <- min(task_id * chunk_size, replicate)
 
-for (i in 1:15){
+for (i in 1:500){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))

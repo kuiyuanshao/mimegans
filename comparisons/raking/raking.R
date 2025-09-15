@@ -1,3 +1,4 @@
+dimnames.twophase2 <- function(object,...) dimnames(object$phase1$sample$variables)
 calibrateFun <- function(samp){
   dimnames.twophase2 <- function(object,...) dimnames(object$phase1$sample$variables)
   samp$R <- as.logical(samp$R)
@@ -8,7 +9,7 @@ calibrateFun <- function(samp){
   }
   twophase_des <- twophase(id = list(~1, ~1), strata = list(NULL, ~STRATA), 
                            subset = ~R, data = samp)
-  twophase_des_2 <- subset(svydesign(ids = ~1, strata = ~STRATA, weights = ~W, data = samp), R)
+  #twophase_des_2 <- subset(svydesign(ids = ~1, strata = ~STRATA, weights = ~W, data = samp), R)
   
   modimp.HbA1c <- svyglm(HbA1c ~ HbA1c_STAR + AGE + SEX + RACE + BMI + SMOKE_STAR + SBP +
                            Glucose_STAR + F_Glucose_STAR + Insulin + INSURANCE + T_I_STAR +

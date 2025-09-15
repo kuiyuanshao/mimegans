@@ -4,21 +4,17 @@ files <- files[!grepl("tests", files)]
 lapply(files, source)
 source("00_utils_functions.R")
 
-grid <- tidyr::expand_grid(pac = c(2, 5, 8, 10), 
-                           lr_g = c(1e-4, 2e-4, 3e-4), lr_d = c(1e-4, 2e-4, 3e-4),
+grid <- tidyr::expand_grid(pac = c(2, 5, 10),
                            n_g_layers = 3:5, n_d_layers = 2:4,
-                           beta = c(0, 1, 5, 10)) %>%
-  filter(n_d_layers <= n_g_layers,
-         lr_g       <= lr_d)
+                           beta = c(1, 5, 10)) %>%
+  filter(n_d_layers < n_g_layers)
 
 args <- commandArgs(trailingOnly = TRUE)
 task_id <- as.integer(ifelse(length(args) >= 1,
                              args[1],
                              Sys.getenv("SLURM_ARRAY_TASK_ID", "1")))
-sampling_design <- ifelse(length(args) >= 2, 
-                          args[2], Sys.getenv("SAMP", "All"))
 start_rep <- 1
-end_rep   <- 500
+end_rep   <- nrow(grid)
 n_chunks  <- 20
 task_id   <- as.integer(Sys.getenv("SLURM_ARRAY_TASK_ID"))
 
@@ -49,8 +45,19 @@ samp_neyman <- match_types(samp_neyman, data) %>%
          across(all_of(data_info_neyman$num_vars), as.numeric, .names = "{.col}"))
 
 result_srs <- mimegans.cv(samp_srs, fold = 5, data_info_srs, grid, seed = 1)
-save(result_srs, file = paste0("./data/miemgans_srs_", first_rep, "-", last_rep, ".RData"))
+save(result_srs, file = paste0("./data/Params/mimegans/SRS/miemgans_srs_", first_rep, "-", last_rep, ".RData"))
 result_balance <- mimegans.cv(samp_balance, fold = 5, data_info_balance, grid, seed = 1)
-save(result_balance, file = paste0("./data/miemgans_balance_", first_rep, "-", last_rep, ".RData"))
+save(result_balance, file = paste0("./data/Params/mimegans/Balance/miemgans_balance_", first_rep, "-", last_rep, ".RData"))
 result_neyman <- mimegans.cv(samp_neyman, fold = 5, data_info_neyman, grid, seed = 1)
-save(result_neyman, file = paste0("./data/miemgans_neyman_", first_rep, "-", last_rep, ".RData"))
+save(result_neyman, file = paste0("./data/Params/mimegans/Neyman/miemgans_neyman_", first_rep, "-", last_rep, ".RData"))
+
+files_srs <- list.files("./data/Params/mimegans/SRS/")
+files_srs <- files_srs[stringr::str_order(files_srs, numeric = T)]
+params_srs <- NULL
+for (i in files_srs){
+  load(paste0("./data/Params/mimegans/SRS/", i))
+  params_srs <- rbind(params_srs, result_srs)
+}
+params_srs$total <- params_srs$rmse_num + params_srs$mis_cat
+params_srs <- params_srs[order(params_srs$total), ]
+save(params_srs, file = "./data/Params/mimegans/SRS/params_combined_srs.RData")

@@ -100,14 +100,14 @@ gradientPenalty <- function(D, real_samples, fake_samples, params, device) {
   return (gradient_penalty)
 }
 
-lossCalc <- function(gen, true, info){
-  rmse_num <- sum(sqrt(colMeans((gen$gsample[[1]][, info$phase2_vars[info$phase2_vars %in% info$num_vars]] - 
-                                   true[, info$phase2_vars[info$phase2_vars %in% info$num_vars]])^2)))
+lossCalc <- function(gen, true, info, inds){
+  rmse_num <- sum(sqrt(colMeans((gen$gsample[[1]][inds, info$phase2_vars[info$phase2_vars %in% info$num_vars]] - 
+                                   true[inds, info$phase2_vars[info$phase2_vars %in% info$num_vars]])^2)))
   mis_cat <- 0
   for (i in info$phase2_vars[info$phase2_vars %in% info$cat_vars]){
-    tb <- table(gen$gsample[[1]][[i]], true[[i]])
+    tb <- table(gen$gsample[[1]][[i]][inds], true[[i]][inds])
     mis_num <- sum(tb) - sum(diag(tb))
-    mis_cat <- mis_cat + mis_num / nrow(true)
+    mis_cat <- mis_cat + mis_num / sum(inds)
   }
   return (c(rmse_num, mis_cat))
 }

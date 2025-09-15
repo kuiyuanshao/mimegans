@@ -8,6 +8,7 @@ cwgangp_default <- function(batch_size = 500, lambda = 10,
                             n_g_layers = 3, n_d_layers = 1, discriminator_steps = 1,
                             tau = 0.2, hard = F, type_g = "mlp", type_d = "mlp",
                             num = "mmer", cat = "projp1", component = "none", info_loss = F){
+  batch_size <- pac * round(batch_size / pac)
   if (component == "match_p1"){
     alpha <- 0.05
   }
@@ -333,7 +334,7 @@ mimegans <- function(data, m = 5,
             modu$train(TRUE)
           }
         }
-        result <- generateImpute(gnet, m = 5, 
+        result <- generateImpute(gnet, dnet, m = 5, 
                                  data_original, data_info, data_norm, 
                                  data_encode, data_training,
                                  phase1_vars_encode, phase2_vars_encode, 
@@ -354,7 +355,7 @@ mimegans <- function(data, m = 5,
       modu$train(TRUE)
     }
   }
-  result <- generateImpute(gnet, m = m, 
+  result <- generateImpute(gnet, dnet, m = m, 
                            data_original, data_info, data_norm, 
                            data_encode, data_training,
                            phase1_vars_encode, phase2_vars_encode,
@@ -362,6 +363,7 @@ mimegans <- function(data, m = 5,
                            device, params, allcats_p2, tensor_list)
   out <- list(imputation = result$imputation,
               gsample = result$gsample,
+              w_loss = result$w_loss,
               loss = training_loss)
   if (exists("step_result", inherits = FALSE) && !is.null(step_result)){
     out$step_result <- step_result
@@ -386,15 +388,18 @@ mimegans.cv <- function(data, fold = 5, data_info, parameters_grid, seed = 1){
   result <- parameters_grid
   result$rmse_num <- 0
   result$mis_cat <- 0 
+  result$w_loss <- 0
   for (i in 1:nrow(parameters_grid)){
     params <- as.list(parameters_grid[i, , drop = FALSE])
-    curr_loss <- c(0, 0)
+    curr_loss <- c(0, 0, 0)
     for (j in 1:fold){
       curr_data <- splits[[j]]
-      curr_imp <- mimegans(curr_data, epochs = 1000,
+      curr_imp <- mimegans(curr_data, epochs = 2000,
                            m = 1, params = params, data_info = data_info)
-      curr_foldloss <- lossCalc(curr_imp, phase2_data, data_info)
-      curr_loss <- curr_loss + curr_foldloss 
+      curr_wloss <- curr_imp$w_loss
+      curr_foldloss <- lossCalc(curr_imp, phase2_data, data_info, 
+                                is.na(curr_data[, data_info$phase2_vars[1]]))
+      curr_loss <- curr_loss + c(curr_foldloss, curr_wloss)
     }
     result$rmse_num[i] <- curr_loss[1]
     result$mis_cat[i] <- curr_loss[2]

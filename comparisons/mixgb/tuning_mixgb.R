@@ -125,8 +125,15 @@ tuning <- function(X, outcomes, types, eval_metric, grid, nrounds = 500, k = 5, 
 }
 
 srs_tune <- tuning(X_srs, Outcomes_srs, types.srs, eval_metric.srs, grid, nrounds = 100, k = 5, seed = 1)
-save(srs_tune, file = "../../data/mixgb_srsParams.RData")
+save(srs_tune, file = "../../data/Params/mixgb/mixgb_srsParams.RData")
 balance_tune <- tuning(X_balance, Outcomes_balance, types.balance, eval_metric.balance, grid, nrounds = 100, k = 5, seed = 1)
-save(balance_tune, file = "../../data/mixgb_balanceParams.RData")
+save(balance_tune, file = "../../data/Params/mixgb/mixgb_balanceParams.RData")
 neyman_tune <- tuning(X_neyman, Outcomes_neyman, types.neyman, eval_metric.neyman, grid, nrounds = 100, k = 5, seed = 1)
-save(neyman_tune, file = "../../data/mixgb_neymanParams.RData")
+save(neyman_tune, file = "../../data/Params/mixgb/mixgb_neymanParams.RData")
+
+### With large amount of covariates, we use less column subsample
+### So we choose the parameter combinations with lower colsubsample rate while maintaining good total loss.
+set.seed(100)
+srs_chose <- as.list(srs_tune$cv_table["864", 1:4])
+balance_chose <- as.list(balance_tune$cv_table["867", 1:4])
+neyman_chose <- as.list(balance_tune$cv_table["868", 1:4])

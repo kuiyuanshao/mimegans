@@ -99,8 +99,7 @@ generateImpute <- function(gnet, dnet, m = 5,
   
   A_t <- tensor_list[[4]]
   C_t <- tensor_list[[2]]
-  true <- torch_cat(list(tensor_list[[3]], tensor_list[[4]], tensor_list[[2]]), dim = 2)
-  true_score <- torch_mean(dnet(true[phase2_rows, ])[[1]])
+  
   for (z in 1:m){
     output_list <- vector("list", length(batchforimpute))
     for (i in 1:length(batchforimpute)){
@@ -118,8 +117,6 @@ generateImpute <- function(gnet, dnet, m = 5,
       output_list[[i]] <- gsample
     }
     output_mat <- torch_cat(output_list)
-    fake_score <- dnet(output_mat[phase2_rows, ])[[1]]
-    w_loss[z] <- (-(true_score - torch_mean(fake_score)))$item()
     output_frame <- as.data.frame(as.matrix(output_mat$detach()$cpu()))
     names(output_frame) <- names(data_training)
     
@@ -192,5 +189,5 @@ generateImpute <- function(gnet, dnet, m = 5,
     imputed_data_list[[z]] <- imputations
     gsample_data_list[[z]] <- gsamples
   }
-  return (list(imputation = imputed_data_list, gsample = gsample_data_list, w_loss = w_loss))
+  return (list(imputation = imputed_data_list, gsample = gsample_data_list))
 }

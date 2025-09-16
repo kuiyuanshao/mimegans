@@ -2,7 +2,6 @@ lapply(c("survival", "dplyr", "stringr", "survey", "mice"), require, character.o
 source("00_utils_functions.R")
 options(survey.lonely.psu = "certainty")
 
-replicate <- 108
 sampling_designs <- c("SRS", "Balance", "Neyman")
 methods <- c("mimegans", "gain", "mice", "mixgb", "raking")
 

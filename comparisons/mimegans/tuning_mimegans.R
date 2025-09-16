@@ -24,6 +24,8 @@ chunk_size  <- ceiling(n_in_window / n_chunks)
 first_rep <- start_rep + (task_id - 1L) * chunk_size
 last_rep  <- min(start_rep + task_id * chunk_size - 1L, end_rep)
 
+first_rep <- 46
+last_rep <- 48
 grid <- grid[first_rep:last_rep, ]
 
 digit <- stringr::str_pad(1, 4, pad = 0)
@@ -58,6 +60,6 @@ for (i in files_srs){
   load(paste0("./data/Params/mimegans/SRS/", i))
   params_srs <- rbind(params_srs, result_srs)
 }
-params_srs$total <- params_srs$rmse_num + params_srs$mis_cat
+params_srs$total <- params_srs$rmse_num + 5 * params_srs$mis_cat
 params_srs <- params_srs[order(params_srs$total), ]
-save(params_srs, file = "./data/Params/mimegans/SRS/params_combined_srs.RData")
+

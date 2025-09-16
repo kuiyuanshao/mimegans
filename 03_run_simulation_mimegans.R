@@ -29,13 +29,10 @@ chunk_size  <- ceiling(n_in_window / n_chunks)
 first_rep <- start_rep + (task_id - 1L) * chunk_size
 last_rep  <- min(start_rep + task_id * chunk_size - 1L, end_rep)
 
-load("./data/Params/mimegans/SRS/params_combined_srs.RData")
-params_srs <- as.list(params_srs[1, 1:6])
-
-do_mimegans <- function(samp, info, params, nm, digit) {
+do_mimegans <- function(samp, info, nm, digit) {
   tm <- system.time({
-    mimegans_imp <- mimegans(samp, m = 20, epochs = 10000,
-                             params = params, data_info = info,
+    mimegans_imp <- mimegans(samp, m = 20, epochs = 15000,
+                             data_info = info,
                              device = "cpu")
   })
   mimegans_imp$imputation <- lapply(mimegans_imp$imputation, function(dat){
@@ -81,13 +78,13 @@ for (i in 1:500){
                       SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE, data = data)
   
   if (!file.exists(paste0("./simulations/SRS/mimegans.tuned/", digit, ".RData"))){
-    do_mimegans(samp_srs, data_info_srs, params_srs, "SRS", digit)
+    do_mimegans(samp_srs, data_info_srs, "SRS", digit)
   }
-  # if (!file.exists(paste0("./simulations/Balance/mimegans.tuned/", digit, ".RData"))){
-  #   do_mimegans(samp_balance, data_info_balance, "Balance", digit)
-  # }
-  # if (!file.exists(paste0("./simulations/Neyman/mimegans.tuned/", digit, ".RData"))){
-  #   do_mimegans(samp_neyman, data_info_neyman, "Neyman", digit)
-  # }
+  if (!file.exists(paste0("./simulations/Balance/mimegans.tuned/", digit, ".RData"))){
+    do_mimegans(samp_balance, data_info_balance, "Balance", digit)
+  }
+  if (!file.exists(paste0("./simulations/Neyman/mimegans.tuned/", digit, ".RData"))){
+    do_mimegans(samp_neyman, data_info_neyman, "Neyman", digit)
+  }
 }
 

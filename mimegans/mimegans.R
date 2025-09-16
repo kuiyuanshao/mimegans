@@ -2,10 +2,9 @@ pacman::p_load(progress, torch)
 
 cwgangp_default <- function(batch_size = 500, lambda = 10, 
                             alpha = 0, beta = 1, at_least_p = 0.5, 
-                            lr_g = 2e-4, lr_d = 2e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
-                            g_weight_decay = 1e-6, d_weight_decay = 1e-6, noise_dim = 128, 
-                            g_dim = 256, d_dim = 256, pac = 5, 
-                            n_g_layers = 3, n_d_layers = 1, discriminator_steps = 1,
+                            lr_g = 2e-4, lr_d = 2e-4, g_betas = c(0, 0.9), d_betas = c(0, 0.9), 
+                            g_weight_decay = 0, d_weight_decay = 0, noise_dim = 128, 
+                            g_dim = c(256, 256), d_dim = c(256, 256), pac = 10, discriminator_steps = 1,
                             tau = 0.2, hard = F, type_g = "mlp", type_d = "mlp",
                             num = "mmer", cat = "projp1", component = "none", info_loss = F){
   batch_size <- pac * round(batch_size / pac)
@@ -21,8 +20,7 @@ cwgangp_default <- function(batch_size = 500, lambda = 10,
   list(batch_size = batch_size, lambda = lambda, alpha = alpha, beta = beta,
        at_least_p = at_least_p, lr_g = lr_g, lr_d = lr_d, g_betas = g_betas, d_betas = d_betas, 
        g_weight_decay = g_weight_decay, d_weight_decay = d_weight_decay, noise_dim = noise_dim,
-       g_dim = g_dim, d_dim = d_dim, pac = pac, n_g_layers = n_g_layers, n_d_layers = n_d_layers, 
-       discriminator_steps = discriminator_steps, tau = tau, hard = hard,
+       g_dim = g_dim, d_dim = d_dim, pac = pac, discriminator_steps = discriminator_steps, tau = tau, hard = hard,
        type_g = type_g, type_d = type_d, num = num, cat = cat, component = component, info_loss = info_loss)
 }
 
@@ -363,7 +361,6 @@ mimegans <- function(data, m = 5,
                            device, params, allcats_p2, tensor_list)
   out <- list(imputation = result$imputation,
               gsample = result$gsample,
-              w_loss = result$w_loss,
               loss = training_loss)
   if (exists("step_result", inherits = FALSE) && !is.null(step_result)){
     out$step_result <- step_result
@@ -372,38 +369,39 @@ mimegans <- function(data, m = 5,
 }
 
 
-mimegans.cv <- function(data, fold = 5, data_info, parameters_grid, seed = 1){
-  set.seed(seed)
-  phase2_data <- data[!is.na(data[[data_info$phase2_vars[1]]]), ]
-  ind <- sample(1:nrow(phase2_data)) 
-  map <- setNames(rep_len(seq_len(fold), length(ind)), ind)
-  map <- map[as.character(1:nrow(phase2_data))]
-  cv_split <- function(data, map, i){
-    inds <- list(train = which(map != i), val = which(map == i))
-    curr_data <- data
-    curr_data[inds[[2]], data_info$phase2_vars] <- NA
-    return (curr_data)
-  }
-  splits <- lapply(1:fold, function(i) cv_split(phase2_data, map, i))
-  result <- parameters_grid
-  result$rmse_num <- 0
-  result$mis_cat <- 0 
-  result$w_loss <- 0
-  for (i in 1:nrow(parameters_grid)){
-    params <- as.list(parameters_grid[i, , drop = FALSE])
-    curr_loss <- c(0, 0, 0)
-    for (j in 1:fold){
-      curr_data <- splits[[j]]
-      curr_imp <- mimegans(curr_data, epochs = 2000,
-                           m = 1, params = params, data_info = data_info)
-      curr_wloss <- curr_imp$w_loss
-      curr_foldloss <- lossCalc(curr_imp, phase2_data, data_info, 
-                                is.na(curr_data[, data_info$phase2_vars[1]]))
-      curr_loss <- curr_loss + c(curr_foldloss, curr_wloss)
-    }
-    result$rmse_num[i] <- curr_loss[1]
-    result$mis_cat[i] <- curr_loss[2]
-    cat(i, ":", curr_loss, "\n")
-  }
-  return (result)
-}
+# mimegans.cv <- function(data, fold = 5, data_info, parameters_grid, seed = 1){
+#   set.seed(seed)
+#   phase2_data <- data[!is.na(data[[data_info$phase2_vars[1]]]), ]
+#   ind <- sample(1:nrow(phase2_data)) 
+#   map <- setNames(rep_len(seq_len(fold), length(ind)), ind)
+#   map <- map[as.character(1:nrow(phase2_data))]
+#   cv_split <- function(data, map, i){
+#     inds <- list(train = which(map != i), val = which(map == i))
+#     curr_data <- data
+#     curr_data[inds[[2]], data_info$phase2_vars] <- NA
+#     return (curr_data)
+#   }
+#   splits <- lapply(1:fold, function(i) cv_split(phase2_data, map, i))
+#   result <- parameters_grid
+#   result$rmse_num <- 0
+#   result$mis_cat <- 0 
+#   result$w_loss <- 0
+#   for (i in 1:nrow(parameters_grid)){
+#     params <- as.list(parameters_grid[i, , drop = FALSE])
+#     curr_loss <- c(0, 0, 0)
+#     for (j in 1:fold){
+#       curr_data <- splits[[j]]
+#       curr_imp <- mimegans(curr_data, epochs = 2000,
+#                            m = 1, params = params, data_info = data_info)
+#       curr_wloss <- curr_imp$w_loss
+#       curr_foldloss <- lossCalc(curr_imp, phase2_data, data_info, 
+#                                 is.na(curr_data[, data_info$phase2_vars[1]]))
+#       curr_loss <- curr_loss + c(curr_foldloss, curr_wloss)
+#     }
+#     result$rmse_num[i] <- curr_loss[1]
+#     result$mis_cat[i] <- curr_loss[2]
+#     result$w_loss[i] <- curr_loss[3]
+#     cat(i, ":", curr_loss, "\n")
+#   }
+#   return (result)
+# }

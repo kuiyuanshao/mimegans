@@ -23,9 +23,9 @@ chunk_size <- ceiling(replicate / n_chunks)
 first_rep <- (task_id - 1) * chunk_size + 1
 last_rep <- min(task_id * chunk_size, replicate)
 
-load("./data/Params/mixgb/mixgb_srsParams.RData")
-load("./data/Params/mixgb/mixgb_balanceParams.RData")
-load("./data/Params/mixgb/mixgb_neymanParams.RData")
+load("./data/mixgb_srsParams.RData")
+load("./data/mixgb_balanceParams.RData")
+load("./data/mixgb_neymanParams.RData")
 params_srs <- as.list(srs_tune$cv_table["864", 1:4])
 params_balance <- as.list(balance_tune$best_params[-5])
 params_neyman <- as.list(neyman_tune$best_params[-5])

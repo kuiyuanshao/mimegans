@@ -1,11 +1,5 @@
 lapply(c("ggplot2", "dplyr", "tidyr", "RColorBrewer", "ggh4x"), require, character.only = T)
 load("./simulations/results.RData")
-# resultCICover %>% 
-#   select(Method, Design, any_of("ID"), all_of(cols)) %>%
-#   mutate(across(all_of(names(.)[4:17]), as.logical)) %>%
-#   group_by(Design, Method) %>%
-#   summarise(across(all_of(cols), ~ mean(.x)), .groups = "drop")
-
 resultCoeff_long <- resultCoeff %>% 
   pivot_longer(
     cols = 1:14,
@@ -42,55 +36,7 @@ rmse_result <- resultCoeff %>%
     }
   ), .groups = "drop")
 
-rmse_result_long <- rmse_result %>% 
-  pivot_longer(
-    cols = 3:16,
-    names_to = "Covariate", 
-    values_to = "Coefficient"
-  ) %>%
-  mutate(Coefficient = as.numeric(Coefficient), 
-         Method = factor(Method, levels = c("TRUE", "ME", "COMPLETE", "MIMEGANS", "MICE", "MIXGB", "RAKING")),
-         `Sampling Design` = factor(Design, levels = c("SRS", "BALANCE", "NEYMAN")),
-         Covariate = factor(Covariate, levels = names(rmse_result)[3:16], labels = 
-                              c("HbA1c", "rs4506565 1", "rs4506565 2", "AGE", "eGFR", "SEX TRUE", "INSURANCE TRUE", 
-                                "RACE AFR", "RACE AMR", "RACE SAS", "RACE EAS", "BMI", "SMOKE 2", "SMOKE 3")))
-
-truth <- colMeans(true.coeff)
-CIcoverage <- NULL
-for (design in unique(resultCI$Design)){
-  for (method in unique(resultCI$Method)){
-    ind <- which(resultCI$Design == design & resultCI$Method == method)
-    curr_g <- NULL
-    for (i in ind){
-      curr.lower <- resultCI[i, 1:14]
-      curr.upper <- resultCI[i, 15:28]
-      curr_g <- rbind(curr_g, c(calcCICover(truth, curr.lower, curr.upper), design, method))
-    }
-    CIcoverage <- rbind(CIcoverage, curr_g)
-  }
-}
-CIcoverage <- as.data.frame(CIcoverage)
-names(CIcoverage) <- c(names(resultCoeff)[1:14],
-                      "Design", "Method")
-
-CIcoverage <- CIcoverage %>%
-  select(Method, Design, all_of(cols)) %>%
-  mutate(across(all_of(names(.)[3:16]), as.logical)) %>%
-  group_by(Design, Method) %>%
-  summarise(across(all_of(cols), ~ mean(.x)), .groups = "drop")
-
-CIcoverage_long <- CIcoverage %>%
-  pivot_longer(
-    cols = 3:16,
-    names_to = "Covariate", 
-    values_to = "Coverage"
-  ) %>%
-  mutate(Coverage = as.numeric(Coverage), 
-         Method = factor(Method, levels = c("TRUE", "ME", "COMPLETE", "MIMEGANS", "MICE", "MIXGB", "RAKING")),
-         `Sampling Design` = factor(Design, levels = c("SRS", "BALANCE", "NEYMAN")),
-         Covariate = factor(Covariate, levels = names(rmse_result)[3:16], labels = 
-                              c("HbA1c", "rs4506565 1", "rs4506565 2", "AGE", "eGFR", "SEX TRUE", "INSURANCE TRUE", 
-                                "RACE AFR", "RACE AMR", "RACE SAS", "RACE EAS", "BMI", "SMOKE 2", "SMOKE 3")))
+rmse_result[rmse_result$Method == "MIMEGANS", 3:16] - rmse_result[rmse_result$Method == "MICE", 3:16]
 
 range_coef <- list(Covariate == "HbA1c" ~ scale_y_continuous(limits = c(means.coef$mean[1] - 0.15, means.coef$mean[1] + 0.15)),
                    Covariate == "rs4506565 1" ~ scale_y_continuous(limits = c(means.coef$mean[2] - 0.25, means.coef$mean[2] + 0.25)),
@@ -107,49 +53,6 @@ range_coef <- list(Covariate == "HbA1c" ~ scale_y_continuous(limits = c(means.co
                    Covariate == "SMOKE 2" ~ scale_y_continuous(limits = c(means.coef$mean[13] - 0.25, means.coef$mean[13] + 0.25)),
                    Covariate == "SMOKE 3" ~ scale_y_continuous(limits = c(means.coef$mean[14] - 0.25, means.coef$mean[14] + 0.25)))
 
-ggplot(CIcoverage_long) + 
-  geom_col(aes(x = Method, 
-               y = Coverage,
-               fill = `Sampling Design`), position = "dodge") + 
-  geom_hline(aes(yintercept = 0.95), lty = 2) + 
-  facet_wrap(~ Covariate, scales = "free") + 
-  theme_minimal() + 
-  theme(axis.title.x = element_text(family = "Georgia"),
-        axis.title.y = element_text(family = "Georgia"),
-        axis.text.x = element_text(family = "Georgia"),
-        axis.text.y = element_text(family = "Georgia"),
-        legend.title = element_text(family = "Georgia"),
-        legend.text = element_text(family = "Georgia"),
-        strip.text = element_text(family = "Georgia")) + 
-  scale_fill_manual(
-    values = c("SRS" = "red", "BALANCE" = "green", "NEYMAN" = "blue", "NA" = "black"),
-    breaks = c("SRS", "BALANCE", "NEYMAN")) +
-  ylim(0, 1.25)
-#facetted_pos_scales(y = range_coef)
-
-ggsave("./simulations/Imputation_Coverage_Barchart.png", width = 30, height = 10, limitsize = F)
-
-ggplot(rmse_result_long) + 
-  geom_col(aes(x = Method, 
-               y = Coefficient,
-               fill = `Sampling Design`), position = "dodge") + 
-  facet_wrap(~ Covariate, scales = "free") + 
-  theme_minimal() + 
-  theme(axis.title.x = element_text(family = "Georgia"),
-        axis.title.y = element_text(family = "Georgia"),
-        axis.text.x = element_text(family = "Georgia"),
-        axis.text.y = element_text(family = "Georgia"),
-        legend.title = element_text(family = "Georgia"),
-        legend.text = element_text(family = "Georgia"),
-        strip.text = element_text(family = "Georgia")) + 
-  scale_fill_manual(
-    values = c("SRS" = "red", "BALANCE" = "green", "NEYMAN" = "blue", "NA" = "black"),
-    breaks = c("SRS", "BALANCE", "NEYMAN"))
-  #facetted_pos_scales(y = range_coef)
-
-ggsave("./simulations/Imputation_Coeff_Barchart.png", width = 30, height = 10, limitsize = F)
-
-
 ggplot(resultCoeff_long) + 
   geom_boxplot(aes(x = Method, 
                    y = Coefficient,
@@ -164,7 +67,7 @@ ggplot(resultCoeff_long) +
         legend.title = element_text(family = "Georgia"),
         legend.text = element_text(family = "Georgia"),
         strip.text = element_text(family = "Georgia")) + 
-  scale_fill_manual(
+  scale_colour_manual(
     values = c("SRS" = "red", "BALANCE" = "green", "NEYMAN" = "blue", "NA" = "black"),
     breaks = c("SRS", "BALANCE", "NEYMAN")) + 
   facetted_pos_scales(y = range_coef)
@@ -189,5 +92,3 @@ ggplot(resultStdError) +
     values = c("SRS" = "red", "BALANCE" = "green", "NEYMAN" = "blue", "NA" = "black"),
     breaks = c("SRS", "BALANCE", "NEYMAN")
   )
-
-ggsave("./simulations/Imputation_StdError_Boxplot.png", width = 10, height = 10, limitsize = F)

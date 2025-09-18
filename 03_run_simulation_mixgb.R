@@ -54,7 +54,7 @@ do_mixgb <- function(samp, params, nm, digit) {
   save(mixgb_imp, tm, cv_results, file = file.path("simulations", nm, "mixgb",
                                                                 paste0(digit, ".RData")))
 }
-for (i in first_rep:last_rep){
+for (i in 169:175){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))

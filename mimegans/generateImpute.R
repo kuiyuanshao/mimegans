@@ -31,37 +31,7 @@ acc_prob_row <- function(mat, lb, ub, alpha = 1) {
   exp(-alpha * total_violation ^ 2)
 }
 
-gen_rows <- function(idx_vec, gnet, A_t, C_t, params, 
-                     data_original, data_training, decode, denormalize,
-                     data_encode, data_norm, data_info, 
-                     num_inds_gen, num_inds_ori, all_cats_p2, device){
-  n <- length(idx_vec)
-  z <- torch_normal(0, 1, size = c(n, params$noise_dim))$to(device = device)
-  tmp <- gnet(torch_cat(list(z, A_t[idx_vec, , drop = F], 
-                             C_t[idx_vec, , drop = F]), dim = 2))[[1]]
-  tmp <- activationFun(tmp, all_cats_p2, params, gen = T)
-  tmp <- torch_cat(list(tmp, A_t[idx_vec, , drop = F], C_t[idx_vec, , drop = F]), dim = 2)
-  df <- as.data.frame(as.matrix(tmp$detach()$cpu()))
-  names(df) <- names(data_training)
-  deco <- do.call(decode, args = list(
-    data = df,
-    encode_obj = data_encode
-  ))
-  denorm <- do.call(denormalize, args = list(
-    data = deco,
-    num_vars = data_info$num_vars,
-    norm_obj = data_norm
-  ))$data
-  
-  denorm <- denorm[, names(data_original)]
-  
-  if (params$num == "mmer"){
-    denorm[, num_inds_gen] <- data_original[idx_vec, num_inds_ori] - denorm[, num_inds_gen]
-  }
-  denorm
-}
-
-generateImpute <- function(gnet, dnet, m = 5, 
+generateImpute <- function(gnet, m = 5, 
                            data_original, data_info, data_norm, 
                            data_encode, data_training,
                            phase1_vars, phase2_vars,
@@ -70,7 +40,6 @@ generateImpute <- function(gnet, dnet, m = 5,
                            tensor_list){
   imputed_data_list <- vector("list", m)
   gsample_data_list <- vector("list", m)
-  w_loss <- 1:m
   
   denormalize <- paste("denormalize", num.normalizing, sep = ".")
   decode <- paste("decode", cat.encoding, sep = ".")
@@ -98,8 +67,9 @@ generateImpute <- function(gnet, dnet, m = 5,
   num_inds_ori <- match(phase1_vars[phase1_vars %in% data_info$num_vars], names(data_original))
   
   A_t <- tensor_list[[4]]
+  X_t <- tensor_list[[3]]
   C_t <- tensor_list[[2]]
-  
+  M_t <- tensor_list[[1]]
   for (z in 1:m){
     output_list <- vector("list", length(batchforimpute))
     for (i in 1:length(batchforimpute)){
@@ -107,11 +77,16 @@ generateImpute <- function(gnet, dnet, m = 5,
       A <- batch[[4]]
       X <- batch[[3]]
       C <- batch[[2]]
-      
-      fakez <- torch_normal(mean = 0, std = 1, 
-                            size = c(X$size(1), params$noise_dim))$to(device = device)
-      fakez_C <- torch_cat(list(fakez, A, C), dim = 2)
-      gsample <- gnet(fakez_C)[[1]]
+      M <- batch[[1]]
+      if (params$unconditional){
+        fakez <- torch_normal(mean = 0, std = 1, size = c(params$batch_size, X$size(2)))$to(device = device) 
+        fakezX <- M * X + (1 - M) * fakez
+        gsample <- gnet(fakezX, A, C)[[1]]
+      }else{
+        fakez <- torch_normal(mean = 0, std = 1, 
+                              size = c(X$size(1), params$noise_dim))$to(device = device)
+        gsample <- gnet(fakez, A, C)[[1]]
+      }
       gsample <- activationFun(gsample, all_cats_p2, params, gen = T)
       gsample <- torch_cat(list(gsample, A, C), dim = 2)
       output_list[[i]] <- gsample
@@ -142,13 +117,34 @@ generateImpute <- function(gnet, dnet, m = 5,
     accept_row <- runif(nrow(M)) < row_acc
     iter <- 0L
     while (iter < max_attempt && any(!accept_row)) {
-      bad <- which(!accept_row)
-      new_rows <- gen_rows(bad, gnet, A_t, C_t, params,
-                           data_original, data_training, decode, denormalize,
-                           data_encode, data_norm, data_info,
-                           num_inds_gen, num_inds_ori,
-                           all_cats_p2, device)
-      M[bad, ] <- new_rows[, p2_idx_out, drop = FALSE]
+      oob_rows <- which(!accept_row)
+      n <- length(oob_rows)
+      if (params$unconditional){
+        fakez <- torch_normal(mean = 0, std = 1, size = c(n, ncol(X_t)))$to(device = device) 
+        fakezX <- M_t[oob_rows, , drop = F] * X_t[oob_rows, , drop = F] + (1 - M_t[oob_rows, , drop = F]) * fakez
+        new_samp <- gnet(fakezX, A_t[oob_rows, , drop = F], C_t[oob_rows, , drop = F])[[1]]
+      }else{
+        fakez <- torch_normal(mean = 0, std = 1, size = c(n, params$noise_dim))$to(device = device) 
+        new_samp <- gnet(fakez, A_t[oob_rows, , drop = F], C_t[oob_rows, , drop = F])[[1]]
+      }
+      new_samp <- activationFun(new_samp, all_cats_p2, params, gen = T)
+      new_samp <- torch_cat(list(new_samp, A_t[oob_rows, , drop = F], C_t[oob_rows, , drop = F]), dim = 2)
+      new_df <- as.data.frame(as.matrix(new_samp$detach()$cpu()))
+      names(new_df) <- names(data_training)
+      new_df <- do.call(decode, args = list(
+        data = new_df,
+        encode_obj = data_encode
+      ))
+      new_df <- do.call(denormalize, args = list(
+        data = new_df,
+        num_vars = data_info$num_vars,
+        norm_obj = data_norm
+      ))$data
+      new_df <- new_df[, names(data_original)]
+      if (params$num == "mmer"){
+        new_df[, num_inds_gen] <- data_original[oob_rows, num_inds_ori] - new_df[, num_inds_gen]
+      }
+      M[oob_rows, ] <- new_df[, p2_idx_out, drop = FALSE]
       row_acc <- acc_prob_row(as.matrix(M[, p2_num_idx_out, drop = FALSE]), lb, ub)
       accept_row <- runif(nrow(M)) < row_acc
       iter <- iter + 1L

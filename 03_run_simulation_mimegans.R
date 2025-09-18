@@ -1,4 +1,4 @@
-lapply(c("dplyr", "stringr", "torch", "survival", "mclust"), require, character.only = T)
+lapply(c("dplyr", "stringr", "torch", "coro", "survival", "mclust"), require, character.only = T)
 files <- list.files("./mimegans", full.names = TRUE, recursive = FALSE)
 files <- files[!grepl("tests", files)]
 lapply(files, source)
@@ -8,9 +8,9 @@ if(!dir.exists('./simulations/SRS')){dir.create('./simulations/SRS')}
 if(!dir.exists('./simulations/Balance')){dir.create('./simulations/Balance')}
 if(!dir.exists('./simulations/Neyman')){dir.create('./simulations/Neyman')}
 
-if(!dir.exists('./simulations/SRS/mimegans.tuned')){dir.create('./simulations/SRS/mimegans.tuned')}
-if(!dir.exists('./simulations/Balance/mimegans.tuned')){dir.create('./simulations/Balance/mimegans.tuned')}
-if(!dir.exists('./simulations/Neyman/mimegans.tuned')){dir.create('./simulations/Neyman/mimegans.tuned')}
+if(!dir.exists('./simulations/SRS/mimegans')){dir.create('./simulations/SRS/mimegans')}
+if(!dir.exists('./simulations/Balance/mimegans')){dir.create('./simulations/Balance/mimegans')}
+if(!dir.exists('./simulations/Neyman/mimegans')){dir.create('./simulations/Neyman/mimegans')}
 
 args <- commandArgs(trailingOnly = TRUE)
 task_id <- as.integer(ifelse(length(args) >= 1,
@@ -31,7 +31,7 @@ last_rep  <- min(start_rep + task_id * chunk_size - 1L, end_rep)
 
 do_mimegans <- function(samp, info, nm, digit) {
   tm <- system.time({
-    mimegans_imp <- mimegans(samp, m = 20, epochs = 15000,
+    mimegans_imp <- mimegans(samp, m = 20, epochs = 10000,
                              data_info = info,
                              device = "cpu")
   })
@@ -50,11 +50,11 @@ do_mimegans <- function(samp, info, nm, digit) {
   cat("Variance: \n")
   cat(apply(bind_rows(lapply(cox.fit$analyses, function(i){exp(coef(i))})), 2, var), "\n")
   
-  save(mimegans_imp, tm, file = file.path("simulations", nm, "mimegans.tuned",
+  save(mimegans_imp, tm, file = file.path("simulations", nm, "mimegans",
                                           paste0(digit, ".RData")))
 }
 
-for (i in 1:500){
+for (i in first_rep:last_rep){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))
@@ -77,14 +77,13 @@ for (i in 1:500){
                       rs4506565 + I((AGE - 50) / 5) + I((eGFR - 90) / 10) + 
                       SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE, data = data)
   
-  if (!file.exists(paste0("./simulations/SRS/mimegans.tuned/", digit, ".RData"))){
+  if (!file.exists(paste0("./simulations/SRS/mimegans/", digit, ".RData"))){
     do_mimegans(samp_srs, data_info_srs, "SRS", digit)
   }
-  if (!file.exists(paste0("./simulations/Balance/mimegans.tuned/", digit, ".RData"))){
+  if (!file.exists(paste0("./simulations/Balance/mimegans/", digit, ".RData"))){
     do_mimegans(samp_balance, data_info_balance, "Balance", digit)
   }
-  if (!file.exists(paste0("./simulations/Neyman/mimegans.tuned/", digit, ".RData"))){
+  if (!file.exists(paste0("./simulations/Neyman/mimegans/", digit, ".RData"))){
     do_mimegans(samp_neyman, data_info_neyman, "Neyman", digit)
   }
 }
-

@@ -1,14 +1,20 @@
 dimnames.twophase2 <- function(object,...) dimnames(object$phase1$sample$variables)
-calibrateFun <- function(samp){
+calibrateFun <- function(samp, design = "Else"){
   dimnames.twophase2 <- function(object,...) dimnames(object$phase1$sample$variables)
   samp$R <- as.logical(samp$R)
-  n_sampled <- table(samp$STRATA, samp$R)
-  if (any(n_sampled[, 2] == 0)){
-    idx <- which(n_sampled[, 2] == 0)
-    samp$STRATA[samp$STRATA == rownames(n_sampled)[idx]] <- rownames(n_sampled)[idx - 1]
+  
+  if (design != "SRS"){
+    n_sampled <- table(samp$STRATA, samp$R)
+    if (any(n_sampled[, 2] == 0)){
+      idx <- which(n_sampled[, 2] == 0)
+      samp$STRATA[samp$STRATA == rownames(n_sampled)[idx]] <- rownames(n_sampled)[idx - 1]
+    }
+    twophase_des <- twophase(id = list(~1, ~1), strata = list(NULL, ~STRATA), 
+                             subset = ~R, data = samp)
+  }else{
+    twophase_des <- twophase(id = list(~1, ~1), strata = list(NULL, NULL), 
+                             subset = ~R, data = samp)
   }
-  twophase_des <- twophase(id = list(~1, ~1), strata = list(NULL, ~STRATA), 
-                           subset = ~R, data = samp)
   #twophase_des_2 <- subset(svydesign(ids = ~1, strata = ~STRATA, weights = ~W, data = samp), R)
   
   modimp.HbA1c <- svyglm(HbA1c ~ HbA1c_STAR + AGE + SEX + RACE + BMI + SMOKE_STAR + SBP +
@@ -53,8 +59,13 @@ calibrateFun <- function(samp){
   inffun_imp <- residuals(phase1model_imp, type = "dfbeta")
   colnames(inffun_imp) <- paste0("if", 1:ncol(inffun_imp))
   
-  twophase_des_imp <- twophase(id = list(~1, ~1), strata = list(NULL, ~STRATA), 
-                               subset = ~R, data = cbind(samp, inffun_imp))
+  if (design != "SRS"){
+    twophase_des_imp <- twophase(id = list(~1, ~1), strata = list(NULL, ~STRATA), 
+                                 subset = ~R, data = cbind(samp, inffun_imp))
+  }else{
+    twophase_des_imp <- twophase(id = list(~1, ~1), strata = list(NULL, NULL), 
+                                 subset = ~R, data = cbind(samp, inffun_imp))
+  }
   califormu <- make.formula(colnames(inffun_imp)) 
   cali_twophase_imp <- survey::calibrate(twophase_des_imp, califormu, phase = 2, calfun = "raking")
   

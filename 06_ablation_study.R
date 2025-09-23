@@ -14,20 +14,20 @@ if(!dir.exists('./simulations/Ablation/CatProj')){dir.create('./simulations/Abla
 if(!dir.exists('./simulations/Ablation/MMER')){dir.create('./simulations/Ablation/MMER')}
 if(!dir.exists('./simulations/Ablation/GenLoss')){dir.create('./simulations/Ablation/GenLoss')}
 
-args <- commandArgs(trailingOnly = TRUE)
-task_id <- as.integer(ifelse(length(args) >= 1,
-                             args[1],
-                             Sys.getenv("SLURM_ARRAY_TASK_ID", "1")))
-start_rep <- 1
-end_rep   <- 500
-n_chunks  <- 20
-task_id   <- as.integer(Sys.getenv("SLURM_ARRAY_TASK_ID"))
-
-n_in_window <- end_rep - start_rep + 1L
-chunk_size  <- ceiling(n_in_window / n_chunks)
-
-first_rep <- start_rep + (task_id - 1L) * chunk_size
-last_rep  <- min(start_rep + task_id * chunk_size - 1L, end_rep)
+# args <- commandArgs(trailingOnly = TRUE)
+# task_id <- as.integer(ifelse(length(args) >= 1,
+#                              args[1],
+#                              Sys.getenv("SLURM_ARRAY_TASK_ID", "1")))
+# start_rep <- 1
+# end_rep   <- 500
+# n_chunks  <- 20
+# task_id   <- as.integer(Sys.getenv("SLURM_ARRAY_TASK_ID"))
+# 
+# n_in_window <- end_rep - start_rep + 1L
+# chunk_size  <- ceiling(n_in_window / n_chunks)
+# 
+# first_rep <- start_rep + (task_id - 1L) * chunk_size
+# last_rep  <- min(start_rep + task_id * chunk_size - 1L, end_rep)
 
 ### Used the Neyman Allocation Set to Perform
 info <- data_info_neyman
@@ -124,3 +124,6 @@ for (i in 1:500){
     show_bias(mimegans_imp)
   }
 }
+
+foldernames <- c("PacGAN, InfoLoss", "DropoutG", "CELoss", "CatProj", "MMER", "GenLoss")
+resultCoeff

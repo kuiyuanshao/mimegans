@@ -107,7 +107,6 @@ generateImpute <- function(gnet, m = 5,
     #get the original order
     gsamples <- curr_gsample$data
     gsamples <- gsamples[, names(data_original)]
-
     if (params$num == "mmer"){
       gsamples[, num_inds_gen] <- data_original[, num_inds_ori] - gsamples[, num_inds_gen]
     }
@@ -115,8 +114,9 @@ generateImpute <- function(gnet, m = 5,
     M <- gsamples[, p2_idx_out, drop = FALSE]
     row_acc <- acc_prob_row(as.matrix(M[, p2_num_idx_out, drop = FALSE]), lb, ub)
     accept_row <- runif(nrow(M)) < row_acc
+
     iter <- 0L
-    while (iter < max_attempt && any(!accept_row)) {
+    while (iter < max_attempt & any(!accept_row)) {
       oob_rows <- which(!accept_row)
       n <- length(oob_rows)
       if (params$unconditional){

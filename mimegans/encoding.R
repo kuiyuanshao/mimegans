@@ -13,7 +13,7 @@ encode.onehot <- function(data, cat_vars, ori_cat_vars, phase1_vars, phase2_vars
       unique_categories <- na.omit(unique(cat_data[[col]]))
     }
     new_cols <- vector()
-    for (category in unique_categories) {
+    for (category in sort(unique_categories)) {
       new_col_name <- paste0(col, "_", category)
       new_data[[new_col_name]] <- ifelse(cat_data[[col]] == category, 1, 0)
       new_cols <- c(new_cols, new_col_name)

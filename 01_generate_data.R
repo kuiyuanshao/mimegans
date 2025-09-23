@@ -913,7 +913,7 @@ if (file.exists("./data/data_generation_seed.RData")){
   save(seed, file = "./data/data_generation_seed.RData")
 }
 
-for (i in 27:replicate){
+for (i in 1:replicate){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   data <- suppressMessages({generateData(n, seed[i])})

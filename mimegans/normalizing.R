@@ -19,18 +19,23 @@ normalize.mode <- function(data, num_vars, cond_vars) {
     } 
     mc <- mclust::Mclust(curr_col_obs, G = 1:9, verbose = F, modelNames = "V")
     pred <- predict(mc, newdata = curr_col_obs)
-    mode_labels <- as.numeric(as.factor(pred$classification))
-
+    mode_labels <- pred$classification
+    
     mode_means <- mc$parameters$mean + 1e-6
     mode_sds <- sqrt(mc$parameters$variance$sigmasq) + 1e-6
     
     if (length(mode_sds) != length(mode_means)){
       mode_sds <- rep(mode_sds, length(mode_means))
     }
+    labs <- as.character(unique(mode_labels))
+    names(mode_means) <- names(mode_sds) <- as.character(seq_along(mode_means))
+    mode_means <- mode_means[labs]
+    mode_sds <- mode_sds[labs]
+    
     curr_col_norm <- rep(NA, length(curr_col_obs))
     for (mode in sort(unique(mode_labels))) {
-      mode <- as.numeric(mode)
       idx <- which(mode_labels == mode)
+      mode <- as.character(mode)
       if (is.na(mode_sds[mode]) | mode_sds[mode] == 0){
         curr_col_norm[idx] <- (curr_col_obs[idx] - mode_means[mode])
       }else{
@@ -67,9 +72,9 @@ denormalize.mode <- function(data, num_vars, norm_obj){
         curr_transform <- curr_col + mode_means
       }
     }else {
-      for (mode in 1:length(unique(mode_means))){
+      for (mode in unique(curr_labels)){# 1:length(unique(mode_means))){
         idx <- which(curr_labels == mode)
-        curr_transform[idx] <- curr_col[idx] * mode_sds[as.integer(mode)] + mode_means[as.integer(mode)] 
+        curr_transform[idx] <- curr_col[idx] * mode_sds[mode] + mode_means[mode] 
       }
     }
     data[[col]] <- curr_transform

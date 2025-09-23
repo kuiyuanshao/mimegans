@@ -20,6 +20,28 @@ initset <- dataset(
   }
 )
 
+alloc_even <- function(total, levl) {
+  k <- length(levl)
+  if (k == 0L) return(integer(0))
+  base <- total %/% k
+  rem  <- total - base * k
+  counts <- rep.int(base, k)
+  if (rem > 0) counts[seq_len(rem)] <- counts[seq_len(rem)] + 1
+  names(counts) <- levl
+  counts
+}
+
+sampleFun <- function(indices, elements, total){
+  samp_idx <- NULL
+  for (i in unique(elements)){
+    curr_rows <- indices[elements == i]
+    sampled <- sample(1:length(curr_rows), total[[as.character(i)]],
+                      replace = total[[as.character(i)]] > length(curr_rows))
+    samp_idx <- c(samp_idx, curr_rows[sampled])
+  }
+  return (samp_idx)
+}
+
 BalancedSampler <- sampler(
   "BalancedSampler",
   initialize = function(x, bin_cols, batch_size, epochs) {
@@ -29,23 +51,16 @@ BalancedSampler <- sampler(
     self$bs <- batch_size
     self$L <- length(bin_cols)
     self$epochs <- epochs
-    self$k1 <- floor(self$bs / 2)
-    self$k0 <- self$bs - self$k1
+    
   },
   .iter = function() {
     cursor <- 0L
     function() {
       col <- self$bin_cols[(cursor %% self$L) + 1L]
       v <- self$x[, col]
-      idx1 <- which(v == 1L)
-      idx0 <- which(v == 0L)
-      
-      rep1 <- length(idx1) < self$k1
-      rep0 <- length(idx0) < self$k0
-      take1 <- sample(idx1, self$k1, replace = rep1)
-      take0 <- sample(idx0, self$k0, replace = rep0)
-      idx <- c(take1, take0)
-      if (length(idx) > 1) idx <- sample(idx)
+      total <- alloc_even(self$bs, unique(v))
+      idx <- sampleFun(1:self$N, v, total)
+      idx <- sample(idx)
       cursor <<- cursor + 1L
       idx
     }

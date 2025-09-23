@@ -104,7 +104,7 @@ if(!dir.exists('./data/EncodedSample')){dir.create('./data/EncodedSample')}
 if(!dir.exists('./data/EncodedSample/SRS')){dir.create('./data/EncodedSample/SRS')}
 if(!dir.exists('./data/EncodedSample/Balance')){dir.create('./data/EncodedSample/Balance')}
 if(!dir.exists('./data/EncodedSample/Neyman')){dir.create('./data/EncodedSample/Neyman')}
-for (i in 83:replicate){
+for (i in 1:replicate){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))

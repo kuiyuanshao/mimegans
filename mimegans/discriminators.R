@@ -20,7 +20,7 @@ discriminator.mlp <- torch::nn_module(
         self$seq_info$add_module(paste0("Linear_info", i), nn_linear(dim, params$d_dim[i]))
         self$seq_info$add_module(paste0("LeakyReLU_info", i), nn_leaky_relu(0.2))
         if (i != length(params$d_dim)){
-         self$seq_info$add_module(paste0("Dropout", i), nn_dropout(0.5))
+          self$seq_info$add_module(paste0("Dropout", i), nn_dropout(0.5))
         }
         dim <- params$d_dim[i]
       }

@@ -8,31 +8,31 @@ if(!dir.exists('./simulations/SRS')){dir.create('./simulations/SRS')}
 if(!dir.exists('./simulations/Balance')){dir.create('./simulations/Balance')}
 if(!dir.exists('./simulations/Neyman')){dir.create('./simulations/Neyman')}
 
-if(!dir.exists('./simulations/SRS/mimegans')){dir.create('./simulations/SRS/mimegans')}
-if(!dir.exists('./simulations/Balance/mimegans')){dir.create('./simulations/Balance/mimegans')}
-if(!dir.exists('./simulations/Neyman/mimegans')){dir.create('./simulations/Neyman/mimegans')}
+if(!dir.exists('./simulations/SRS/mimegans.matchp1')){dir.create('./simulations/SRS/mimegans.matchp1')}
+if(!dir.exists('./simulations/Balance/mimegans.matchp1')){dir.create('./simulations/Balance/mimegans.matchp1')}
+if(!dir.exists('./simulations/Neyman/mimegans.matchp1')){dir.create('./simulations/Neyman/mimegans.matchp1')}
 
-args <- commandArgs(trailingOnly = TRUE)
-task_id <- as.integer(ifelse(length(args) >= 1,
-                             args[1],
-                             Sys.getenv("SLURM_ARRAY_TASK_ID", "1")))
-sampling_design <- ifelse(length(args) >= 2, 
-                          args[2], Sys.getenv("SAMP", "All"))
-start_rep <- 1
-end_rep   <- 500
-n_chunks  <- 20
-task_id   <- as.integer(Sys.getenv("SLURM_ARRAY_TASK_ID"))
-
-n_in_window <- end_rep - start_rep + 1L
-chunk_size  <- ceiling(n_in_window / n_chunks)
-
-first_rep <- start_rep + (task_id - 1L) * chunk_size
-last_rep  <- min(start_rep + task_id * chunk_size - 1L, end_rep)
+# args <- commandArgs(trailingOnly = TRUE)
+# task_id <- as.integer(ifelse(length(args) >= 1,
+#                              args[1],
+#                              Sys.getenv("SLURM_ARRAY_TASK_ID", "1")))
+# sampling_design <- ifelse(length(args) >= 2, 
+#                           args[2], Sys.getenv("SAMP", "All"))
+# start_rep <- 1
+# end_rep   <- 500
+# n_chunks  <- 20
+# task_id   <- as.integer(Sys.getenv("SLURM_ARRAY_TASK_ID"))
+# 
+# n_in_window <- end_rep - start_rep + 1L
+# chunk_size  <- ceiling(n_in_window / n_chunks)
+# 
+# first_rep <- start_rep + (task_id - 1L) * chunk_size
+# last_rep  <- min(start_rep + task_id * chunk_size - 1L, end_rep)
 
 do_mimegans <- function(samp, info, nm, digit) {
   tm <- system.time({
     mimegans_imp <- mimegans(samp, m = 20, epochs = 10000,
-                             data_info = info,
+                             data_info = info, params = list(component = "match_p1"), 
                              device = "cpu")
   })
   mimegans_imp$imputation <- lapply(mimegans_imp$imputation, function(dat){
@@ -50,11 +50,11 @@ do_mimegans <- function(samp, info, nm, digit) {
   cat("Variance: \n")
   cat(apply(bind_rows(lapply(cox.fit$analyses, function(i){exp(coef(i))})), 2, var), "\n")
   
-  save(mimegans_imp, tm, file = file.path("simulations", nm, "mimegans",
+  save(mimegans_imp, tm, file = file.path("simulations", nm, "mimegans.matchp1",
                                           paste0(digit, ".RData")))
 }
 
-for (i in first_rep:last_rep){
+for (i in 1:500){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))
@@ -77,13 +77,13 @@ for (i in first_rep:last_rep){
                       rs4506565 + I((AGE - 50) / 5) + I((eGFR - 90) / 10) + 
                       SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE, data = data)
   
-  if (!file.exists(paste0("./simulations/SRS/mimegans/", digit, ".RData"))){
+  if (!file.exists(paste0("./simulations/SRS/mimegans.matchp1/", digit, ".RData"))){
     do_mimegans(samp_srs, data_info_srs, "SRS", digit)
   }
-  if (!file.exists(paste0("./simulations/Balance/mimegans/", digit, ".RData"))){
+  if (!file.exists(paste0("./simulations/Balance/mimegans.matchp1/", digit, ".RData"))){
     do_mimegans(samp_balance, data_info_balance, "Balance", digit)
   }
-  if (!file.exists(paste0("./simulations/Neyman/mimegans/", digit, ".RData"))){
+  if (!file.exists(paste0("./simulations/Neyman/mimegans.matchp1/", digit, ".RData"))){
     do_mimegans(samp_neyman, data_info_neyman, "Neyman", digit)
   }
 }

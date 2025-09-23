@@ -42,6 +42,19 @@ rmse_result <- resultCoeff %>%
     }
   ), .groups = "drop")
 
+diffCoeff <- resultCoeff %>%
+  filter(!Method %in% c("ME", "TRUE")) %>%
+  select(Method, Design, any_of("ID"), all_of(cols)) %>%
+  mutate(across(all_of(cols), as.numeric)) %>%
+  group_by(Method, Design) %>%
+  summarise(across(
+    all_of(cols),
+    ~ {
+      t <- true.coeff[[cur_column()]]
+      (.x - t)
+    }
+  ), .groups = "drop")
+
 rmse_result_long <- rmse_result %>% 
   pivot_longer(
     cols = 3:16,

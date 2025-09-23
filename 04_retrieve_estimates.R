@@ -3,15 +3,16 @@ source("00_utils_functions.R")
 options(survey.lonely.psu = "certainty")
 
 sampling_designs <- c("SRS", "Balance", "Neyman")
-methods <- c("mimegans", "gain", "mice", "mixgb", "raking")
+methods <- c("mimegans", "mice", "mixgb", "raking")
 
-resultCoeff <- matrix(0, nrow = 14 * 20, ncol = 17)
-resultStdError <- matrix(0, nrow = 14 * 20, ncol = 17)
-resultCI <- matrix(0, nrow = 14 * 20, ncol = 31)
-available <- as.integer(sub("\\.[Rr]Data$", "", list.files("./simulations/Neyman/mimegans")))
+# 5 * 3 + 3 + 1 + 1
+resultCoeff <- matrix(0, nrow = 17 * 500, ncol = 17)
+resultStdError <- matrix(0, nrow = 17 * 500, ncol = 17)
+resultCI <- matrix(0, nrow = 17 * 500, ncol = 31)
+## available <- as.integer(sub("\\.[Rr]Data$", "", list.files("./simulations/Neyman/mimegans")))
 
 ind <- 1
-for (i in available[1:20]){
+for (i in 1:500){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))
@@ -46,13 +47,14 @@ for (i in available[1:20]){
     resultCoeff[ind, ] <- c(exp(coef(cox.comp)), toupper(j), "COMPLETE", digit)
     resultStdError[ind, ] <- c(sqrt(diag(vcov(cox.comp))), toupper(j), "COMPLETE", digit)
     resultCI[ind, ] <- c(exp(confint(cox.comp)[, 1]), exp(confint(cox.comp)[, 2]), toupper(j), "COMPLETE", digit)
+    ind <- ind + 1
     for (k in methods){
       if (!file.exists(paste0("./simulations/", j, "/", k, "/", digit, ".RData"))){
         next
       }
       load(paste0("./simulations/", j, "/", k, "/", digit, ".RData"))
       if (k != "raking"){
-        if (k == "mimegans" | k == "mimegans_5_3"){
+        if (k == "mimegans"){
           mimegans_imp$imputation <- lapply(mimegans_imp$imputation, function(dat){
             match_types(dat, data)
           })
@@ -101,10 +103,6 @@ resultCI <- as.data.frame(resultCI)
 names(resultCI) <- c(paste0(names(coef(cox.true)), ".lower"), 
                      paste0(names(coef(cox.true)), ".upper"),
                      "Design", "Method", "ID")
-resultCICover <- as.data.frame(resultCICover)
-names(resultCICover) <- c(names(coef(cox.true)),
-                         "Design", "Method", "ID")
-
-save(resultCICover, file = "./simulations/results.RData")
+save(resultCoeff, resultStdError, resultCI, file = "./simulations/results.RData")
 
 

@@ -58,11 +58,14 @@ ceLoss <- function(fake, true, fake_proj, A, I, params, cats_p1, cats_p2, cats_m
   return (loss_t)
 }
 
-activationFun <- function(fake, all_cats, params, gen = F){
+activationFun <- function(fake, all_cats, all_nums, params, gen = F){
   hard_flag <- if (gen) TRUE else isTRUE(params$hard)
   for (cat in all_cats){
     fake[, cat] <- nnf_gumbel_softmax(fake[, cat, drop = F], tau = params$tau, hard = hard_flag)
   }
+  # if (params$activation_num){
+  #   fake[, all_nums] <- torch_tanh(fake[, all_nums])
+  # }
   return (fake)
 }
 

@@ -1,4 +1,4 @@
-Residual <- torch::nn_module(
+Residual <- nn_module(
   "Residual",
   initialize = function(dim1, dim2, rate, ...){
     self$rate <- rate
@@ -19,16 +19,16 @@ Residual <- torch::nn_module(
   }
 )
 
-forwardA.mlp <- torch::nn_module(
-  "ForwardA",
-  initialize = function(params, ncols, nphase1){
-    dim1 <- ncols - nphase1
-    self$seq <- torch::nn_sequential()
+classifier.mlp <- nn_module(
+  "Classifier",
+  initialize = function(params, ncols, noutput){
+    dim1 <- ncols
+    self$seq <- nn_sequential()
     for (i in 1:length(params$g_dim)){
-      self$seq$add_module(paste0("Residual_", i), Residual(dim1, params$g_dim[i], params$g_dropout / 2))
+      self$seq$add_module(paste0("Residual_", i), Residual(dim1, params$g_dim[i], 0))
       dim1 <- dim1 + params$g_dim[i]
     }
-    self$seq$add_module("Linear", nn_linear(dim1, nphase1))
+    self$seq$add_module("Linear", nn_linear(dim1, noutput))
   },
   forward = function(input){
     fake <- self$seq(input)
@@ -36,7 +36,7 @@ forwardA.mlp <- torch::nn_module(
   }
 )
 
-generator.mlp <- torch::nn_module(
+generator.mlp <- nn_module(
   "Generator",
   initialize = function(params, ncols, nphase2, nphase1, ...){
     self$nphase2 <- nphase2
@@ -49,26 +49,16 @@ generator.mlp <- torch::nn_module(
       self$dim1 <- params$noise_dim + ncols - nphase2
       dim1 <- params$noise_dim + ncols - nphase2
     }
-    self$dropout <- nn_dropout(params$g_dropout * 0.4)
-    self$seq <- torch::nn_sequential()
+    self$dropout <- nn_dropout(params$g_dropout / 2)
+    self$seq <- nn_sequential()
     for (i in 1:length(params$g_dim)){
       self$seq$add_module(paste0("Residual_", i), Residual(dim1, params$g_dim[i], params$g_dropout))
       dim1 <- dim1 + params$g_dim[i]
     }
-    if (params$component == "gen_loss"){
+    if (params$component == "cond_lossv1"){
       self$seq$add_module("Linear", nn_linear(dim1, ncols))
     }else{
       self$seq$add_module("Linear", nn_linear(dim1, nphase2))
-    }
-    
-    if (params$component == "match_p1"){
-      dim1 <- nphase2
-      self$seqA <- torch::nn_sequential()
-      for (i in 1:length(params$g_dim)){
-        self$seqA$add_module(paste0("Residual_", i), Residual(dim1, params$g_dim[i], 0))
-        dim1 <- dim1 + params$g_dim[i]
-      }
-      self$seqA$add_module("Linear", nn_linear(dim1, nphase1))
     }
   },
   forward = function(N, A, C, ...){
@@ -85,7 +75,7 @@ generator.mlp <- torch::nn_module(
     
     X_fake <- self$seq(input)
     
-    if (self$params$component == "gen_loss"){
+    if (self$params$component == "cond_lossv1"){
       Full_fake <- X_fake
       X_fake <- X_fake[, 1:self$nphase2, drop = F]
       return (list(X_fake, Full_fake))

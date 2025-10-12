@@ -8,9 +8,9 @@ if(!dir.exists('./simulations/SRS')){dir.create('./simulations/SRS')}
 if(!dir.exists('./simulations/Balance')){dir.create('./simulations/Balance')}
 if(!dir.exists('./simulations/Neyman')){dir.create('./simulations/Neyman')}
 
-if(!dir.exists('./simulations/SRS/mimegans.matchp1')){dir.create('./simulations/SRS/mimegans.matchp1')}
-if(!dir.exists('./simulations/Balance/mimegans.matchp1')){dir.create('./simulations/Balance/mimegans.matchp1')}
-if(!dir.exists('./simulations/Neyman/mimegans.matchp1')){dir.create('./simulations/Neyman/mimegans.matchp1')}
+if(!dir.exists('./simulations/SRS/mimegans')){dir.create('./simulations/SRS/mimegans')}
+if(!dir.exists('./simulations/Balance/mimegans')){dir.create('./simulations/Balance/mimegans')}
+if(!dir.exists('./simulations/Neyman/mimegans')){dir.create('./simulations/Neyman/mimegans')}
 
 # args <- commandArgs(trailingOnly = TRUE)
 # task_id <- as.integer(ifelse(length(args) >= 1,
@@ -32,8 +32,7 @@ if(!dir.exists('./simulations/Neyman/mimegans.matchp1')){dir.create('./simulatio
 do_mimegans <- function(samp, info, nm, digit) {
   tm <- system.time({
     mimegans_imp <- mimegans(samp, m = 20, epochs = 10000,
-                             data_info = info, params = list(component = "match_p1"), 
-                             device = "cpu")
+                             data_info = info, device = "cpu")
   })
   mimegans_imp$imputation <- lapply(mimegans_imp$imputation, function(dat){
     match_types(dat, data)
@@ -50,7 +49,7 @@ do_mimegans <- function(samp, info, nm, digit) {
   cat("Variance: \n")
   cat(apply(bind_rows(lapply(cox.fit$analyses, function(i){exp(coef(i))})), 2, var), "\n")
   
-  save(mimegans_imp, tm, file = file.path("simulations", nm, "mimegans.matchp1",
+  save(mimegans_imp, tm, file = file.path("simulations", nm, "mimegans",
                                           paste0(digit, ".RData")))
 }
 
@@ -77,13 +76,13 @@ for (i in 1:500){
                       rs4506565 + I((AGE - 50) / 5) + I((eGFR - 90) / 10) + 
                       SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE, data = data)
   
-  if (!file.exists(paste0("./simulations/SRS/mimegans.matchp1/", digit, ".RData"))){
+  if (!file.exists(paste0("./simulations/SRS/mimegans/", digit, ".RData"))){
     do_mimegans(samp_srs, data_info_srs, "SRS", digit)
   }
-  if (!file.exists(paste0("./simulations/Balance/mimegans.matchp1/", digit, ".RData"))){
+  if (!file.exists(paste0("./simulations/Balance/mimegans/", digit, ".RData"))){
     do_mimegans(samp_balance, data_info_balance, "Balance", digit)
   }
-  if (!file.exists(paste0("./simulations/Neyman/mimegans.matchp1/", digit, ".RData"))){
+  if (!file.exists(paste0("./simulations/Neyman/mimegans/", digit, ".RData"))){
     do_mimegans(samp_neyman, data_info_neyman, "Neyman", digit)
   }
 }

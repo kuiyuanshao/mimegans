@@ -1,5 +1,6 @@
 lapply(c("ggplot2", "dplyr", "tidyr", "RColorBrewer", "ggh4x"), require, character.only = T)
 load("./simulations/results.RData")
+source("00_utils_functions.R")
 # resultCICover %>% 
 #   select(Method, Design, any_of("ID"), all_of(cols)) %>%
 #   mutate(across(all_of(names(.)[4:17]), as.logical)) %>%

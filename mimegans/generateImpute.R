@@ -37,6 +37,7 @@ generateImpute <- function(gnet, m = 5,
                            phase1_vars, phase2_vars,
                            num.normalizing, cat.encoding, 
                            device, params, all_cats_p2,
+                           num_inds_p2,
                            tensor_list){
   imputed_data_list <- vector("list", m)
   gsample_data_list <- vector("list", m)
@@ -87,7 +88,7 @@ generateImpute <- function(gnet, m = 5,
                               size = c(X$size(1), params$noise_dim))$to(device = device)
         gsample <- gnet(fakez, A, C)[[1]]
       }
-      gsample <- activationFun(gsample, all_cats_p2, params, gen = T)
+      gsample <- activationFun(gsample, all_cats_p2, num_inds_p2, params, gen = T)
       gsample <- torch_cat(list(gsample, A, C), dim = 2)
       output_list[[i]] <- gsample
     }
@@ -127,7 +128,7 @@ generateImpute <- function(gnet, m = 5,
         fakez <- torch_normal(mean = 0, std = 1, size = c(n, params$noise_dim))$to(device = device) 
         new_samp <- gnet(fakez, A_t[oob_rows, , drop = F], C_t[oob_rows, , drop = F])[[1]]
       }
-      new_samp <- activationFun(new_samp, all_cats_p2, params, gen = T)
+      new_samp <- activationFun(new_samp, all_cats_p2, num_inds_p2, params, gen = T)
       new_samp <- torch_cat(list(new_samp, A_t[oob_rows, , drop = F], C_t[oob_rows, , drop = F]), dim = 2)
       new_df <- as.data.frame(as.matrix(new_samp$detach()$cpu()))
       names(new_df) <- names(data_training)

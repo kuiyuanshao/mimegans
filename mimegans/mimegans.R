@@ -7,9 +7,9 @@ cwgangp_default <- function(batch_size = 500, lambda = 10,
                             g_dim = c(256, 256), d_dim = c(256, 256), pac = 5, discriminator_steps = 1,
                             tau = 0.2, hard = F, type_g = "mlp", type_d = "mlp",
                             num = "mmer", cat = "projp1", component = "none", 
-                            info_loss = T, balancebatch = T, unconditional = F){
+                            info_loss = F, balancebatch = T, unconditional = F){
   batch_size <- pac * round(batch_size / pac)
-  if (component == "gen_loss"){
+  if (component == "cond_lossv1" | component == "cond_lossv2"){
     unconditional <- F
     balancebatch <- T
   }
@@ -77,6 +77,8 @@ mimegans <- function(data, m = 5,
   conditions_vars_encode <- c(setdiff(conditions_vars, mode_cat_vars),
                               unlist(data_encode$new_col_names[conditions_vars]))
   
+  num_inds_c <- which(conditions_vars_encode %in% data_info$num_vars)
+  cat_inds_c <- which(conditions_vars_encode %in% unlist(data_encode$new_col_names))
   num_inds_p1 <- which(phase1_vars_encode %in% data_info$num_vars)
   cat_inds_p1 <- which(phase1_vars_encode %in% unlist(data_encode$new_col_names))
   num_inds_p2 <- which(phase2_vars_encode %in% data_info$num_vars)
@@ -86,18 +88,22 @@ mimegans <- function(data, m = 5,
                  phase2_vars_encode[cat_inds_p2],
                  phase1_vars_encode[num_inds_p1], 
                  phase1_vars_encode[cat_inds_p1],
+                 conditions_vars_encode[num_inds_c],
+                 conditions_vars_encode[cat_inds_c],
                  setdiff(names(data_training), 
-                         c(phase2_vars_encode, phase1_vars_encode)))
-  data_training <- data_training[, new_order]
+                         c(phase2_vars_encode, phase1_vars_encode,
+                           conditions_vars_encode)))
   
+  data_training <- data_training[, new_order]
   data_encode$binary_indices <- 
     lapply(data_encode$binary_indices, 
            function(idx) match(names(data_encode$data)[idx], names(data_training)))
-  
-  data_mask <- torch_tensor(1 - is.na(data_training), dtype = torch_long(), device = device)
+
   conditions_t <- torch_tensor(as.matrix(data_training[, conditions_vars_encode, drop = F]), 
                                device = device)
-  phase2_m <- data_training[, phase2_vars_encode, drop = F]; phase2_m[is.na(phase2_m)] <- 0 
+  phase2_m <- data_training[, phase2_vars_encode, drop = F]
+  data_mask <- torch_tensor(1 - is.na(phase2_m), dtype = torch_long(), device = device)
+  phase2_m[is.na(phase2_m)] <- 0 
   phase2_t <- torch_tensor(as.matrix(phase2_m), device = device)
   
   phase1_m <- data_training[, phase1_vars_encode, drop = F]
@@ -109,7 +115,6 @@ mimegans <- function(data, m = 5,
                    phase1_vars_encode, phase2_vars_encode, conditions_vars_encode)
   p2set <- initset(data_training, phase2_rows, 
                    phase1_vars_encode, phase2_vars_encode, conditions_vars_encode)
-  
   p2b_t <- as.integer(params$batch_size * params$at_least_p)
   p1b_t <- params$batch_size - p2b_t
   if (params$balancebatch){
@@ -123,6 +128,12 @@ mimegans <- function(data, m = 5,
     }
     bins_l <- length(phase1_bins)
     phase1_bins_indices <- data_encode$binary_indices[phase1_bins]
+    
+    phase1_bins_indices_sort <- phase1_bins_indices[order(vapply(phase1_bins_indices, min, integer(1)))]
+    lens <- lengths(phase1_bins_indices_sort)
+    starts <- cumsum(c(1L, head(lens, -1L)))
+    phase1_bins_indices_seq  <- Map(function(n, s) seq.int(s, s + n - 1L), lens, starts)
+    names(phase1_bins_indices_seq) <- names(phase1_bins_indices_sort)
     
     p1sampler <- BalancedSampler(data_original[phase1_rows,], phase1_bins, p1b_t, epochs)
     p2sampler <- BalancedSampler(data_original[phase2_rows,], phase1_bins, p2b_t, epochs)
@@ -165,6 +176,7 @@ mimegans <- function(data, m = 5,
     data_encode$binary_indices[i] 
   }
   
+  allnums <- which(names(data_training) %in% data_info$num_vars)
   allcats <- data_encode$binary_indices
   allcats_p2 <- bins_by_enc(phase2_vars_encode)
   cats_mode <- bins_by_enc(setdiff(phase2_vars_encode, 
@@ -172,7 +184,7 @@ mimegans <- function(data, m = 5,
   i_order <- idx_map[phase2_vars_encode]; i_order <- i_order[!is.na(i_order) & !duplicated(i_order)]
   cats_p2 <- data_encode$binary_indices[i_order[names(data_encode$binary_indices)[i_order] %in% phase2_cats]]
   
-  if (params$component == "gen_loss"){
+  if (params$component == "cond_lossv1" | params$component == "cond_lossv2"){
     mask_A <- torch_tensor(matrix(1, nrow = params$batch_size, 
                                   ncol = length(phase1_vars_encode)), dtype = torch_long(), device = device)
     mask_A[, unlist(cats_p1)] <- 0
@@ -216,26 +228,26 @@ mimegans <- function(data, m = 5,
                   args = list(params, ncols, 
                               length(phase2_vars_encode), 
                               length(phase1_vars_encode)))$to(device = device)
-  if (params$component == "gen_loss"){
+  if (params$component == "cond_lossv1"){
     dnet <- do.call(paste("discriminator", params$type_d, sep = "."), 
                     args = list(params, ncols + length(phase1_vars_encode) + 
                                   length(conditions_vars_encode)))$to(device = device)
-  }else if (params$component == "match_p1"){
-    fnet <- do.call(paste("forwardA", params$type_g, sep = "."), 
-                    args = list(params, ncols, 
-                                length(phase1_vars_encode)))$to(device = device)
+  }else if(params$component == "cond_lossv2"){
     dnet <- do.call(paste("discriminator", params$type_d, sep = "."), 
                     args = list(params, ncols))$to(device = device)
-    f_solver <- torch::optim_adam(fnet$parameters, lr = params$lr_g * 2, 
-                                  betas = params$g_betas, weight_decay = params$g_weight_decay * 100)
+    cnet <- do.call(paste("classifier", params$type_g, sep = "."), 
+                    args = list(params, length(phase2_vars_encode), 
+                                length(unlist(phase1_bins_indices_seq))))$to(device = device)
+    c_solver <- optim_adam(cnet$parameters, lr = params$lr_g, 
+                           betas = params$g_betas, weight_decay = params$g_weight_decay)
   }else{
     dnet <- do.call(paste("discriminator", params$type_d, sep = "."), 
                     args = list(params, ncols))$to(device = device)
   }
-  d_solver <- torch::optim_adam(dnet$parameters, lr = params$lr_d, 
-                                betas = params$d_betas, weight_decay = params$d_weight_decay)
-  g_solver <- torch::optim_adam(gnet$parameters, lr = params$lr_g, 
-                                betas = params$g_betas, weight_decay = params$g_weight_decay)
+  d_solver <- optim_adam(dnet$parameters, lr = params$lr_d, 
+                         betas = params$d_betas, weight_decay = params$d_weight_decay)
+  g_solver <- optim_adam(gnet$parameters, lr = params$lr_g, 
+                         betas = params$g_betas, weight_decay = params$g_weight_decay)
   
   training_loss <- matrix(0, nrow = epochs, ncol = 2)
   
@@ -253,43 +265,49 @@ mimegans <- function(data, m = 5,
     step_result <- list()
     p <- 1
   }
+  
   it_D <- dataloader_make_iter(Dloader)
   
-  if (params$component == "match_p1"){
+  if (params$component == "cond_lossv2"){
     pb.p1 <- progress_bar$new(
-      format = paste0("Running Forward A [:bar] :percent eta: :eta | MSE: :mse_loss | CE: :ce_loss"),
+      format = paste0("Training Cond Predictor [:bar] :percent eta: :eta | CE: :c_loss"),
       clear = FALSE, total = epochs %/% 5, width = 100)
-    fnet$train()
+    cnet$train()
     for (i in 1:(epochs %/% 5)){
-      f_solver$zero_grad()
+      c_solver$zero_grad()
       batch <- dataloader_next(it_D)
       A <- batch$A$to(device = device)
       X <- batch$X$to(device = device)
       C <- batch$C$to(device = device)
-      input <- torch_cat(list(X, C), dim = 2)
-      A_fake <- fnet(input)
-      mse_loss <- nnf_mse_loss(A_fake[, num_inds_p1, drop = F],
-                               A[, num_inds_p1, drop = F])
-      ce_loss <- torch_tensor(0, device = device)
-      if (length(cats_p1) > 0){
-        for (p1_inds in cats_p1){
-          ce_loss <- ce_loss + nnf_cross_entropy(A_fake[, p1_inds, drop = F],
-                                                 torch_argmax(A[, p1_inds, drop = F], dim = 2))
-        }
-        ce_loss <- ce_loss / length(cats_p1)
-      }
-      f_loss <- mse_loss + ce_loss
-      f_loss$backward()
-      f_solver$step()
       
-      pb.p1$tick(tokens = list(mse_loss = sprintf("%.3f", mse_loss$item()),
-                               ce_loss = sprintf("%.3f", ce_loss$item())))
+      Cond_fake <- cnet(X)
+      if (length(cat_inds_p1) > 0 & length(cat_inds_c) > 0){
+        Cond_true <- torch_cat(list(A[, cat_inds_p1, drop = F], C[, cat_inds_c, drop = F]), dim = 2)
+      }else if (length(cat_inds_p1) > 0){
+        Cond_true <- A[, cat_inds_p1, drop = F]
+      }else if (length(length(cat_inds_c) > 0)){
+        Cond_true <- C[, cat_inds_c, drop = F]
+      }else{
+        params$component <- "none"
+        break
+      }
+      c_loss <- torch_tensor(0, device = device)
+      for (k in phase1_bins_indices_seq){
+        c_loss <- c_loss + nnf_cross_entropy(Cond_fake[, k, drop = F], 
+                                             torch_argmax(Cond_true[, k, drop = F], dim = 2))
+      }
+      
+      c_loss$backward()
+      c_solver$step()
+      
+      pb.p1$tick(tokens = list(c_loss = sprintf("%.3f", c_loss$item())))
       Sys.sleep(1 / 100000)
     }
     pb.p1$terminate()
-    fnet$eval()
-    for (p in fnet$parameters) p$requires_grad_(FALSE)
+    cnet$eval()
+    for (p in cnet$parameters) p$requires_grad_(FALSE)
   }
+  
   it_p1 <- dataloader_make_iter(p1loader)
   it_p2 <- dataloader_make_iter(p2loader)
   it_D <- dataloader_make_iter(Dloader)
@@ -302,7 +320,7 @@ mimegans <- function(data, m = 5,
     C <- batch$C$to(device = device)
     M <- batch$M$to(device = device)
     
-    if (params$component == "gen_loss"){
+    if (params$component == "cond_lossv1"){
       mask_A <- m_A_list[[(i - 1) %% bins_l + 1]]
       mask_C <- m_C_list[[(i - 1) %% bins_l + 1]]
       fakez <- torch_normal(mean = 0, std = 1, size = c(params$batch_size, params$noise_dim))$to(device = device) 
@@ -318,13 +336,13 @@ mimegans <- function(data, m = 5,
       }
     }
     X_fake <- fake[[1]]$detach()
-    if (params$component == "gen_loss"){
+    if (params$component == "cond_lossv1"){
       F_fake <- fake[[2]]$detach()
-      F_fakeact <- activationFun(F_fake, allcats, params)
+      F_fakeact <- activationFun(F_fake, allcats, allnums, params)
       fake_AC <- torch_cat(list(F_fakeact, A * mask_A, C * mask_C), dim = 2)
       true_AC <- torch_cat(list(X, A, C, A * mask_A, C * mask_C), dim = 2)
     }else{
-      X_fakeact <- activationFun(X_fake, allcats_p2, params)
+      X_fakeact <- activationFun(X_fake, allcats_p2, num_inds_p2, params)
       fake_AC <- torch_cat(list(X_fakeact, A, C), dim = 2)
       true_AC <- torch_cat(list(X, A, C), dim = 2)
     }
@@ -349,7 +367,7 @@ mimegans <- function(data, m = 5,
     M <- torch_cat(list(batch_p1$M, batch_p2$M), dim = 1)$to(device = device)
     I <- M[, 1] == 1
     
-    if (params$component == "gen_loss"){
+    if (params$component == "cond_lossv1"){
       mask_A <- m_A_list[[(i - 1) %% bins_l + 1]]
       mask_C <- m_C_list[[(i - 1) %% bins_l + 1]]
       fakez <- torch_normal(mean = 0, std = 1, size = c(params$batch_size, params$noise_dim))$to(device = device) 
@@ -379,20 +397,43 @@ mimegans <- function(data, m = 5,
     recon_loss <- reconLoss(X_fake, X, fake_proj, A, I, params, 
                             num_inds_p2, cat_inds_p2, 
                             cats_p1, cats_p2, cats_mode)
-    if (params$component == "gen_loss"){
+    if (params$component == "cond_lossv1"){
       F_fake <- fake[[2]]
       F_tensor <- torch_cat(list(X, A, C), dim = 2)
       curr_ind <- phase1_bins_indices[[(i - 1) %% bins_l + 1]]
       
-      gen_loss <- nnf_cross_entropy(F_fake[, curr_ind, drop = F]$clone(), 
-                                    torch_argmax(F_tensor[, curr_ind, drop = F], dim = 2))
-      recon_loss <- recon_loss + gen_loss
+      cond_lossv1 <- nnf_cross_entropy(F_fake[, curr_ind, drop = F]$clone(), 
+                                       torch_argmax(F_tensor[, curr_ind, drop = F], dim = 2))
+      recon_loss <- recon_loss + cond_lossv1
       
-      F_fakeact <- activationFun(F_fake, allcats, params)
+      F_fakeact <- activationFun(F_fake, allcats, allnums, params)
       fake_AC <- torch_cat(list(F_fakeact, A * mask_A, C * mask_C), dim = 2)
       true_AC <- torch_cat(list(X, A, C, A * mask_A, C * mask_C), dim = 2)
+    }else if(params$component == "cond_lossv2"){
+      X_fakeact <- activationFun(X_fake, allcats_p2, num_inds_p2, params)
+      Cond_fake <- cnet(X_fakeact)
+      
+      if (length(cat_inds_p1) > 0 & length(cat_inds_c) > 0){
+        Cond_true <- torch_cat(list(A[, cat_inds_p1, drop = F], 
+                                    C[, cat_inds_c, drop = F]), dim = 2)
+      }else if (length(cat_inds_p1) > 0){
+        Cond_true <- A[, cat_inds_p1, drop = F]
+      }else{
+        Cond_true <- C[, cat_inds_c, drop = F]
+      }
+      
+      curr_var <- phase1_bins[(i - 1) %% bins_l + 1]
+      curr_ind <- phase1_bins_indices_seq[[curr_var]]
+
+      cond_lossv2 <- nnf_cross_entropy(Cond_fake[, curr_ind, drop = F], 
+                                       torch_argmax(Cond_true[, curr_ind, drop = F], dim = 2))
+      
+      recon_loss <- recon_loss + cond_lossv2
+      
+      fake_AC <- torch_cat(list(X_fakeact, A, C), dim = 2)
+      true_AC <- torch_cat(list(X, A, C), dim = 2)
     }else{
-      X_fakeact <- activationFun(X_fake, allcats_p2, params)
+      X_fakeact <- activationFun(X_fake, allcats_p2, num_inds_p2, params)
       fake_AC <- torch_cat(list(X_fakeact, A, C), dim = 2)
       true_AC <- torch_cat(list(X, A, C), dim = 2)
     }
@@ -408,20 +449,6 @@ mimegans <- function(data, m = 5,
       g_loss <- adv_term + recon_loss
     }
     
-    if (params$component == "match_p1"){
-      A_fake <- fnet(torch_cat(list(X_fake, C), dim = 2))
-      mse_loss <- nnf_mse_loss(A_fake[, num_inds_p1, drop = F],
-                               A[, num_inds_p1, drop = F])
-      ce_loss <- torch_tensor(0, device = device)
-      if (length(cats_p1) > 0){
-        for (p1_inds in cats_p1){
-          ce_loss <- ce_loss + nnf_cross_entropy(A_fake[, p1_inds, drop = F],
-                                                 torch_argmax(A[, p1_inds, drop = F], dim = 2))
-        }
-        ce_loss <- ce_loss / length(cats_p1)
-      }
-      g_loss <- g_loss + mse_loss + ce_loss
-    }
     
     g_solver$zero_grad()
     g_loss$backward()
@@ -459,7 +486,7 @@ mimegans <- function(data, m = 5,
                                  data_encode, data_training,
                                  phase1_vars_encode, phase2_vars_encode, 
                                  num.normalizing, cat.encoding,
-                                 device, params, allcats_p2, tensor_list)
+                                 device, params, allcats_p2, num_inds_p2, tensor_list)
         step_result[[p]] <- result
         p <- p + 1
         
@@ -480,7 +507,7 @@ mimegans <- function(data, m = 5,
                            data_encode, data_training,
                            phase1_vars_encode, phase2_vars_encode,
                            num.normalizing, cat.encoding, 
-                           device, params, allcats_p2, tensor_list)
+                           device, params, allcats_p2, num_inds_p2, tensor_list)
   out <- list(imputation = result$imputation,
               gsample = result$gsample,
               loss = training_loss)

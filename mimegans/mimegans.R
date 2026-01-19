@@ -1,8 +1,8 @@
 pacman::p_load(progress, torch)
 
 cwgangp_default <- function(batch_size = 500, lambda = 10, 
-                            alpha = 0, beta = 1, proj_weight = 0.1,
-                            at_least_p = 0.5, g_dropout = 0.2,
+                            alpha = 0, beta = 1, proj_weight = 1,
+                            at_least_p = 0.5, g_dropout = 0.5,
                             lr_g = 2e-4, lr_d = 2e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
                             g_weight_decay = 1e-6, d_weight_decay = 1e-6, noise_dim = 64, cond_dim = 128,
                             g_dim = c(256, 256), d_dim = c(256, 256), pac = 5, discriminator_steps = 1,

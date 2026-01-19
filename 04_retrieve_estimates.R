@@ -2,11 +2,11 @@ lapply(c("survival", "dplyr", "stringr", "survey", "mice"), require, character.o
 source("00_utils_functions.R")
 
 options(survey.lonely.psu = "certainty")
-sampling_designs <- c("SRS", "Balance", "Neyman")
-methods <- c("mimegans", "mice", "mixgb", "raking")
+sampling_designs <- "Neyman" #c("SRS", "Balance", "Neyman")
+methods <- c("mimegans") #, "mice", "mixgb", "raking")
 resultCoeff <- resultStdError <- resultCI <- NULL
 
-for (i in 1:500){
+for (i in 1:10){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))

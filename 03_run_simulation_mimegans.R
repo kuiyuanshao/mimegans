@@ -32,7 +32,7 @@ if(!dir.exists('./simulations/Neyman/mimegans')){dir.create('./simulations/Neyma
 do_mimegans <- function(samp, info, nm, digit) {
   tm <- system.time({
     mimegans_imp <- mimegans(samp, m = 20, epochs = 10000,
-                             data_info = info, device = "cpu")
+                             data_info = info, device = "cuda")
   })
   mimegans_imp$imputation <- lapply(mimegans_imp$imputation, function(dat){
     match_types(dat, data)
@@ -53,7 +53,7 @@ do_mimegans <- function(samp, info, nm, digit) {
                                           paste0(digit, ".RData")))
 }
 
-for (i in 1:500){
+for (i in 1:50){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))

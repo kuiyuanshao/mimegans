@@ -26,3 +26,15 @@
 # Ignore temporary files
 *.tmp
 *.bak
+
+
+!covarInfo.RData
+!data_generation_seed.RData
+!data_sampling_seed.RData
+!genoCorr.RData
+!genoFreq.RData
+!genoTrait.RData
+!labtest_parameters.RData
+!mixgb_balanceParams.RData
+!mixgb_neymanParams.RData
+!mixgb_srsParams.RData

@@ -150,7 +150,7 @@ data_info_neyman = {
 with open("config/survival.yaml", "r") as f:
     config = yaml.safe_load(f)
 
-file_path = "/Volumes/SSD Storage/GitHub/mime-gans/data/Sample/SRS/0001.csv"
+file_path = "/Volumes/SSD Storage/GitHub/phd-thesis/data/Sample/SRS/0001.csv"
 mime_mod = MIME_CSDI(config, data_info_srs)
 mime_mod.fit(file_path)
 result = mime_mod.impute(m=2)

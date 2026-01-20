@@ -1,12 +1,14 @@
-# utils.py: Data processing utilities for reading, cleaning, encoding, and normalizing two-phase data.
+# utils.py: Data processing utilities for reading, cleaning, and Analog Bits encoding/decoding.
 import pandas as pd
 import numpy as np
+import math
 
 
 def process_data(filepath, data_info):
     """
-    Reads data, cleans, encodes, and normalizes.
-    Numeric features are Z-scored; Categorical features are kept as 0/1 binaries.
+    Reads data, cleans, and encodes variables.
+    - Numeric features: Z-score normalization.
+    - Categorical features: Binary bit encoding (Analog Bits) scaled to [-1, 1].
     """
     df = pd.read_csv(filepath)
 
@@ -19,12 +21,12 @@ def process_data(filepath, data_info):
     processed_mask_list = []
     p1_indices = []
     p2_indices = []
-    p1_generated_names = []
     cat_p2_groups = []
 
     normalization_stats = {}
     current_col_idx = 0
 
+    # Helper function to clean and unify string categories
     def get_unified_string_series(s):
         s_num = pd.to_numeric(s, errors='coerce')
         if s_num.notna().any():
@@ -34,134 +36,110 @@ def process_data(filepath, data_info):
         return s.astype(str).str.strip().replace('nan', np.nan)
 
     for p1_name, p2_name in zip(p1_vars, p2_vars):
-        is_cat = (p1_name in cat_vars_set)
+        if p2_name not in cat_vars_set:
+            # --- Numeric Variable Treatment (Standard Z-score) ---
+            combined = pd.concat([df[p1_name], df[p2_name]]).dropna()
+            mu = combined.mean()
+            sigma = combined.std() + 1e-6
 
-        if not is_cat:
-            # Numeric Processing (Z-score)
-            p1_raw = df[p1_name].values.astype(float)
-            p2_raw = df[p2_name].values.astype(float)
-            p1_m = (~np.isnan(p1_raw)).astype(int)
-            p2_m = (~np.isnan(p2_raw)).astype(int)
+            normalization_stats[p2_name] = {'type': 'numeric', 'mu': mu, 'sigma': sigma}
 
-            p2_obs = p2_raw[p2_m == 1]
-            mu = np.mean(p2_obs) if len(p2_obs) > 0 else 0.0
-            sigma = np.std(p2_obs) if len(p2_obs) > 0 else 1.0
-            if sigma < 1e-6: sigma = 1.0
+            p1_val = ((df[p1_name] - mu) / sigma).fillna(0).values[:, None]
+            p2_val = ((df[p2_name] - mu) / sigma).fillna(0).values[:, None]
 
-            normalization_stats[p2_name] = {
-                'type': 'numeric',
-                'mu': mu,
-                'sigma': sigma
-            }
-
-            p1_final = np.nan_to_num((p1_raw - mu) / sigma, nan=0.0).reshape(-1, 1) * p1_m.reshape(-1, 1)
-            p2_final = np.nan_to_num((p2_raw - mu) / sigma, nan=0.0).reshape(-1, 1) * p2_m.reshape(-1, 1)
-
-            processed_data_list.extend([p1_final, p2_final])
-            processed_mask_list.extend([p1_m.reshape(-1, 1), p2_m.reshape(-1, 1)])
-            p1_generated_names.append(p1_name)
+            p1_mask = df[p1_name].notna().astype(float).values[:, None]
+            p2_mask = df[p2_name].notna().astype(float).values[:, None]
 
             p1_indices.append(current_col_idx)
             p2_indices.append(current_col_idx + 1)
-            cat_p2_groups.append(None)
+
+            processed_data_list.extend([p1_val, p2_val])
+            processed_mask_list.extend([p1_mask, p2_mask])
             current_col_idx += 2
 
         else:
-            # Categorical Processing (Keep 0/1)
-            s1_clean = get_unified_string_series(df[p1_name])
-            s2_clean = get_unified_string_series(df[p2_name])
-            all_cats = sorted(list(set(s1_clean.dropna().unique()) | set(s2_clean.dropna().unique())))
-            n_new_cols = len(all_cats)
+            # --- Analog Bits Treatment: Binary Bit Encoding (ICLR 2023) ---
+            s1 = get_unified_string_series(df[p1_name])
+            s2 = get_unified_string_series(df[p2_name])
+            combined_cats = sorted(list(pd.concat([s1, s2]).dropna().unique()))
+            n_cats = len(combined_cats)
 
-            p1_cat = pd.Categorical(s1_clean, categories=all_cats)
-            p2_cat = pd.Categorical(s2_clean, categories=all_cats)
-
-            p1_dum = pd.get_dummies(p1_cat, dummy_na=False).values.astype(float)
-            p2_dum = pd.get_dummies(p2_cat, dummy_na=False).values.astype(float)
-
-            p1_m_vec = df[p1_name].notna().astype(int).values.reshape(-1, 1)
-            p2_m_vec = df[p2_name].notna().astype(int).values.reshape(-1, 1)
-            p1_mask_chunk = np.tile(p1_m_vec, (1, n_new_cols))
-            p2_mask_chunk = np.tile(p2_m_vec, (1, n_new_cols))
+            # Determine bits required: n = ceil(log2(K))
+            num_bits = math.ceil(math.log2(n_cats)) if n_cats > 1 else 1
 
             normalization_stats[p2_name] = {
                 'type': 'categorical',
-                'categories': all_cats
+                'categories': combined_cats,
+                'num_bits': num_bits,
+                'cat_to_id': {cat: i for i, cat in enumerate(combined_cats)}
             }
 
-            processed_data_list.extend([p1_dum, p2_dum])
-            processed_mask_list.extend([p1_mask_chunk, p2_mask_chunk])
+            def encode_bits(series, n_bits, cat_map):
+                ids = series.map(cat_map).fillna(0).astype(int).values
+                # Extract bit-planes (from MSB to LSB)
+                bit_matrix = np.array([(ids >> i) & 1 for i in range(n_bits)[::-1]]).T
+                # Scale from [0, 1] to [-1, 1] for Analog Bits compatibility
+                return bit_matrix.astype(float) * 2.0 - 1.0
 
-            for cat in all_cats:
-                p1_generated_names.append(f"{p1_name}_{cat}")
+            p1_bits = encode_bits(s1, num_bits, normalization_stats[p2_name]['cat_to_id'])
+            p2_bits = encode_bits(s2, num_bits, normalization_stats[p2_name]['cat_to_id'])
 
-            p1_indices.extend(list(range(current_col_idx, current_col_idx + n_new_cols)))
-            p2_indices.extend(list(range(current_col_idx + n_new_cols, current_col_idx + 2 * n_new_cols)))
-            cat_p2_groups.append(list(range(current_col_idx + n_new_cols, current_col_idx + 2 * n_new_cols)))
-            current_col_idx += 2 * n_new_cols
+            p1_mask = np.repeat(df[p1_name].notna().astype(float).values[:, None], num_bits, axis=1)
+            p2_mask = np.repeat(df[p2_name].notna().astype(float).values[:, None], num_bits, axis=1)
 
-    # Weight Processing
-    weight_col_idx = None
-    if weight_var and weight_var in df.columns:
-        w_raw = df[weight_var].values.astype(float)
-        w_mean = np.mean(w_raw)
-        normalization_stats['__weight__'] = {'mean': w_mean}
+            p1_indices.extend(range(current_col_idx, current_col_idx + num_bits))
+            p2_indices.extend(range(current_col_idx + num_bits, current_col_idx + 2 * num_bits))
+            cat_p2_groups.append(list(range(current_col_idx + num_bits, current_col_idx + 2 * num_bits)))
 
-        w_norm = np.nan_to_num((w_raw / w_mean).reshape(-1, 1), nan=0.0)
-        w_mask = (~np.isnan(w_raw)).astype(int).reshape(-1, 1)
+            processed_data_list.extend([p1_bits, p2_bits])
+            processed_mask_list.extend([m for m in [p1_mask, p2_mask]])
+            current_col_idx += 2 * num_bits
 
-        processed_data_list.append(w_norm)
-        processed_mask_list.append(w_mask)
-        weight_col_idx = current_col_idx
+    final_data = np.concatenate(processed_data_list, axis=1)
+    final_mask = np.concatenate(processed_mask_list, axis=1)
 
-    final_data = np.hstack(processed_data_list)
-    final_mask = np.hstack(processed_mask_list)
+    # Weight Handling
+    weight_idx = final_data.shape[1] if weight_var and weight_var in df.columns else None
+    if weight_idx:
+        w_val = df[weight_var].fillna(df[weight_var].mean()).values[:, None]
+        final_data = np.concatenate([final_data, w_val], axis=1)
+        final_mask = np.concatenate([final_mask, np.ones((len(df), 1))], axis=1)
 
-    return final_data, final_mask, p1_indices, p2_indices, weight_col_idx, p1_generated_names, normalization_stats, cat_p2_groups
+    return (final_data, final_mask, np.array(p1_indices), np.array(p2_indices),
+            weight_idx, None, normalization_stats, cat_p2_groups)
 
 
 def inverse_transform_data(processed_data, normalization_stats, data_info):
     """
-    Reconstructs original data.
+    Decodes analog bits and normalized numeric data back to original form.
     """
-    p1_vars = data_info['phase1_vars']
-    p2_vars = data_info['phase2_vars']
-    weight_var = data_info.get('weight_var')
-
     reconstructed_cols = {}
     current_col_idx = 0
 
-    for p1_name, p2_name in zip(p1_vars, p2_vars):
+    for p1_name, p2_name in zip(data_info['phase1_vars'], data_info['phase2_vars']):
         stats = normalization_stats[p2_name]
 
         if stats['type'] == 'numeric':
-            mu = stats['mu']
-            sigma = stats['sigma']
+            mu, sigma = stats['mu'], stats['sigma']
             reconstructed_cols[p1_name] = processed_data[:, current_col_idx] * sigma + mu
             reconstructed_cols[p2_name] = processed_data[:, current_col_idx + 1] * sigma + mu
             current_col_idx += 2
 
-        elif stats['type'] == 'categorical':
+        else:
+            num_bits = stats['num_bits']
             categories = stats['categories']
-            n_cats = len(categories)
 
-            p1_chunk = processed_data[:, current_col_idx: current_col_idx + n_cats]
-            p2_chunk = processed_data[:, current_col_idx + n_cats: current_col_idx + 2 * n_cats]
+            def decode_bits(chunk):
+                # Threshold analog bits at 0.0 to recover discrete bits
+                bits = (chunk > 0).astype(int)
+                # Convert bits back to category ID
+                powers = 1 << np.arange(num_bits)[::-1]
+                ids = np.sum(bits * powers, axis=1)
+                return np.array(categories)[np.clip(ids, 0, len(categories) - 1)]
 
-            p2_chunk = np.exp(p2_chunk - np.max(p2_chunk, axis=1, keepdims=True))
-            p2_chunk /= np.sum(p2_chunk, axis=1, keepdims=True)
-
-            p1_argmax = np.argmax(p1_chunk, axis=1)
-            p2_argmax = np.argmax(p2_chunk, axis=1)
-
-            cat_map = np.array(categories)
-            reconstructed_cols[p1_name] = cat_map[p1_argmax]
-            reconstructed_cols[p2_name] = cat_map[p2_argmax]
-
-            current_col_idx += 2 * n_cats
-
-    if weight_var and '__weight__' in normalization_stats:
-        w_mean = normalization_stats['__weight__']['mean']
-        reconstructed_cols[weight_var] = processed_data[:, current_col_idx] * w_mean
+            reconstructed_cols[p1_name] = decode_bits(processed_data[:, current_col_idx: current_col_idx + num_bits])
+            reconstructed_cols[p2_name] = decode_bits(
+                processed_data[:, current_col_idx + num_bits: current_col_idx + 2 * num_bits])
+            current_col_idx += 2 * num_bits
 
     return pd.DataFrame(reconstructed_cols)

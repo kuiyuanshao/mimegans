@@ -1,9 +1,14 @@
-# match_state.py: Estimates diffusion steps for each variable using bootstrap matching on audit data.
+# match_state.py: Estimates diffusion steps using sequential Analog-consistent Variance Matching.
 import numpy as np
-from tqdm import tqdm
 from scipy.stats import norm
+from tqdm import tqdm
+import sys
+
 
 def get_diffusion_schedule(config):
+    """
+    Returns the cumulative product of alphas (alpha_bar) based on noise schedule.
+    """
     start = config["diffusion"]["beta_start"]
     end = config["diffusion"]["beta_end"]
     num_steps = config["diffusion"]["num_steps"]
@@ -12,109 +17,109 @@ def get_diffusion_schedule(config):
     if schedule == "linear":
         betas = np.linspace(start, end, num_steps, dtype=np.float64)
     elif schedule == "quad":
+        # Quadratic schedule: standard for Bit Diffusion / Analog Bits
         betas = np.linspace(start ** 0.5, end ** 0.5, num_steps, dtype=np.float64) ** 2
+    else:
+        betas = np.linspace(start, end, num_steps, dtype=np.float64)
 
     alphas = 1. - betas
     alphas_cumprod = np.cumprod(alphas)
     return alphas_cumprod
 
-def match_state(processed_values, processed_mask,
-                p1_indices, p2_indices,
-                col_names, weight_idx=None, config=None, n_bootstrap=500, normalization_stats=None):
-    """
-    Estimates diffusion steps using dual-track matching:
-    - Numeric: Residual standard deviation matching (Z-score space).
-    - Binary: Disagreement rate matching via Gaussian CDF (0/1 space).
-    """
 
+def match_state(processed_values, processed_mask, p1_indices, p2_indices, col_names,
+                weight_idx=None, config=None, n_bootstrap=500, normalization_stats=None, data_info=None):
+    """
+    State Matching using Sequential Search and Early Stopping.
+    Treats both bits and numeric as continuous analog signals.
+    """
+    # 1. Setup Schedules
     alphas_cumprod = get_diffusion_schedule(config)
     sqrt_alphas_cumprod = np.sqrt(alphas_cumprod)
-    sqrt_one_minus_alphas = np.sqrt(1. - alphas_cumprod)
 
-    theoretical_flip_probs = norm.cdf(-0.5 / sqrt_one_minus_alphas)
+    # Theoretical noise scale: sqrt(1 - alpha_bar)
+    # Note: user's snippet uses sqrt(1 - sqrt_alpha**2), which is sqrt(1 - alpha)
+    theoretical_std = np.sqrt(1. - alphas_cumprod)
 
-    try:
-        observed_values = np.array(processed_values, dtype=float)
-    except ValueError:
-        raise ValueError("Data must be float.")
+    n_rows, n_cols = processed_values.shape[0], len(p2_indices)
+    weights = processed_values[:, weight_idx] if weight_idx is not None else np.ones(n_rows)
 
-    if len(p2_indices) > 0:
-        audit_indices = np.where(processed_mask[:, p2_indices[0]] == 1)[0]
-    else:
-        return np.array([]), []
+    # 2. Extract Audit Set (where Phase-2 is ground-truth)
+    audit_mask = processed_mask[:, p2_indices[0]] == 1
+    audit_data = processed_values[audit_mask]
+    audit_weights = weights[audit_mask]
+    w_sum = np.sum(audit_weights)
 
-    n_audit = len(audit_indices)
-    audit_data = observed_values[audit_indices]
-
-    if weight_idx is not None:
-        weights = observed_values[audit_indices, weight_idx]
-        weights = weights / np.mean(weights)
-    else:
-        weights = np.ones(n_audit)
-
-    n_cols = len(p1_indices)
-    matched_steps_matrix = np.zeros((n_cols, n_bootstrap), dtype=int)
-    is_binary = [False] * n_cols
-
-    p2_var_names = []
-    for i in range(n_cols):
-        name = col_names[i] if col_names else f"Col_{i}"
-        base_name = name.split('_')[0] if '_' in name else name
-        p2_var_names.append(base_name)
-
-    for i in range(n_cols):
-        base_name = p2_var_names[i]
-        stats = normalization_stats.get(base_name, {})
-        if stats.get('type') == 'categorical':
-            is_binary[i] = True
+    # 3. Identify Bit Channels (for final report only)
+    is_bit = np.zeros(n_cols, dtype=bool)
+    curr = 0
+    for p2_name in data_info['phase2_vars']:
+        stat = normalization_stats[p2_name]
+        if stat['type'] == 'numeric':
+            is_bit[curr] = False
+            curr += 1
         else:
-            unique_vals = np.unique(audit_data[:, p2_indices[i]])
-            if len(unique_vals) <= 2 and np.all(unique_vals == np.round(unique_vals)):
-                is_binary[i] = True
+            num_bits = stat['num_bits']
+            is_bit[curr: curr + num_bits] = True
+            curr += num_bits
 
-    print(f"Starting Dual-Track State Matching (Binary 0/1 & Numeric Z-score) for {n_cols} columns...")
+    matched_steps_matrix = np.zeros((n_cols, n_bootstrap))
 
-    for b in tqdm(range(n_bootstrap), desc="Bootstrapping"):
-        p_sample = weights / np.sum(weights)
-        resample_idx = np.random.choice(n_audit, size=n_audit, replace=True, p=p_sample)
+    print(f"   [Matching] Analyzing {n_cols} channels using Sequential Search ({n_bootstrap} iterations)...")
 
-        b_data = audit_data[resample_idx]
-        b_w = weights[resample_idx]
-        w_sum = np.sum(b_w)
-
-        y_proxy = b_data[:, p1_indices]
-        y_true = b_data[:, p2_indices]
+    # 4. Bootstrap Loop for PhD-level statistical robustness
+    for b in tqdm(range(n_bootstrap), desc="   Matching Progress", file=sys.stdout):
+        # Bootstrap sampling
+        idx = np.random.choice(len(audit_data), len(audit_data), replace=True)
+        b_data = audit_data[idx]
+        b_w = audit_weights[idx]
+        b_w_sum = np.sum(b_w)
 
         for i in range(n_cols):
-            if is_binary[i]:
-                disagreement = ((y_proxy[:, i] > 0.5) != (y_true[:, i] > 0.5)).astype(float)
-                emp_error_rate = np.sum(disagreement * b_w) / w_sum
+            # Sequential search logic per your provided snippet
+            curr_p1 = b_data[:, p1_indices[i]]
+            curr_p2 = b_data[:, p2_indices[i]]
 
-                diffs = np.abs(theoretical_flip_probs - emp_error_rate)
-                matched_steps_matrix[i, b] = np.argmin(diffs)
+            best_t = 0
+            best_diff = 999.
+            prev_diff = 999.
 
-            else:
-                res_col = y_proxy[:, i:i + 1] - y_true[:, i:i + 1] * sqrt_alphas_cumprod.reshape(1, -1)
+            # Search from t=0 to T
+            for t in range(len(sqrt_alphas_cumprod)):
+                # Calculate residual: noise = P1 - sqrt(alpha)*P2
+                noise = curr_p1 - sqrt_alphas_cumprod[t] * curr_p2
 
-                mean_res = np.sum(res_col * b_w.reshape(-1, 1), axis=0) / w_sum
-                centered_sq = (res_col - mean_res) ** 2
-                var_res = np.sum(centered_sq * b_w.reshape(-1, 1), axis=0) / w_sum
-                std_res = np.sqrt(var_res)
+                # Weighted mean and std calculation (matching norm.fit logic but with weights)
+                noise_mean = np.sum(noise * b_w) / b_w_sum
+                centered_noise = noise - noise_mean
+                noise_std = np.sqrt(np.sum((centered_noise ** 2) * b_w) / b_w_sum)
 
-                diffs = np.abs(std_res - sqrt_one_minus_alphas)
-                matched_steps_matrix[i, b] = np.argmin(diffs)
+                # diff = |theoretical_noise_scale - empirical_noise_std|
+                diff = np.abs(theoretical_std[t] - noise_std)
 
+                # Early stopping logic from your original snippet
+                if diff < best_diff:
+                    best_diff = diff
+                    best_t = t
+
+                if diff > prev_diff:
+                    # Found a local match!
+                    break
+                else:
+                    prev_diff = diff
+
+            matched_steps_matrix[i, b] = best_t
+
+    # 5. Aggregate results using median
     final_matched_steps = np.median(matched_steps_matrix, axis=1).astype(int)
 
-    print("\n" + "=" * 65)
-    print(f"{'Variable / Level':<35} | {'Type':<10} | {'Step':<10}")
-    print("-" * 65)
+    # 6. Final Convenience Report
+    print("\n" + "=" * 50)
+    print(f"{'Channel':<10} | {'Type':<6} | {'Matched t':<10}")
+    print("-" * 50)
+    for i, t_val in enumerate(final_matched_steps):
+        v_type = "BIT" if is_bit[i] else "NUM"
+        print(f"{i:<10} | {v_type:<6} | {t_val:<10}")
+    print("=" * 50 + "\n")
 
-    for i in range(n_cols):
-        name_str = col_names[i] if (col_names and i < len(col_names)) else f"Col_{p1_indices[i]}"
-        type_str = "Binary" if is_binary[i] else "Numeric"
-        print(f"{name_str:<35} | {type_str:<10} | {final_matched_steps[i]:<10}")
-
-    print("=" * 65 + "\n")
-
-    return final_matched_steps, is_binary
+    return final_matched_steps, is_bit

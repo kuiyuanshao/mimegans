@@ -1,0 +1,35 @@
+# ==========================================
+# Training Hyperparameters
+# ==========================================
+train:
+  epochs: 1            # Total number of training epochs
+  batch_size: 256         # Batch size for both training and imputation
+  lr: 0.0005              # Learning rate for the Adam optimizer
+
+# ==========================================
+# Diffusion Model Architecture & Schedule
+# ==========================================
+diffusion:
+  layers: 5              # Number of residual layers in the diffusion model
+  channels: 128           # Number of channels in the hidden layers (d_model)
+  nheads: 4              # Number of attention heads in the TransformerEncoder
+  diffusion_embedding_dim: 128  # Dimension of the diffusion step embedding
+
+  # Diffusion Noise Schedule
+  beta_start: 0.0001     # Starting value of beta
+  beta_end: 0.5          # Ending value of beta
+  num_steps: 100         # Total number of diffusion steps (T)
+  schedule: "quad"       # Schedule type: "quad" (quadratic) or "linear"
+
+# ==========================================
+# Model Feature Embeddings
+# ==========================================
+model:
+  featureemb: 16         # Dimension of the embedding for column IDs (side info)
+
+# ==========================================
+# Testing / Imputation
+# ==========================================
+else:
+  bootstrap: 100
+  m: 2                  # Number of multiple imputations (samples) to generate per row

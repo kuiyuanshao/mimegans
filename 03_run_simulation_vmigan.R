@@ -32,7 +32,7 @@ if(!dir.exists('./simulations/Neyman/mimegans')){dir.create('./simulations/Neyma
 do_mimegans <- function(samp, info, nm, digit) {
   tm <- system.time({
     mimegans_imp <- mimegans(samp, m = 20, epochs = 10000,
-                             data_info = info, device = "cpu")
+                             data_info = info, device = "cuda")
   })
   mimegans_imp$imputation <- lapply(mimegans_imp$imputation, function(dat){
     match_types(dat, data)
@@ -53,7 +53,7 @@ do_mimegans <- function(samp, info, nm, digit) {
                                           paste0(digit, ".RData")))
 }
 
-for (i in 1:50){
+for (i in 1:500){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   load(paste0("./data/Complete/", digit, ".RData"))
@@ -76,14 +76,13 @@ for (i in 1:50){
                       rs4506565 + I((AGE - 50) / 5) + I((eGFR - 90) / 10) + 
                       SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE, data = data)
   
-  # if (!file.exists(paste0("./simulations/SRS/mimegans/", digit, ".RData"))){
-  #   do_mimegans(samp_srs, data_info_srs, "SRS", digit)
-  # }
-  # if (!file.exists(paste0("./simulations/Balance/mimegans/", digit, ".RData"))){
-  #   do_mimegans(samp_balance, data_info_balance, "Balance", digit)
-  # }
-  # if (!file.exists(paste0("./simulations/Neyman/mimegans/", digit, ".RData"))){
-  #   do_mimegans(samp_neyman, data_info_neyman, "Neyman", digit)
-  # }
-  do_mimegans(samp_neyman, data_info_neyman, "Neyman", digit)
+  if (!file.exists(paste0("./simulations/SRS/mimegans/", digit, ".RData"))){
+    do_mimegans(samp_srs, data_info_srs, "SRS", digit)
+  }
+  if (!file.exists(paste0("./simulations/Balance/mimegans/", digit, ".RData"))){
+    do_mimegans(samp_balance, data_info_balance, "Balance", digit)
+  }
+  if (!file.exists(paste0("./simulations/Neyman/mimegans/", digit, ".RData"))){
+    do_mimegans(samp_neyman, data_info_neyman, "Neyman", digit)
+  }
 }

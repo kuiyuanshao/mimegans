@@ -72,19 +72,15 @@ mimegans <- function(data, m = 5,
   conditions_vars_encode <- c(setdiff(conditions_vars, mode_cat_vars),
                               unlist(data_encode$new_col_names[conditions_vars]))
   
-  num_inds_c <- which(conditions_vars_encode %in% data_info$num_vars)
-  cat_inds_c <- which(conditions_vars_encode %in% unlist(data_encode$new_col_names))
-  num_inds_p1 <- which(phase1_vars_encode %in% data_info$num_vars)
-  cat_inds_p1 <- which(phase1_vars_encode %in% unlist(data_encode$new_col_names))
   num_inds_p2 <- which(phase2_vars_encode %in% data_info$num_vars)
   cat_inds_p2 <- which(phase2_vars_encode %in% unlist(data_encode$new_col_names))
   
   new_order <- c(phase2_vars_encode[num_inds_p2], 
                  phase2_vars_encode[cat_inds_p2],
-                 phase1_vars_encode[num_inds_p1], 
-                 phase1_vars_encode[cat_inds_p1],
-                 conditions_vars_encode[num_inds_c],
-                 conditions_vars_encode[cat_inds_c],
+                 phase1_vars_encode[which(phase1_vars_encode %in% data_info$num_vars)], 
+                 phase1_vars_encode[which(phase1_vars_encode %in% unlist(data_encode$new_col_names))],
+                 conditions_vars_encode[which(conditions_vars_encode %in% data_info$num_vars)],
+                 conditions_vars_encode[which(conditions_vars_encode %in% unlist(data_encode$new_col_names))],
                  setdiff(names(data_training), 
                          c(phase2_vars_encode, phase1_vars_encode,
                            conditions_vars_encode)))

@@ -1,7 +1,15 @@
-import torch
-from torch.utils.data import DataLoader, Dataset
 import yaml
 from src.mime_csdi import MIME_CSDI
+import os
+
+if not os.path.exists("F:/phd-thesis/simulations/SRS/mimecsdi"):
+    os.makedirs("F:/phd-thesis/simulations/SRS/mimecsdi")
+
+if not os.path.exists("F:/phd-thesis/simulations/Balance/mimecsdi"):
+    os.makedirs("F:/phd-thesis/simulations/Balance/mimecsdi")
+
+if not os.path.exists("F:/phd-thesis/simulations/Neyman/mimecsdi"):
+    os.makedirs("F:/phd-thesis/simulations/Neyman/mimecsdi")
 
 data_info_srs = {
     "weight_var": "W",
@@ -150,8 +158,26 @@ data_info_neyman = {
 with open("config/survival.yaml", "r") as f:
     config = yaml.safe_load(f)
 
-file_path = "/Volumes/SSD Storage/GitHub/phd-thesis/data/Sample/SRS/0001.csv"
-mime_mod = MIME_CSDI(config, data_info_srs)
-mime_mod.fit(file_path)
-result = mime_mod.impute(m=2)
-print(result)
+for i in range(1, 31):
+    digit = str(i).zfill(4)
+    file_path_srs = "F:/phd-thesis/data/Sample/SRS/" + digit + ".csv"
+    file_path_bal = "F:/phd-thesis/data/Sample/Balance/" + digit + ".csv"
+    file_path_ney = "F:/phd-thesis/data/Sample/Neyman/" + digit + ".csv"
+
+    save_path_srs = "F:/phd-thesis/simulations/SRS/mimecsdi/" + digit + ".xlsx"
+    save_path_bal = "F:/phd-thesis/simulations/Balance/mimecsdi/" + digit + ".xlsx"
+    save_path_ney = "F:/phd-thesis/simulations/Neyman/mimecsdi/" + digit + ".xlsx"
+
+    mime_mod_srs = MIME_CSDI(config, data_info_srs)
+    mime_mod_srs.fit(file_path_srs)
+    mime_mod_srs.impute(save_path=save_path_srs)
+
+    mime_mod_bal = MIME_CSDI(config, data_info_balance)
+    mime_mod_bal.fit(file_path_bal)
+    mime_mod_bal.impute(save_path=save_path_bal)
+
+    mime_mod_ney = MIME_CSDI(config, data_info_neyman)
+    mime_mod_ney.fit(file_path_ney)
+    mime_mod_ney.impute(save_path=save_path_ney)
+
+

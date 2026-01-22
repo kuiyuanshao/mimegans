@@ -59,7 +59,7 @@ match_types <- function(new_df, orig_df) {
     col <- out[[nm]]
     if (is.integer(tmpl))        out[[nm]] <- as.integer(col)
     else if (is.numeric(tmpl))   out[[nm]] <- as.numeric(col)
-    else if (is.logical(tmpl))   out[[nm]] <- as.logical(col)
+    else if (is.logical(tmpl))   out[[nm]] <- as.logical(as.numeric(col))
     else if (is.factor(tmpl)) {
       out[[nm]] <- factor(col,
                           levels = levels(tmpl),

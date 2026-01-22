@@ -1,5 +1,4 @@
-# networks.py: Neural network backbone with Analog Bits Self-Conditioning.
-import numpy as np
+# networks.py: Hybrid D3PM/RDDM Backbone
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -34,7 +33,8 @@ class DiffusionEmbedding(nn.Module):
         steps = torch.arange(num_steps).unsqueeze(1)
         frequencies = 10.0 ** (torch.arange(dim) / (dim - 1) * 4.0).unsqueeze(0)
         table = steps * frequencies
-        return torch.cat([torch.sin(table), torch.cos(table)], dim=1)
+        table = torch.cat([torch.sin(table), torch.cos(table)], dim=1)
+        return table
 
 
 class ResidualBlock(nn.Module):
@@ -44,154 +44,92 @@ class ResidualBlock(nn.Module):
         self.cond_projection = Conv1d_with_init(side_dim, 2 * channels, 1)
         self.mid_projection = Conv1d_with_init(channels, 2 * channels, 1)
         self.output_projection = Conv1d_with_init(channels, 2 * channels, 1)
+        self.time_layer = get_torch_trans(heads=nheads, layers=1, channels=channels)
         self.feature_layer = get_torch_trans(heads=nheads, layers=1, channels=channels)
 
-    def forward(self, x, cond_info, diffusion_emb):
-        y = x + self.diffusion_projection(diffusion_emb).unsqueeze(-1)
+    def forward(self, x, side_info, diffusion_emb):
+        B, C, L = x.shape
+        x_in = x
+        time_emb = self.diffusion_projection(diffusion_emb).unsqueeze(-1)
+        y = x + time_emb
+        y = y + self.cond_projection(side_info)[:, :C, :]
+        y = self.time_layer(y.permute(0, 2, 1)).permute(0, 2, 1)
         y = self.feature_layer(y.permute(0, 2, 1)).permute(0, 2, 1)
-        y = self.mid_projection(y) + self.cond_projection(cond_info)
+        y = self.mid_projection(y)
         gate, filter = torch.chunk(y, 2, dim=1)
-        y = self.output_projection(torch.sigmoid(gate) * torch.tanh(filter))
-        res, skip = torch.chunk(y, 2, dim=1)
-        return (x + res) / math.sqrt(2.0), skip
+        y = torch.sigmoid(gate) * torch.tanh(filter)
+        y = self.output_projection(y)
+        residual, skip = torch.chunk(y, 2, dim=1)
+        return (x_in + residual) / math.sqrt(2.0), skip
 
 
-class Diff_TwoPhase(nn.Module):
-    def __init__(self, config_diff, inputdim=3):
+class HybridFeatureEmbedder(nn.Module):
+    def __init__(self, schema, channels):
         super().__init__()
-        self.channels = config_diff["channels"]
-        self.num_steps = config_diff["num_steps"]
-        self.diffusion_embedding = DiffusionEmbedding(self.num_steps, config_diff["diffusion_embedding_dim"])
-        self.input_projection = Conv1d_with_init(inputdim, self.channels, 1)
-        self.output_projection1 = Conv1d_with_init(self.channels, self.channels, 1)
-        self.output_projection2 = Conv1d_with_init(self.channels, 1, 1)
-        self.residual_layers = nn.ModuleList([
-            ResidualBlock(config_diff["side_dim"], self.channels, config_diff["diffusion_embedding_dim"],
-                          config_diff["nheads"])
-            for _ in range(config_diff["layers"])
+        self.schema = schema
+        self.projections = nn.ModuleDict()
+        for var in schema:
+            name = var['name']
+            # D3PM: Inputs are soft probabilities (size K) or scalars (size 1)
+            input_dim = var['num_classes'] if 'categorical' in var['type'] else 1
+            self.projections[name] = nn.Linear(input_dim, channels)
+
+    def forward(self, feature_dict):
+        embeddings_list = []
+        for var in self.schema:
+            name = var['name']
+            emb = self.projections[name](feature_dict[name])
+            embeddings_list.append(emb)
+        return torch.stack(embeddings_list, dim=1).permute(0, 2, 1)
+
+
+class CSDI_Hybrid(nn.Module):
+    def __init__(self, config, device, variable_schema):
+        super().__init__()
+        self.device = device
+        self.channels = config["model"]["channels"]
+        self.num_steps = config["diffusion"]["num_steps"]
+        self.nheads = config["model"]["nheads"]
+        self.layers = config["model"]["layers"]
+
+        self.target_schema = [v for v in variable_schema if 'aux' not in v['type']]
+        self.aux_schema = [v for v in variable_schema if 'aux' in v['type']]
+
+        self.target_embedder = HybridFeatureEmbedder(self.target_schema, self.channels)
+        self.aux_embedder = HybridFeatureEmbedder(self.aux_schema, self.channels)
+        self.input_mixer = Conv1d_with_init(2 * self.channels, self.channels, 1)
+        self.diffusion_embedding = DiffusionEmbedding(self.num_steps, self.channels)
+
+        self.res_blocks = nn.ModuleList([
+            ResidualBlock(self.channels, self.channels, self.channels, self.nheads) for _ in range(self.layers)
         ])
 
-    def forward(self, x, cond_info, diffusion_step):
-        x = F.relu(self.input_projection(x))
-        diff_emb = self.diffusion_embedding(diffusion_step)
-        skip_list = []
-        for layer in self.residual_layers:
-            x, skip = layer(x, cond_info, diff_emb)
-            skip_list.append(skip)
-        x = torch.sum(torch.stack(skip_list), dim=0) / math.sqrt(len(self.residual_layers))
-        return self.output_projection2(F.relu(self.output_projection1(x))).squeeze(1)
+        self.output_heads = nn.ModuleDict()
+        for var in self.target_schema:
+            name = var['name']
+            if var['type'] == 'categorical':
+                self.output_heads[name] = nn.Linear(self.channels, var['num_classes'])
+            else:
+                self.output_heads[name] = nn.Linear(self.channels, 2)  # [Residual, Noise]
 
+    def forward(self, x_t_dict, t, p1_dict, aux_dict):
+        x_t_emb = self.target_embedder(x_t_dict)
+        p1_emb = self.target_embedder(p1_dict)
+        aux_emb = self.aux_embedder(aux_dict)
+        dif_emb = self.diffusion_embedding(t)
 
-class CSDI_TwoPhase(nn.Module):
-    def __init__(self, target_dim, config, device, matched_state, p1_indices, p2_indices, is_bit, cat_groups):
-        super().__init__()
-        self.device, self.target_dim = device, target_dim
-        self.p1_indices, self.p2_indices = p1_indices, p2_indices
-        self.cat_groups = cat_groups
-        self.register_buffer("matched_state_t", torch.tensor(matched_state).long())
-        self.register_buffer("is_bit_t", torch.tensor(is_bit).bool())
-        self.max_step = int(torch.max(self.matched_state_t).item())
+        combined_input = torch.cat([x_t_emb, p1_emb], dim=1)
+        mixed_input = self.input_mixer(combined_input)
+        sequence = torch.cat([mixed_input, aux_emb], dim=2)
 
-        self.register_buffer("cond_mask", torch.ones(1, self.target_dim))
-        self.cond_mask[:, self.p2_indices] = 0.0
-        self.residual_pools = None
+        skip_accum = 0
+        for block in self.res_blocks:
+            sequence, skip = block(sequence, sequence, dif_emb)
+            skip_accum += skip
 
-        self.emb_feature_dim = config["model"]["featureemb"]
-        self.embed_layer = nn.Embedding(num_embeddings=self.target_dim, embedding_dim=self.emb_feature_dim)
+        target_features = (skip_accum / math.sqrt(self.layers))[:, :, :len(self.target_schema)].permute(0, 2, 1)
 
-        config_diff = config["diffusion"]
-        config_diff["side_dim"] = self.emb_feature_dim + 1
-        self.num_steps = config_diff["num_steps"]
-        self.diffmodel = Diff_TwoPhase(config_diff, inputdim=3)
-
-        betas = np.linspace(config_diff["beta_start"] ** 0.5, config_diff["beta_end"] ** 0.5, self.num_steps) ** 2
-        self.alpha = np.cumprod(1. - betas)
-        self.register_buffer("alpha_torch", torch.tensor(self.alpha).float())
-
-    def forward(self, observed_data):
-        """ Primary execution path for training. """
-        return self.calc_loss(observed_data)
-
-    def get_static_side_info(self, B):
-        feat = self.embed_layer(torch.arange(self.target_dim).to(self.device)).unsqueeze(0).expand(B, -1, -1).permute(0,
-                                                                                                                      2,
-                                                                                                                      1)
-        role = torch.zeros(B, 1, self.target_dim).to(self.device)
-        role[:, 0, self.p2_indices] = 1.0
-        return torch.cat([feat, role], dim=1)
-
-    def calc_loss(self, observed_data):
-        """ Implements Self-Conditioning recursive loss (Chen et al., 2023). """
-        B = observed_data.shape[0]
-        t = torch.randint(0, self.max_step + 1, [B], device=self.device)
-
-        # Pull Audit Residuals
-        rand_idx = torch.randint(0, self.residual_pools.shape[0], (B, len(self.p2_indices)), device=self.device)
-        epsilon_audit = torch.gather(self.residual_pools, 0, rand_idx)
-
-        a_t = self.alpha_torch[t].unsqueeze(1)
-        p2_noisy = (a_t ** 0.5) * observed_data[:, self.p2_indices] + ((1 - a_t) ** 0.5) * epsilon_audit
-
-        cond_obs = observed_data * self.cond_mask
-        target_noisy = torch.zeros_like(observed_data)
-        target_noisy[:, self.p2_indices] = p2_noisy
-
-        self_cond = torch.zeros_like(observed_data)
-
-        # Self-Conditioning Training Pass
-        if torch.rand(1) < 0.5:
-            with torch.no_grad():
-                inp1 = torch.cat([cond_obs.unsqueeze(1), target_noisy.unsqueeze(1), self_cond.unsqueeze(1)], dim=1)
-                eps1 = self.diffmodel(inp1, self.get_static_side_info(B), t)
-                # Bridge: Derive x0 estimate from predicted noise
-                x0_est = (target_noisy[:, self.p2_indices] - (1 - a_t) ** 0.5 * eps1[:, self.p2_indices]) / (a_t ** 0.5)
-                self_cond[:, self.p2_indices] = x0_est.detach()
-
-        # Final Training Pass
-        inp2 = torch.cat([cond_obs.unsqueeze(1), target_noisy.unsqueeze(1), self_cond.unsqueeze(1)], dim=1)
-        eps_final = self.diffmodel(inp2, self.get_static_side_info(B), t)
-
-        return F.mse_loss(eps_final[:, self.p2_indices], epsilon_audit)
-
-    def impute_single(self, observed_data, observed_mask):
-        """ Denoising with recursive x0 feedback. """
-        B = observed_data.shape[0]
-        side_info = self.get_static_side_info(B)
-        cur, p1_obs = observed_data.clone(), observed_data[:, self.p1_indices]
-
-        # Initialize at T
-        rand_idx = torch.randint(0, self.residual_pools.shape[0], (B, len(self.p2_indices)), device=self.device)
-        noise_init = torch.gather(self.residual_pools, 0, rand_idx)
-        cur[:, self.p2_indices] = (self.alpha_torch[self.max_step] ** 0.5) * p1_obs + (
-                    (1 - self.alpha_torch[self.max_step]) ** 0.5) * noise_init
-
-        x_pred_accum = torch.zeros_like(cur)
-
-        for t in range(self.max_step - 1, -1, -1):
-            inp = torch.cat([(observed_data * self.cond_mask).unsqueeze(1),
-                             (cur * (1 - self.cond_mask)).unsqueeze(1),
-                             x_pred_accum.unsqueeze(1)], dim=1)
-
-            eps = self.diffmodel(inp, side_info, torch.tensor([t], device=self.device))[:, self.p2_indices]
-            a_t = self.alpha_torch[t]
-
-            # Recursive x0 feedback update
-            x_pred_accum[:, self.p2_indices] = (cur[:, self.p2_indices] - (1 - a_t) ** 0.5 * eps) / (a_t ** 0.5)
-
-            # Inverse Step
-            cur[:, self.p2_indices] = (cur[:, self.p2_indices] - (1 - a_t) / (1 - a_t) ** 0.5 * eps) / (a_t ** 0.5)
-            if t > 0:
-                cur[:, self.p2_indices] += (1 - a_t) ** 0.5 * torch.randn_like(cur[:, self.p2_indices])
-
-        # Hardening bits at the final step
-        cur[:, self.p2_indices] = torch.where(self.is_bit_t.unsqueeze(0),
-                                              (cur[:, self.p2_indices] > 0.0).float() * 2 - 1,
-                                              cur[:, self.p2_indices])
-
-        # Transductive ground-truth assignment
-        audit_rows = (observed_mask[:, self.p2_indices[0]] == 1).nonzero(as_tuple=True)[0]
-        if len(audit_rows) > 0:
-            cur[audit_rows.view(-1, 1), torch.tensor(self.p2_indices, device=self.device).view(1, -1)] = \
-            observed_data[audit_rows][:, self.p2_indices]
-
-        return cur
+        output_dict = {}
+        for i, var in enumerate(self.target_schema):
+            output_dict[var['name']] = self.output_heads[var['name']](target_features[:, i, :])
+        return output_dict

@@ -6,8 +6,8 @@ cwgangp_default <- function(batch_size = 500, lambda = 10,
                             lr_g = 2e-4, lr_d = 2e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
                             g_weight_decay = 1e-6, d_weight_decay = 1e-6, noise_dim = 64, cond_dim = 128,
                             g_dim = c(256, 256), d_dim = c(256, 256), pac = 5, discriminator_steps = 1,
-                            tau = 0.2, hard = F, type_g = "mlpc", type_d = "mlp",
-                            num = "mmer", cat = "none", balancebatch = T){
+                            tau = 0.2, hard = F, type_g = "mlp", type_d = "mlp",
+                            num = "mmer", cat = "projp1", balancebatch = T){
   batch_size <- pac * round(batch_size / pac)
   
   list(batch_size = batch_size, at_least_p = at_least_p, 
@@ -72,16 +72,19 @@ mimegans <- function(data, m = 5,
   conditions_vars_encode <- c(setdiff(conditions_vars, mode_cat_vars),
                               unlist(data_encode$new_col_names[conditions_vars]))
   
-  
+  num_inds_c <- which(conditions_vars_encode %in% data_info$num_vars)
+  cat_inds_c <- which(conditions_vars_encode %in% unlist(data_encode$new_col_names))
+  num_inds_p1 <- which(phase1_vars_encode %in% data_info$num_vars)
+  cat_inds_p1 <- which(phase1_vars_encode %in% unlist(data_encode$new_col_names))
   num_inds_p2 <- which(phase2_vars_encode %in% data_info$num_vars)
   cat_inds_p2 <- which(phase2_vars_encode %in% unlist(data_encode$new_col_names))
   
   new_order <- c(phase2_vars_encode[num_inds_p2], 
                  phase2_vars_encode[cat_inds_p2],
-                 phase1_vars_encode[which(phase1_vars_encode %in% data_info$num_vars)], 
-                 phase1_vars_encode[which(phase1_vars_encode %in% unlist(data_encode$new_col_names))],
-                 conditions_vars_encode[which(conditions_vars_encode %in% data_info$num_vars)],
-                 conditions_vars_encode[which(conditions_vars_encode %in% unlist(data_encode$new_col_names))],
+                 phase1_vars_encode[num_inds_p1], 
+                 phase1_vars_encode[cat_inds_p1],
+                 conditions_vars_encode[num_inds_c],
+                 conditions_vars_encode[cat_inds_c],
                  setdiff(names(data_training), 
                          c(phase2_vars_encode, phase1_vars_encode,
                            conditions_vars_encode)))
@@ -156,6 +159,10 @@ mimegans <- function(data, m = 5,
   phase1_cats <- intersect(data_info$phase1_vars, data_info$cat_vars)
   phase2_cats <- intersect(data_info$phase2_vars, data_info$cat_vars)
   
+  cats_p1 <- relist(match(unlist(data_encode$new_col_names[phase1_cats]), 
+                          names(phase1_m)), 
+                    skeleton = data_encode$new_col_names[phase1_cats])
+  
   nc <- data_encode$new_col_names
   bi <- data_encode$binary_indices
   
@@ -168,7 +175,11 @@ mimegans <- function(data, m = 5,
     data_encode$binary_indices[i] 
   }
   
+  allnums <- which(names(data_training) %in% data_info$num_vars)
   allcats <- data_encode$binary_indices
+  allcats_p2 <- bins_by_enc(phase2_vars_encode)
+  cats_mode <- bins_by_enc(setdiff(phase2_vars_encode, 
+                                   unlist(data_encode$new_col_names[phase2_cats], use.names = FALSE)))
   i_order <- idx_map[phase2_vars_encode]; i_order <- i_order[!is.na(i_order) & !duplicated(i_order)]
   cats_p2 <- data_encode$binary_indices[i_order[names(data_encode$binary_indices)[i_order] %in% phase2_cats]]
   
@@ -214,12 +225,40 @@ mimegans <- function(data, m = 5,
   cat_groups_all <- create_cat_groups(allcats, device)
   cat_groups_p2  <- create_cat_groups(cats_p2, device)
   
+  if (length(cats_p2) > 0) {
+    p2_lengths <- vapply(cats_p2, length, integer(1))
+    vars_by_levels <- split(names(cats_p2), p2_lengths)
+    ce_groups_p2 <- lapply(vars_by_levels, function(var_names) {
+      L <- length(cats_p2[[var_names[1]]])
+      k <- length(var_names)
+      p2_flat <- torch_tensor(unlist(cats_p2[var_names]), dtype = torch_long(), device = device)
+      p1_flat <- if (exists("cats_p1") && length(cats_p1) > 0) {
+        p1_list <- cats_p1[var_names]
+        if (any(sapply(p1_list, is.null))) NULL else torch_tensor(unlist(p1_list), dtype = torch_long(), device = device)
+      } else NULL
+      list(k = k, L = L, p2_idx = p2_flat, p1_idx = p1_flat)
+    })
+  } else {
+    ce_groups_p2 <- list()
+  }
+  
+  if (length(cats_mode) > 0) {
+    mode_lengths <- vapply(cats_mode, length, integer(1))
+    mode_vars_by_levels <- split(names(cats_mode), mode_lengths)
+    ce_groups_mode <- lapply(mode_vars_by_levels, function(var_names) {
+      L <- length(cats_mode[[var_names[1]]])
+      k <- length(var_names)
+      idx_flat <- torch_tensor(unlist(cats_mode[var_names]), dtype = torch_long(), device = device)
+      list(k = k, L = L, idx = idx_flat)
+    })
+  } else {
+    ce_groups_mode <- list()
+  }
+  total_cat_count <- length(cats_p2) + length(cats_mode)
+  
   params$ncols <- ncols
   params$nphase2 <- length(phase2_vars_encode)
   params$nphase1 <- length(phase1_vars_encode)
-  params$cat_groups <- cats_p2
-  params$num_inds <- num_inds_p2
-  
   gnet <- do.call(paste("generator", params$type_g, sep = "."), 
                   args = list(params))$to(device = device)
   dnet <- do.call(paste("discriminator", params$type_d, sep = "."), 
@@ -286,7 +325,8 @@ mimegans <- function(data, m = 5,
     }
     
     recon_loss <- reconLoss(X_fake, X, fake_proj, A, I, params, 
-                            num_inds_p2, cat_groups_p2)
+                            num_inds_p2, cat_inds_p2, 
+                            ce_groups_p2, ce_groups_mode, total_cat_count)
     
     X_fakeact <- activationFun(X_fake, cat_groups_p2, num_inds_p2, params)
     fake_AC <- torch_cat(list(X_fakeact, A, C), dim = 2)

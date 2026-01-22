@@ -1,10 +1,11 @@
 pacman::p_load(torch)
 
 reconLoss <- function(fake, true, fake_proj, true_proj, I, params, 
-                      num_inds, cat_groups_p2){
+                      num_inds, cat_inds, 
+                      ce_groups_p2, ce_groups_mode, total_cat_count){
   
   use_mm <- (length(num_inds) > 0L) && (params$alpha != 0)
-  use_ce <- (length(cat_groups_p2) > 0L) && (params$beta != 0)
+  use_ce <- (length(cat_inds) > 0L) && (params$beta != 0)
   
   if (!use_mm && !use_ce)
     return (torch_tensor(0, device = fake$device))
@@ -20,7 +21,7 @@ reconLoss <- function(fake, true, fake_proj, true_proj, I, params,
   
   ce <- if (use_ce) {
     params$beta *
-      ceLoss(fake, true, fake_proj, true_proj, I, n_I, params, cat_groups_p2)
+      ceLoss(fake, true, fake_proj, true_proj, I, n_I, params, ce_groups_p2, ce_groups_mode, total_cat_count)
   } else NULL
   
   if (is.null(mm)) return(ce)
@@ -39,7 +40,7 @@ infoLoss <- function(fake, true){
 }
 
 # Batched Cross Entropy Loss
-ceLoss <- function(fake, true, fake_proj, A, I, n_I, params, cat_groups_p2){
+ceLoss <- function(fake, true, fake_proj, A, I, n_I, params, ce_groups_p2, ce_groups_mode, total_cat_count){
   loss_sum <- torch_tensor(0, device = fake$device)
   
   notI <- I$logical_not()
@@ -61,23 +62,28 @@ ceLoss <- function(fake, true, fake_proj, A, I, n_I, params, cat_groups_p2){
     return(nnf_cross_entropy(inp_view, tgt_idx, reduction = "sum"))
   }
   
-  for (group in cat_groups_p2){
-    if (params$cat == "projp1"){
-      idx_A <- group$indices
+  for (group in ce_groups_p2){
+    if (params$cat == "projp1" | params$cat == "projp2"){
+      idx_A <- if(!is.null(group$p1_idx)) group$p1_idx else group$p2_idx
       
       l1 <- calc_batch_ce(fake_proj, A, group, idx_A, notI)
-      l2 <- calc_batch_ce(fake, true, group, group$indices, I)
+      l2 <- calc_batch_ce(fake, true, group, group$p2_idx, I)
       
       # Tensor division
       term <- (params$proj_weight * l1 + l2) / (n_notI + n_I + 1e-8)
       loss_sum$add_(term)
     } else {
-      l2 <- calc_batch_ce(fake, true, group, group$indices, I)
+      l2 <- calc_batch_ce(fake, true, group, group$p2_idx, I)
       loss_sum$add_(l2 / (n_I + 1e-8))
     }
   }
   
-  return (loss_sum / length(cat_groups_p2))
+  for (group in ce_groups_mode){
+    l_mode <- calc_batch_ce(fake, true, group, group$idx, I)
+    loss_sum$add_(l_mode / (n_I + 1e-8))
+  }
+  
+  return (loss_sum / total_cat_count)
 }
 
 # Batched Gumbel Softmax
@@ -137,4 +143,24 @@ gradientPenalty <- function(D, real_samples, fake_samples, params, device, ones_
   }
   gradient_penalty <- torch_mean((torch_norm(gradients, p = 2, dim = 2) - 1) ^ 2)
   return (gradient_penalty)
+}
+
+lossCalc <- function(gen, true, info, inds){
+  rmse_num <- 0; mis_cat <- 0
+  num_vars <- info$phase2_vars[info$phase2_vars %in% info$num_vars]
+  cat_vars <- info$phase2_vars[info$phase2_vars %in% info$cat_vars]
+  
+  if (length(num_vars) > 0) {
+    diff_sq <- (gen$gsample[[1]][inds, num_vars, drop = FALSE] - true[inds, num_vars, drop = FALSE])^2
+    rmse_num <- sum(sqrt(colMeans(diff_sq, na.rm = TRUE)))
+  }
+  
+  n_inds <- sum(inds)
+  if (length(cat_vars) > 0 && n_inds > 0) {
+    for (i in cat_vars){
+      mis_num <- sum(gen$gsample[[1]][[i]][inds] != true[[i]][inds])
+      mis_cat <- mis_cat + mis_num / n_inds
+    }
+  }
+  return (c(rmse_num, mis_cat))
 }

@@ -17,7 +17,7 @@ normalize.mode <- function(data, num_vars, cond_vars) {
       mode_params[[col]] <- list(mode_means = mu, mode_sds = sigma)
       next
     } 
-    mc <- mclust::Mclust(curr_col_obs, G = 1, verbose = F, modelNames = "V")
+    mc <- mclust::Mclust(curr_col_obs, G = 1:9, verbose = F, modelNames = "V")
     pred <- predict(mc, newdata = curr_col_obs)
     mode_labels <- pred$classification
     

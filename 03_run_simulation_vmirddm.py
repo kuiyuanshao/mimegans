@@ -1,15 +1,15 @@
 import yaml
-from src.mime_csdi import MIME_CSDI
+from mimecsdi.mime_csdi import MIME_CSDI
 import os
 
-if not os.path.exists("F:/phd-thesis/simulations/SRS/mimecsdi"):
-    os.makedirs("F:/phd-thesis/simulations/SRS/mimecsdi")
+if not os.path.exists("/simulations/SRS/mimecsdi"):
+    os.makedirs("/simulations/SRS/mimecsdi")
 
-if not os.path.exists("F:/phd-thesis/simulations/Balance/mimecsdi"):
-    os.makedirs("F:/phd-thesis/simulations/Balance/mimecsdi")
+if not os.path.exists("/simulations/Balance/mimecsdi"):
+    os.makedirs("/simulations/Balance/mimecsdi")
 
-if not os.path.exists("F:/phd-thesis/simulations/Neyman/mimecsdi"):
-    os.makedirs("F:/phd-thesis/simulations/Neyman/mimecsdi")
+if not os.path.exists("/simulations/Neyman/mimecsdi"):
+    os.makedirs("/simulations/Neyman/mimecsdi")
 
 data_info_srs = {
     "weight_var": "W",
@@ -155,7 +155,7 @@ data_info_neyman = {
     ]
 }
 
-with open("config/survival.yaml", "r") as f:
+with open("mimecsdi/config/survival.yaml", "r") as f:
     config = yaml.safe_load(f)
 
 for i in range(1, 31):

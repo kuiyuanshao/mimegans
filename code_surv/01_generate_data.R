@@ -903,7 +903,7 @@ fetch_parameters <- function(){
 
 ####### STARTING SIMULATION.  SAVING FILES ########
 if(!dir.exists('./data')){dir.create("./data")}
-if(!dir.exists('./data/Complete')){dir.create("./data/Complete")}
+if(!dir.exists('./data/TRUE')){dir.create("./data/TRUE")}
 replicate <- 500
 n <- 2e4
 if (file.exists("./data/data_generation_seed.RData")){
@@ -917,6 +917,6 @@ for (i in 1:replicate){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   data <- suppressMessages({generateData(n, seed[i])})
-  save(data, file = paste0("./data/Complete/", digit, ".RData"))
+  save(data, file = paste0("./data/TRUE/", digit, ".RData"))
 }
 

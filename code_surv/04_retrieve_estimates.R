@@ -9,7 +9,7 @@ retrieveEst <- function(method){
     digit <- stringr::str_pad(i, 4, pad = 0)
     cat("Current:", digit, "\n")
     load(paste0("./data/Complete/", digit, ".RData"))
-    if (method == "true_me"){
+    if (method == "TRUE"){
       cox.mod <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +
                           rs4506565 + I((AGE - 50) / 5) + I((eGFR - 90) / 10) +
                           SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE, data = data)
@@ -25,7 +25,7 @@ retrieveEst <- function(method){
       resultCI <- rbind(resultCI, c(exp(confint(cox.mod)[, 1]), exp(confint(cox.mod)[, 2]), "TRUE", "TRUE", digit))
     }else{
       for (j in sampling_designs){
-        if (method == "Sample"){
+        if (method == "Complete-case"){
           samp <- read.csv(paste0("./data/Sample/", j, "/", digit, ".csv"))
           samp <- match_types(samp, data)
           if (j %in% c("Balance", "Neyman")){

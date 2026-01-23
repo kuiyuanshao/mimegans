@@ -5,7 +5,7 @@ options(survey.lonely.psu = "certainty")
 retrieveEst <- function(method){
   resultCoeff <- resultStdError <- resultCI <- NULL
   sampling_designs <- c("SRS", "Balance", "Neyman")
-  for (i in 1:500){
+  for (i in 1:35){
     digit <- stringr::str_pad(i, 4, pad = 0)
     cat("Current:", digit, "\n")
     load(paste0("./data/Complete/", digit, ".RData"))
@@ -106,42 +106,7 @@ retrieveEst <- function(method){
        file = paste0("./simulations/results_", method,".RData"))
 }
 
-for (method in c("true_me", "complete", "mice", "mixgb", "tpvmi_gans", "tpvmi_rddm")){
+for (method in c("true_me", "Complete", "mice", "mixgb", "tpvmi_gans", "tpvmi_rddm")){
   retrieveEst(method)
 }
 
-i <- 1
-digit <- stringr::str_pad(i, 4, pad = 0)
-cat("Current:", digit, "\n")
-load(paste0("./data/Complete/", digit, ".RData"))
-cox.fit <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +
-                   rs4506565 + I((AGE - 50) / 5) + I((eGFR - 90) / 10) +
-                   SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE, data = data)
-j = "SRS"
-multi_impset <- lapply(excel_sheets(paste0("./simulations/", j, "/", method, "/", digit, ".xlsx")), function(x) {
-  read_excel(path = paste0("./simulations/", j, "/", method, "/", digit, ".xlsx"), sheet = x)
-})
-multi_impset <- lapply(multi_impset, function(dat){
-  match_types(dat, data)
-})
-imp.mids <- as.mids(multi_impset)
-cox.mod <- with(data = imp.mids, 
-                exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +
-                              rs4506565 + I((AGE - 50) / 5) + I((eGFR - 90) / 10) +
-                              SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE))
-pooled <- mice::pool(cox.mod)
-sumry <- summary(pooled, conf.int = TRUE)
-exp(coef(cox.fit)) - exp(sumry$estimate)
-
-table(multi_impset[[1]]$EVENT, data$EVENT)
-table(multi_impset[[1]]$SMOKE, data$SMOKE)
-plot(x = data$HbA1c, y = multi_impset[[1]]$HbA1c)
-lines(x = 1:200, y = 1:200, col = "red")
-plot(x = data$T_I, y = multi_impset[[1]]$T_I)
-
-
-ggplot(data) + 
-  geom_density(aes(x = T_I, colour = SMOKE))
-
-ggplot(multi_impset[[1]]) + 
-  geom_density(aes(x = T_I, colour = SMOKE))

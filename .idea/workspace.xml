@@ -5,74 +5,14 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="3fad96bc-0496-48be-875a-9561906b5ad0" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/phd-thesis.iml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/00_install_packages.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/00_install_packages.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/00_utils_functions.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/00_utils_functions.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/01_generate_data.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/01_generate_data.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/02_generate_sample.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/02_generate_sample.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/03_run_simulation_gain.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/03_run_simulation_gain.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/03_run_simulation_mice.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/03_run_simulation_mice.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/03_run_simulation_mixgb.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/03_run_simulation_mixgb.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/03_run_simulation_raking.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/03_run_simulation_raking.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/03_run_simulation_vmigan.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/03_run_simulation_tpvmi_gans.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/03_run_simulation_vmirddm.py" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/03_run_simulation_tpvmi_rddm.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/04_retrieve_estimates.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/04_retrieve_estimates.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/05_generate_plots.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/05_generate_plots.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/06_ablation_study.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/06_ablation_study.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/comparisons/gain/gain.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/comparisons/gain/gain.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/comparisons/gain/utils.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/comparisons/gain/utils.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/comparisons/mimegans/tuning_mimegans.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/comparisons/mimegans/tuning_mimegans.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/comparisons/mixgb/tuning_mixgb.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/comparisons/mixgb/tuning_mixgb.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/comparisons/raking/raking.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/comparisons/raking/raking.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/covarInfo.RData" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/data_generation_seed.RData" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/data_sampling_seed.RData" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/genoCorr.RData" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/genoFreq.RData" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/genoTrait.RData" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/labtest_parameters.RData" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/mixgb_balanceParams.RData" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/mixgb_neymanParams.RData" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/mixgb_srsParams.RData" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimecsdi/.idea/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/.idea/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimecsdi/.idea/inspectionProfiles/profiles_settings.xml" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimecsdi/.idea/mime-csdi.iml" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/.idea/mime-csdi.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimecsdi/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/.idea/misc.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimecsdi/.idea/modules.xml" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/.idea/modules.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimecsdi/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimecsdi/config/nutritional.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/config/nutritional.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimecsdi/config/survival.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/config/survival.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimecsdi/mime_csdi.py" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/tpvmi_rddm.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimecsdi/networks.py" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/networks.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimecsdi/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/utils.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/.ipynb_checkpoints/generate.impute-checkpoint.R" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/.ipynb_checkpoints/mmer.impute.ccwgangp-checkpoint.R" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/.ipynb_checkpoints/mmer.impute.cwgangp-checkpoint.R" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/.ipynb_checkpoints/mmer.impute.cwgangp_joint-checkpoint.R" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/.ipynb_checkpoints/utils-checkpoint.R" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/discriminators.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_gans/discriminators.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/encoding.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_gans/encoding.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/generateImpute.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_gans/generateImpute.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/generators.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_gans/generators.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/mimegans.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_gans/tpvmi_gans.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/normalizing.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_gans/normalizing.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/sampleBatch.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_gans/sampleBatch.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/tests/discriminators.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_gans/tests/discriminators.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/tests/encoding.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_gans/tests/encoding.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/tests/generateImpute.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_gans/tests/generateImpute.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/tests/generators.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_gans/tests/generators.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/tests/mimegans.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_gans/tests/mimegans.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/tests/networks.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_gans/tests/networks.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/tests/normalizing.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_gans/tests/normalizing.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/tests/sampleBatch.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_gans/tests/sampleBatch.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/tests/utils.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_gans/tests/utils.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mimegans/utils.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_gans/utils.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tpvmi-wmle/mice.impute.cml.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_wmle/mice.impute.cml.R" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/code_surv/03_run_simulation_tpvmi_rddm.py" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/03_run_simulation_tpvmi_rddm.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/code_surv/04_retrieve_estimates.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/04_retrieve_estimates.R" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/code_surv/comparisons/mimegans/tuning_mimegans.R" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tpvmi_rddm/config/survival.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/config/survival.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tpvmi_rddm/networks.py" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/networks.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tpvmi_rddm/tpvmi_rddm.py" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/tpvmi_rddm.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tpvmi_rddm/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/utils.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -97,20 +37,20 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Python.03_run_simulation_tpvmi_rddm.executor": "Run",
-    "Python.03_run_simulation_vmirddm.executor": "Run",
-    "Python.03_run_simulation_vrddmmi.executor": "Run",
-    "Python.03_run_simulation_vscsdi.executor": "Run",
-    "Python.main.executor": "Run",
-    "Python.mime_csdi.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "main",
-    "last_opened_file_path": "F:/phd-thesis"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Python.03_run_simulation_tpvmi_rddm.executor&quot;: &quot;Run&quot;,
+    &quot;Python.03_run_simulation_vmirddm.executor&quot;: &quot;Run&quot;,
+    &quot;Python.03_run_simulation_vrddmmi.executor&quot;: &quot;Run&quot;,
+    &quot;Python.03_run_simulation_vscsdi.executor&quot;: &quot;Run&quot;,
+    &quot;Python.main.executor&quot;: &quot;Run&quot;,
+    &quot;Python.mime_csdi.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;last_opened_file_path&quot;: &quot;F:/phd-thesis&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="F:\phd-thesis\code_survival" />

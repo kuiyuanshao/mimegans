@@ -70,7 +70,8 @@ class HybridFeatureEmbedder(nn.Module):
         self.projections = nn.ModuleDict()
         for var in schema:
             name = var['name']
-            input_dim = var['num_classes'] if 'categorical' in var['type'] else 1
+            # Input dim is vector size: 1 for numeric, Log2(K) for bits
+            input_dim = var['dim']
             self.projections[name] = nn.Linear(input_dim, channels)
 
     def forward(self, feature_dict):
@@ -97,13 +98,10 @@ class RDDM_NET(nn.Module):
         self.target_embedder = HybridFeatureEmbedder(self.target_schema, self.channels)
         self.aux_embedder = HybridFeatureEmbedder(self.aux_schema, self.channels)
 
-        # [CRITICAL FIX] Learnable Mask Token
-        # Replaces x_t when it is absorbed, distinguishing it from valid data.
-        self.mask_token = nn.Parameter(torch.randn(1, self.channels, 1))
-
-        # Input Mixer: Takes x_t (Masked) + P1 (Condition)
-        # We concatenate them: [x_t_masked, P1] -> 2*C
-        self.input_mixer = Conv1d_with_init(2 * self.channels, self.channels, 1)
+        # [SELF-CONDITIONING] Input Mixer
+        # Inputs: x_t (Signal) + P1 (Proxy) + SelfCond (Predicted x0)
+        # 3 Inputs * Channels
+        self.input_mixer = Conv1d_with_init(3 * self.channels, self.channels, 1)
 
         self.diffusion_embedding = DiffusionEmbedding(self.num_steps, self.channels)
 
@@ -114,42 +112,30 @@ class RDDM_NET(nn.Module):
         self.output_heads = nn.ModuleDict()
         for var in self.target_schema:
             name = var['name']
-            if var['type'] == 'categorical':
-                self.output_heads[name] = nn.Linear(self.channels, var['num_classes'])
-            else:
-                self.output_heads[name] = nn.Linear(self.channels, 2)
+            out_dim = var['dim']
+            # Predict [Residual, Noise] -> 2 * dim
+            self.output_heads[name] = nn.Linear(self.channels, 2 * out_dim)
 
-    def forward(self, x_t_dict, t, p1_dict, aux_dict, mask_dict):
+    def forward(self, x_t_dict, t, p1_dict, aux_dict, self_cond_dict=None):
         # 1. Embed Inputs
         x_t_emb = self.target_embedder(x_t_dict)  # (B, C, L)
         p1_emb = self.target_embedder(p1_dict)  # (B, C, L)
         aux_emb = self.aux_embedder(aux_dict)  # (B, C, L_aux)
         dif_emb = self.diffusion_embedding(t)  # (B, C)
 
-        # 2. [CRITICAL FIX] Apply Input Masking
-        # We reconstruct the mask tensor to match embeddings (B, C, L)
-        # mask_dict[name] is (B, 1). 1=Clean, 0=Absorbed.
-        mask_list = []
-        for var in self.target_schema:
-            m = mask_dict[var['name']]  # (B, 1)
-            # Expand to (B, C)
-            m_expanded = m.unsqueeze(1).expand(-1, self.channels, -1)  # (B, C, 1)
-            mask_list.append(m_expanded)
+        # 2. Embed Self-Conditioning (or Zero)
+        if self_cond_dict is None:
+            # Create zeros with same shape as x_t_emb
+            self_cond_emb = torch.zeros_like(x_t_emb)
+        else:
+            self_cond_emb = self.target_embedder(self_cond_dict)
 
-        # (B, C, L)
-        mask_seq = torch.cat(mask_list, dim=2)
-
-        # Apply Mask:
-        # If Mask=1 (Clean), use x_t_emb.
-        # If Mask=0 (Absorbed), use self.mask_token.
-        # This prevents the model from seeing P1 in the x_t slot.
-        x_t_masked = x_t_emb * mask_seq + self.mask_token * (1.0 - mask_seq)
-
-        # 3. Combine: Masked State + Proxy Condition
-        # Model sees: "Here is the corrupted state (Masked)" AND "Here is the Proxy (P1)"
-        combined_input = torch.cat([x_t_masked, p1_emb], dim=1)  # (B, 2C, L)
+        # 3. Concatenate Inputs
+        # The order matters: Signal, Proxy, SelfCond
+        combined_input = torch.cat([x_t_emb, p1_emb, self_cond_emb], dim=1)  # (B, 3C, L)
         mixed_input = self.input_mixer(combined_input)  # (B, C, L)
 
+        # 4. Concatenate Aux
         sequence = torch.cat([mixed_input, aux_emb], dim=2)
 
         skip_accum = 0

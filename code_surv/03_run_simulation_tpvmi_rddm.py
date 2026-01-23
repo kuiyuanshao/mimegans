@@ -158,7 +158,7 @@ data_info_neyman = {
 with open("../tpvmi_rddm/config/survival.yaml", "r") as f:
     config = yaml.safe_load(f)
 
-for i in range(1, 31):
+for i in range(1, 100):
     digit = str(i).zfill(4)
     file_path_srs = "F:/phd-thesis/code_surv/data/Sample/SRS/" + digit + ".csv"
     file_path_bal = "F:/phd-thesis/code_surv/data/Sample/Balance/" + digit + ".csv"
@@ -172,12 +172,12 @@ for i in range(1, 31):
     rddm_mod_srs.fit(file_path_srs)
     rddm_mod_srs.impute(save_path=save_path_srs)
 
-    rddm_mod_bal = TPVMI_RDDM(config, data_info_balance)
-    rddm_mod_bal.fit(file_path_bal)
-    rddm_mod_bal.impute(save_path=save_path_bal)
+    #rddm_mod_bal = TPVMI_RDDM(config, data_info_balance)
+    #rddm_mod_bal.fit(file_path_bal)
+    #rddm_mod_bal.impute(save_path=save_path_bal)
 
-    rddm_mod_ney = TPVMI_RDDM(config, data_info_neyman)
-    rddm_mod_ney.fit(file_path_ney)
-    rddm_mod_ney.impute(save_path=save_path_ney)
+    #rddm_mod_ney = TPVMI_RDDM(config, data_info_neyman)
+    #rddm_mod_ney.fit(file_path_ney)
+    #rddm_mod_ney.impute(save_path=save_path_ney)
 
 

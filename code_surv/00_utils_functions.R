@@ -57,26 +57,54 @@ match_types <- function(new_df, orig_df) {
   for (nm in common) {
     tmpl <- orig_df[[nm]]
     col <- out[[nm]]
-    if (is.integer(tmpl))        out[[nm]] <- as.integer(col)
-    else if (is.numeric(tmpl))   out[[nm]] <- as.numeric(col)
-    else if (is.logical(tmpl))   out[[nm]] <- as.logical(as.numeric(col))
-    else if (is.factor(tmpl)) {
+    
+    if (is.integer(tmpl)) {
+      out[[nm]] <- as.integer(col)
+    } else if (is.numeric(tmpl)) {
+      out[[nm]] <- as.numeric(col)
+    } else if (is.logical(tmpl)) {
+      # [Modified] Robust handling for mixed "TRUE"/"FALSE" and "0"/"1" characters
+      x <- col
+      if (is.factor(x)) x <- as.character(x) # Ensure factors are treated as strings
+      
+      if (is.character(x)) {
+        # Step 1: Try standard logical parsing (handles "TRUE", "FALSE", "T", "F")
+        # "0" and "1" will become NA here
+        res <- as.logical(x)
+        
+        # Step 2: Fix NAs that were actually numeric strings ("0", "1")
+        # Find indices where conversion failed but input was not NA
+        failed_idx <- is.na(res) & !is.na(x)
+        
+        if (any(failed_idx)) {
+          # Try converting the failed parts to numeric first, then to logical
+          # suppressWarnings prevents noise on truly invalid strings
+          num_val <- suppressWarnings(as.numeric(x[failed_idx]))
+          res[failed_idx] <- as.logical(num_val)
+        }
+        out[[nm]] <- res
+      } else {
+        # If it's already numeric/integer, direct coercion works (0->FALSE, 1->TRUE)
+        out[[nm]] <- as.logical(col)
+      }
+      
+    } else if (is.factor(tmpl)) {
       out[[nm]] <- factor(col,
                           levels = levels(tmpl),
                           ordered = is.ordered(tmpl))
-    }
-    else if (inherits(tmpl, "Date")) {
+    } else if (inherits(tmpl, "Date")) {
       out[[nm]] <- as.Date(col)
     } else if (inherits(tmpl, "POSIXct")) {
       tz <- attr(tmpl, "tzone")
+      if (is.null(tz)) tz <- "" # Safety check
       out[[nm]] <- as.POSIXct(col, tz = tz)
-    }
-    else {
+    } else {
       out[[nm]] <- as.character(col)
     }
   }
   out
 }
+
 
 reallocate <- function(samp){
   parts <- do.call(rbind, strsplit(as.character(samp$STRATA), "\\."))

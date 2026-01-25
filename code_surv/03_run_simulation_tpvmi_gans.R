@@ -1,5 +1,5 @@
 lapply(c("dplyr", "stringr", "torch", "coro", "survival", "mclust"), require, character.only = T)
-files <- list.files("./tpvmi_gans", full.names = TRUE, recursive = FALSE)
+files <- list.files("../tpvmi_gans", full.names = TRUE, recursive = FALSE)
 files <- files[!grepl("tests", files)]
 lapply(files, source)
 source("00_utils_functions.R")
@@ -31,8 +31,8 @@ if(!dir.exists('./simulations/Neyman/tpvmi_gans')){dir.create('./simulations/Ney
 
 do_tpvmi_gans <- function(samp, info, nm, digit) {
   tm <- system.time({
-    tpvmi_gans_imp <- tpvmi_gans(samp, m = 20, epochs = 10000,
-                                 data_info = info, device = "cuda")
+    tpvmi_gans_imp <- tpvmi_gans(samp, m = 5, epochs = 10000,
+                                 data_info = info, device = "cpu")
   })
   tpvmi_gans_imp$imputation <- lapply(tpvmi_gans_imp$imputation, function(dat){
     match_types(dat, data)
@@ -46,17 +46,17 @@ do_tpvmi_gans <- function(samp, info, nm, digit) {
   sumry <- summary(pooled, conf.int = TRUE)
   cat("Bias: \n")
   cat(exp(sumry$estimate) - exp(coef(cox.true)), "\n")
-  cat("Variance: \n")
-  cat(apply(bind_rows(lapply(cox.fit$analyses, function(i){exp(coef(i))})), 2, var), "\n")
+  cat("StdError: \n")
+  cat(sumry$std.error, "\n")
   
-  save(tpvmi_gans_imp, tm, file = file.path("simulations", nm, "tpvmi_gans",
-                                          paste0(digit, ".RData")))
+  #save(tpvmi_gans_imp, tm, file = file.path("simulations", nm, "tpvmi_gans",
+  #                                        paste0(digit, ".RData")))
 }
 
 for (i in 1:500){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
-  load(paste0("./data/Complete/", digit, ".RData"))
+  load(paste0("./data/True/", digit, ".RData"))
   samp_srs <- read.csv(paste0("./data/Sample/SRS/", digit, ".csv"))
   samp_balance <- read.csv(paste0("./data/Sample/Balance/", digit, ".csv"))
   samp_neyman <- read.csv(paste0("./data/Sample/Neyman/", digit, ".csv"))
@@ -85,4 +85,6 @@ for (i in 1:500){
   if (!file.exists(paste0("./simulations/Neyman/tpvmi_gans/", digit, ".RData"))){
     do_tpvmi_gans(samp_neyman, data_info_neyman, "Neyman", digit)
   }
+  do_tpvmi_gans(samp_srs, data_info_srs, "SRS", digit)
 }
+

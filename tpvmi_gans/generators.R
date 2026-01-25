@@ -41,14 +41,15 @@ generator.mlp <- nn_module(
     self$seq$add_module("Linear", nn_linear(dim1, params$nphase2))
   },
   forward = function(N, A, C, ...){
+    cond <- torch_cat(list(A, C), dim = 2)
+    cond <- self$cond_encoder(cond)
     if (self$params$g_dropout > 0){
-      cond <- torch_cat(list(A, C), dim = 2)
-      cond <- self$cond_encoder(cond)
       cond <- self$dropout(cond)
-      input <- torch_cat(list(N, cond), dim = 2)
     }
-
+    input <- torch_cat(list(N, cond), dim = 2)
     X_fake <- self$seq(input)
+    
+    # X_fake[, self$params$cat_inds] <- X_fake[, self$params$cat_inds] + 5 * A[, self$params$cat_inds]
     return (X_fake)
   }
 )

@@ -28,19 +28,31 @@ encode.onehot <- function(data, cat_vars, ori_cat_vars, phase1_vars, phase2_vars
 }
 
 decode.onehot <- function(data, encode_obj, ...) {
-  matches <- lapply(encode_obj$new_col_names, function(x) any(x %in% names(data)))
-  matched_names <- names(encode_obj$new_col_names)[unlist(matches)]
+  matched_names <- character(0)
+  for (var in names(encode_obj$new_col_names)) {
+    cols <- encode_obj$new_col_names[[var]]
+    if (all(cols %in% names(data))) {
+      matched_names <- c(matched_names, var)
+    }
+  }
+  all_onehot_cols <- unlist(encode_obj$new_col_names[matched_names])
   
-  binary_indices <- encode_obj$binary_indices[matched_names]
-  original_data <- data[, -unlist(binary_indices)]
-  for (var_name in names(binary_indices)) {
-    indices <- binary_indices[[var_name]]
+  keep_cols <- setdiff(names(data), all_onehot_cols)
+  original_data <- data[, keep_cols, drop = FALSE]
+  
+  for (var_name in matched_names) {
+    col_names <- encode_obj$new_col_names[[var_name]]
+    indices <- match(col_names, names(data))
+    if (any(is.na(indices))) stop(paste("Encoding columns mismatch for", var_name))
+    
     code <- apply(data[, indices, drop = FALSE], 1, function(i){
       k <- which.max(i)
       k
     })
-    original_data[[var_name]] <- 
-      sub(paste0("^", var_name, "_"), "", names(data[, indices, drop = FALSE]))[code]
+    
+    suffix <- sub(paste0("^", var_name, "_"), "", col_names)
+    original_data[[var_name]] <- suffix[code]
   }
+  
   return(original_data)
 }

@@ -2,12 +2,12 @@ pacman::p_load(progress, torch)
 
 cwgangp_default <- function(batch_size = 500, lambda = 10, 
                             alpha = 0, beta = 1, proj_weight = 1,
-                            at_least_p = 0.5, g_dropout = 0.5,
+                            at_least_p = 0.5, g_dropout = 0,
                             lr_g = 2e-4, lr_d = 2e-4, g_betas = c(0.5, 0.9), d_betas = c(0.5, 0.9), 
                             g_weight_decay = 1e-6, d_weight_decay = 1e-6, noise_dim = 64, cond_dim = 128,
-                            g_dim = c(256, 256), d_dim = c(256, 256), pac = 5, discriminator_steps = 1,
+                            g_dim = c(256, 256), d_dim = c(256, 256), pac = 5, discriminator_steps = 3,
                             tau = 0.2, hard = F, type_g = "mlp", type_d = "mlp",
-                            num = "mmer", cat = "projp1", balancebatch = T){
+                            num = "mmer", cat = "projp1", balancebatch = F){
   batch_size <- pac * round(batch_size / pac)
   
   list(batch_size = batch_size, at_least_p = at_least_p, 
@@ -255,6 +255,8 @@ tpvmi_gans <- function(data, m = 5,
   params$ncols <- ncols
   params$nphase2 <- length(phase2_vars_encode)
   params$nphase1 <- length(phase1_vars_encode)
+  params$num_inds <- num_inds_p2
+  params$cat_inds <- cat_inds_p2
   gnet <- do.call(paste("generator", params$type_g, sep = "."), 
                   args = list(params))$to(device = device)
   dnet <- do.call(paste("discriminator", params$type_d, sep = "."), 
@@ -282,7 +284,7 @@ tpvmi_gans <- function(data, m = 5,
   swa_n <- 0
   swa_mean <- list()
   swa_sq_mean <- list()
-  swa_start <- 1
+  swa_start <- as.integer(0.75 * epochs)
   
   ones_buf <- torch_ones(c(params$batch_size, 1), device = device)
   for (i in 1:epochs){
@@ -318,6 +320,7 @@ tpvmi_gans <- function(data, m = 5,
     I <- M[, 1] == 1
     
     fakez <- torch_normal(mean = 0, std = 1, size = c(params$batch_size, params$noise_dim), device = device) 
+    
     X_fake <- gnet(fakez, A, C)
     
     fake_proj <- NULL
@@ -345,28 +348,36 @@ tpvmi_gans <- function(data, m = 5,
       curr_state <- gnet$state_dict()
       if (swa_n == 1) {
         for (key in names(curr_state)) {
-          if (is_torch_tensor(curr_state[[key]]) && curr_state[[key]]$dtype == torch_float()) {
-            swa_mean[[key]] <- curr_state[[key]]$detach()$clone()
-            swa_sq_mean[[key]] <- curr_state[[key]]$detach()$clone()^2
+          val <- curr_state[[key]]
+          # [FIXED]: 使用 inherits() 替代 is_torch_tensor()
+          if (inherits(val, "torch_tensor") && val$dtype == torch_float()) {
+            swa_mean[[key]] <- val$detach()$clone()
+            swa_sq_mean[[key]] <- val$detach()$clone()^2
           } else {
-            swa_mean[[key]] <- curr_state[[key]]$detach()$clone()
-            swa_sq_mean[[key]] <- curr_state[[key]]$detach()$clone()
+            # 非浮点数直接保存当前值
+            swa_mean[[key]] <- val$detach()$clone()
+            swa_sq_mean[[key]] <- val$detach()$clone()
           }
         }
       } else {
+        # 递归更新
         for (key in names(swa_mean)) {
-          if (is_torch_tensor(curr_state[[key]]) && curr_state[[key]]$dtype == torch_float()) {
-            curr_val <- curr_state[[key]]$detach()
+          val <- curr_state[[key]]
+          # [FIXED]: 使用 inherits() 替代 is_torch_tensor()
+          if (inherits(val, "torch_tensor") && val$dtype == torch_float()) {
+            curr_val <- val$detach()
             # Mean Update
             swa_mean[[key]] <- (swa_mean[[key]] * (swa_n - 1) + curr_val) / swa_n
             # Sq Mean Update
             swa_sq_mean[[key]] <- (swa_sq_mean[[key]] * (swa_n - 1) + curr_val^2) / swa_n
           } else {
-            swa_mean[[key]] <- curr_state[[key]]$detach()$clone()
+            # 非浮点参数更新为最新值
+            swa_mean[[key]] <- val$detach()$clone()
           }
         }
       }
     }
+  
     
     training_loss[i, ] <- c(g_loss$item(), d_loss$item())
     pb$tick(tokens = list(
@@ -375,7 +386,6 @@ tpvmi_gans <- function(data, m = 5,
       recon_loss = sprintf("%.3f", recon_loss$item())
     ))
     
-    }
   }
   pb$terminate()
   

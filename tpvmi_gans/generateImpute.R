@@ -19,20 +19,19 @@ create_bfi <- function(data_nrow, batch_size, tensor_list){
   return(batches)
 }
 
-sample_swag_weights <- function(swag_stats, scale = 0.5) {
+sample_swag_weights <- function(swag_stats, scale = 1) {
   sampled_state <- list()
   mean_dict <- swag_stats$mean
   sq_mean_dict <- swag_stats$sq_mean
   
   for (key in names(mean_dict)) {
     mu <- mean_dict[[key]]
-    if (is_torch_tensor(mu) && mu$dtype == torch_float()) {
+    
+    if (inherits(mu, "torch_tensor") && mu$dtype == torch_float()) {
       sq_mu <- sq_mean_dict[[key]]
-      # Var = E[X^2] - (E[X])^2
-      # Clamp to avoid numerical issues (negative variance)
-      var_val <- torch_clamp(sq_mu - mu^2, min = 1e-30)
+      
+      var_val <- torch_clamp(torch_abs(sq_mu - mu^2), min = 1e-30)
       sigma <- torch_sqrt(var_val)
-      # Sample: w ~ N(mu, scale * sigma)
       eps <- torch_randn_like(mu)
       sampled_state[[key]] <- mu + scale * sigma * eps
     } else {
@@ -120,7 +119,7 @@ generateImpute <- function(gnet, m = 5,
   
   for (z in 1:m){
     # --- Phase 1: Main Batch Generation ---
-    new_weights <- sample_swag_weights(swag_stats, scale = 0.5)
+    new_weights <- sample_swag_weights(swag_stats, scale = 1)
     gnet$load_state_dict(new_weights)
     
     output_df_list <- vector("list", length(batchforimpute))

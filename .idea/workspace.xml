@@ -6,17 +6,12 @@
   <component name="ChangeListManager">
     <list default="true" id="3fad96bc-0496-48be-875a-9561906b5ad0" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/code_surv/01_generate_data.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/01_generate_data.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/code_surv/03_run_simulation_tpvmi_rddm.py" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/03_run_simulation_tpvmi_rddm.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/code_surv/04_retrieve_estimates.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/04_retrieve_estimates.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/code_surv/05_generate_plots.R" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/05_generate_plots.R" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/code_surv/simulations/Imputation_Coeff_Boxplot.png" beforeDir="false" afterPath="$PROJECT_DIR$/code_surv/simulations/Imputation_Coeff_Boxplot.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/code_surv/simulations/results.RData" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/tpvmi_rddm/config/nutritional.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/config/nutritional.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tpvmi_gans/generateImpute.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_gans/generateImpute.R" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tpvmi_gans/tpvmi_gans.R" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_gans/tpvmi_gans.R" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tpvmi_rddm/config/survival.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/config/survival.yaml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tpvmi_rddm/networks.py" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/networks.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tpvmi_rddm/tpvmi_rddm.py" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/tpvmi_rddm.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tpvmi_rddm/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/tpvmi_rddm/utils.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

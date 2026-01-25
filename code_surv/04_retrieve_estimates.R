@@ -2,10 +2,11 @@ lapply(c("survival", "dplyr", "stringr", "survey", "mice", "readxl"), require, c
 source("00_utils_functions.R")
 
 options(survey.lonely.psu = "certainty")
+
 retrieveEst <- function(method){
   resultCoeff <- resultStdError <- resultCI <- NULL
   sampling_designs <- c("Balance")#"SRS", "Balance", "Neyman")
-  for (i in 1:100){
+  for (i in 1:99){
     digit <- stringr::str_pad(i, 4, pad = 0)
     cat("Current:", digit, "\n")
     load(paste0("./data/True/", digit, ".RData"))
@@ -155,6 +156,8 @@ multi_impset <- lapply(excel_sheets(paste0("./simulations/Balance/tpvmi_rddm/", 
 multi_impset <- lapply(multi_impset, function(dat){
   match_types(dat, data)
 })
+
+
 imp.mids <- as.mids(multi_impset)
 cox.mod <- with(data = imp.mids, 
                 exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +

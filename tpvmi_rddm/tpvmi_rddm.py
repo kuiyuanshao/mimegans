@@ -6,6 +6,7 @@ import sys
 import math
 import numpy as np
 import pandas as pd
+import copy
 from torch.optim import Adam
 from tqdm import tqdm
 
@@ -37,6 +38,42 @@ class TPVMI_RDDM:
         self.cat_idxs = None
         self.num_vars = []
         self.cat_vars = []
+
+        self.swa_n = 0
+        self.swa_mean = {}
+        self.swa_sq_mean = {}
+        self.swa_start_epoch = int(1)
+
+    def _update_swag_stats(self):
+        self.swa_n += 1
+        current_params = {name: param.detach().clone() for name, param in self.model.named_parameters()}
+
+        if self.swa_n == 1:
+            for name, param in current_params.items():
+                self.swa_mean[name] = param
+                self.swa_sq_mean[name] = param ** 2
+        else:
+            n = self.swa_n
+            for name, param in current_params.items():
+                # Recursive update formula for mean: new_mean = old_mean + (x - old_mean) / n
+                self.swa_mean[name] = (self.swa_mean[name] * (n - 1) + param) / n
+                # Recursive update for second moment
+                self.swa_sq_mean[name] = (self.swa_sq_mean[name] * (n - 1) + param ** 2) / n
+
+    def _sample_swag_weights(self, scale=0.5):
+        sampled_state_dict = {}
+        for name, mean in self.swa_mean.items():
+            sq_mean = self.swa_sq_mean[name]
+            # Var = E[X^2] - (E[X])^2
+            # ReLU to ensure non-negative variance due to numerical precision
+            var = torch.clamp(sq_mean - mean ** 2, min=1e-30)
+            sigma = torch.sqrt(var)
+
+            # Sample: theta ~ Mean + scale * Sigma * z
+            z = torch.randn_like(mean)
+            sampled_weight = mean + scale * sigma * z
+            sampled_state_dict[name] = sampled_weight
+        return sampled_state_dict
 
     def _get_cosine_schedule(self, num_steps, s=0.008):
         steps = num_steps + 1
@@ -128,6 +165,9 @@ class TPVMI_RDDM:
                 epoch_losses.append(loss.item())
                 it.set_postfix(loss=f"{loss.item():.4f}")
 
+            if (epoch + 1) >= self.swa_start_epoch:
+                self._update_swag_stats()
+
             if len(val_rows) > 0 and (epoch + 1) % self.config["train"].get("val_interval", 100) == 0:
                 v_p1 = self._global_p1[val_rows]
                 v_p2 = self._global_p2[val_rows]
@@ -213,10 +253,18 @@ class TPVMI_RDDM:
                            F.mse_loss(pred_stack[:, :, 1], eps))
 
         if len(self.cat_vars) > 0:
+            w_discordant = self.config["train"].get("discordance_weight", 5.0)
             for i, var in enumerate(self.cat_vars):
                 ce_loss = F.cross_entropy(model_out[var['name']], target_cat_list[i], reduction='none')
+
+                proxy_val = batch_p1_cat[:, i]
+                is_discordant = (target_cat_list[i] != proxy_val).float()
+                sample_weights = 1.0 + is_discordant * (w_discordant - 1.0)
+
+                weighted_ce_loss = ce_loss * sample_weights
+
                 is_absorbed = ~mask[:, i]
-                masked_loss = ce_loss * is_absorbed.float()
+                masked_loss = weighted_ce_loss * is_absorbed.float()
                 loss_total += 10 * (masked_loss.sum() / (is_absorbed.sum() + 1e-6))
 
         return loss_total
@@ -227,15 +275,27 @@ class TPVMI_RDDM:
         m_s = m if m else self.config["else"]["m"]
         eval_bs = batch_size if batch_size else self.config["train"].get("eval_batch_size", 64)
         N = self._global_p1.shape[0]
-        self.model.eval()
-        def enable_dropout(m):
-            if type(m) == torch.nn.Dropout or type(m) == torch.nn.TransformerEncoderLayer:
-                m.train()
-        self.model.apply(enable_dropout)
+
+        original_weights = {k: v.cpu().clone() for k, v in self.model.state_dict().items()}
+
         with pd.ExcelWriter(save_path, engine='openpyxl') as writer:
             for samp_i in range(1, m_s + 1):
                 print(f"\nGenerating Sample {samp_i}/{m_s}...", flush=True)
+
+                if self.swa_n > 1:
+                    new_weights = self._sample_swag_weights(scale=1.0)
+                    self.model.load_state_dict(new_weights, strict=False)
+                else:
+                    print("Warning: SWAG stats not sufficient. Using Point Estimate.")
+
                 all_p2 = []
+                self.model.eval()
+
+                def enable_dropout(m):
+                    if type(m) == torch.nn.Dropout or type(m) == torch.nn.TransformerEncoderLayer:
+                        m.train()
+
+                self.model.apply(enable_dropout)
 
                 with torch.no_grad():
                     for start in tqdm(range(0, N, eval_bs)):

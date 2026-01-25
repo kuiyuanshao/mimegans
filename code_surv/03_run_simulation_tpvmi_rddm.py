@@ -168,13 +168,13 @@ for i in range(1, 100):
     save_path_bal = "F:/phd-thesis/code_surv/simulations/Balance/tpvmi_rddm/" + digit + ".xlsx"
     save_path_ney = "F:/phd-thesis/code_surv/simulations/Neyman/tpvmi_rddm/" + digit + ".xlsx"
 
-    rddm_mod_srs = TPVMI_RDDM(config, data_info_srs)
-    rddm_mod_srs.fit(file_path_srs)
-    rddm_mod_srs.impute(save_path=save_path_srs)
+    #rddm_mod_srs = TPVMI_RDDM(config, data_info_srs)
+    #rddm_mod_srs.fit(file_path_srs)
+    #rddm_mod_srs.impute(save_path=save_path_srs)
 
-    #rddm_mod_bal = TPVMI_RDDM(config, data_info_balance)
-    #rddm_mod_bal.fit(file_path_bal)
-    #rddm_mod_bal.impute(save_path=save_path_bal)
+    rddm_mod_bal = TPVMI_RDDM(config, data_info_balance)
+    rddm_mod_bal.fit(file_path_bal)
+    rddm_mod_bal.impute(save_path=save_path_bal)
 
     #rddm_mod_ney = TPVMI_RDDM(config, data_info_neyman)
     #rddm_mod_ney.fit(file_path_ney)

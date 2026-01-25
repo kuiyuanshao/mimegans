@@ -24,10 +24,10 @@ class DiffusionEmbedding(nn.Module):
         self.register_buffer("embedding", self._build_embedding(num_steps, embedding_dim // 2), persistent=False)
         self.projection1 = nn.Linear(embedding_dim, embedding_dim)
         self.projection2 = nn.Linear(embedding_dim, embedding_dim)
-
+        self.dropout = nn.Dropout(0.2)
     def forward(self, diffusion_step):
         x = self.embedding[diffusion_step]
-        return self.projection2(F.silu(self.projection1(x)))
+        return self.projection2(self.dropout(F.silu(self.projection1(self.dropout(x)))))
 
     def _build_embedding(self, num_steps, dim=64):
         steps = torch.arange(num_steps).unsqueeze(1)
@@ -44,21 +44,20 @@ class ResidualBlock(nn.Module):
         self.cond_projection = Conv1d_with_init(side_dim, 2 * channels, 1)
         self.mid_projection = Conv1d_with_init(channels, 2 * channels, 1)
         self.output_projection = Conv1d_with_init(channels, 2 * channels, 1)
-        self.time_layer = get_torch_trans(heads=nheads, layers=1, channels=channels)
         self.feature_layer = get_torch_trans(heads=nheads, layers=1, channels=channels)
+        self.dropout = nn.Dropout(0.2)
 
     def forward(self, x, side_info, diffusion_emb):
         B, C, L = x.shape
         x_in = x
-        time_emb = self.diffusion_projection(diffusion_emb).unsqueeze(-1)
+        time_emb = self.diffusion_projection(self.dropout(diffusion_emb)).unsqueeze(-1)
         y = x + time_emb
-        y = y + self.cond_projection(side_info)[:, :C, :]
-        y = self.time_layer(y.permute(0, 2, 1)).permute(0, 2, 1)
-        y = self.feature_layer(y.permute(0, 2, 1)).permute(0, 2, 1)
-        y = self.mid_projection(y)
+        y = y + self.cond_projection(self.dropout(side_info))[:, :C, :]
+        y = self.feature_layer(self.dropout(y.permute(0, 2, 1))).permute(0, 2, 1)
+        y = self.mid_projection(self.dropout(y))
         gate, filter = torch.chunk(y, 2, dim=1)
         y = torch.sigmoid(gate) * torch.tanh(filter)
-        y = self.output_projection(y)
+        y = self.output_projection(self.dropout(y))
         residual, skip = torch.chunk(y, 2, dim=1)
         return (x_in + residual) / math.sqrt(2.0), skip
 
@@ -68,17 +67,17 @@ class HybridFeatureEmbedder(nn.Module):
         super().__init__()
         self.schema = schema
         self.projections = nn.ModuleDict()
+        self.dropout = nn.Dropout(0.2)
         for var in schema:
             name = var['name']
-            # Input dim is vector size: 1 for numeric, Log2(K) for bits
-            input_dim = var['dim']
+            input_dim = var['num_classes'] if 'categorical' in var['type'] else 1
             self.projections[name] = nn.Linear(input_dim, channels)
 
     def forward(self, feature_dict):
         embeddings_list = []
         for var in self.schema:
             name = var['name']
-            emb = self.projections[name](feature_dict[name])
+            emb = self.projections[name](self.dropout(feature_dict[name]))
             embeddings_list.append(emb)
         return torch.stack(embeddings_list, dim=1).permute(0, 2, 1)
 
@@ -98,44 +97,65 @@ class RDDM_NET(nn.Module):
         self.target_embedder = HybridFeatureEmbedder(self.target_schema, self.channels)
         self.aux_embedder = HybridFeatureEmbedder(self.aux_schema, self.channels)
 
-        # [SELF-CONDITIONING] Input Mixer
-        # Inputs: x_t (Signal) + P1 (Proxy) + SelfCond (Predicted x0)
-        # 3 Inputs * Channels
-        self.input_mixer = Conv1d_with_init(3 * self.channels, self.channels, 1)
+        # Learnable Mask Token for absorbing state
+        self.mask_token = nn.Parameter(torch.randn(1, self.channels, 1))
 
+        # Input Mixer: Takes x_t (Masked) + P1 (Condition)
+        self.input_mixer = Conv1d_with_init(2 * self.channels, self.channels, 1)
+        self.dropout = nn.Dropout(0.2)
         self.diffusion_embedding = DiffusionEmbedding(self.num_steps, self.channels)
 
         self.res_blocks = nn.ModuleList([
             ResidualBlock(self.channels, self.channels, self.channels, self.nheads) for _ in range(self.layers)
         ])
 
+        # [ARCH FIX] Decoupled Output Heads
+        # Instead of one linear layer predicting (B, 2), we use two separate MLPs.
+        # This prevents the noisy gradients of epsilon from disturbing the residual signal.
         self.output_heads = nn.ModuleDict()
+
         for var in self.target_schema:
             name = var['name']
-            out_dim = var['dim']
-            # Predict [Residual, Noise] -> 2 * dim
-            self.output_heads[name] = nn.Linear(self.channels, 2 * out_dim)
+            if var['type'] == 'categorical':
+                self.output_heads[name] = nn.Linear(self.channels, var['num_classes'])
+            else:
+                # Numeric: Decoupled heads for Residual and Noise
+                self.output_heads[name] = nn.ModuleDict({
+                    'res': nn.Sequential(
+                        nn.Linear(self.channels, self.channels),
+                        nn.SiLU(),
+                        nn.Dropout(0.2),
+                        nn.Linear(self.channels, 1)
+                    ),
+                    'eps': nn.Sequential(
+                        nn.Linear(self.channels, self.channels),
+                        nn.SiLU(),
+                        nn.Dropout(0.2),
+                        nn.Linear(self.channels, 1)
+                    )
+                })
 
-    def forward(self, x_t_dict, t, p1_dict, aux_dict, self_cond_dict=None):
+    def forward(self, x_t_dict, t, p1_dict, aux_dict, mask_dict):
         # 1. Embed Inputs
-        x_t_emb = self.target_embedder(x_t_dict)  # (B, C, L)
-        p1_emb = self.target_embedder(p1_dict)  # (B, C, L)
-        aux_emb = self.aux_embedder(aux_dict)  # (B, C, L_aux)
-        dif_emb = self.diffusion_embedding(t)  # (B, C)
+        x_t_emb = self.target_embedder(x_t_dict)
+        p1_emb = self.target_embedder(p1_dict)
+        aux_emb = self.aux_embedder(aux_dict)
+        dif_emb = self.diffusion_embedding(t)
 
-        # 2. Embed Self-Conditioning (or Zero)
-        if self_cond_dict is None:
-            # Create zeros with same shape as x_t_emb
-            self_cond_emb = torch.zeros_like(x_t_emb)
-        else:
-            self_cond_emb = self.target_embedder(self_cond_dict)
+        # 2. Apply Input Masking
+        mask_list = []
+        for var in self.target_schema:
+            m = mask_dict[var['name']]
+            m_expanded = m.unsqueeze(1).expand(-1, self.channels, -1)
+            mask_list.append(m_expanded)
 
-        # 3. Concatenate Inputs
-        # The order matters: Signal, Proxy, SelfCond
-        combined_input = torch.cat([x_t_emb, p1_emb, self_cond_emb], dim=1)  # (B, 3C, L)
-        mixed_input = self.input_mixer(combined_input)  # (B, C, L)
+        mask_seq = torch.cat(mask_list, dim=2)
+        x_t_masked = x_t_emb * mask_seq + self.mask_token * (1.0 - mask_seq)
 
-        # 4. Concatenate Aux
+        # 3. Combine: Masked State + Proxy Condition
+        combined_input = torch.cat([x_t_masked, p1_emb], dim=1)
+        mixed_input = self.input_mixer(self.dropout(combined_input))
+
         sequence = torch.cat([mixed_input, aux_emb], dim=2)
 
         skip_accum = 0
@@ -147,5 +167,18 @@ class RDDM_NET(nn.Module):
 
         output_dict = {}
         for i, var in enumerate(self.target_schema):
-            output_dict[var['name']] = self.output_heads[var['name']](target_features[:, i, :])
+            name = var['name']
+            feature = target_features[:, i, :]
+
+            if var['type'] == 'categorical':
+                output_dict[name] = self.output_heads[name](self.dropout(feature))
+            else:
+                # [ARCH FIX] Run decoupled heads
+                res_pred = self.output_heads[name]['res'](self.dropout(feature))
+                eps_pred = self.output_heads[name]['eps'](self.dropout(feature))
+
+                # Stack results to (B, 2) to match expected shape in tpvmi_rddm.py
+                # Index 0: Residual, Index 1: Noise
+                output_dict[name] = torch.cat([res_pred, eps_pred], dim=1)
+
         return output_dict

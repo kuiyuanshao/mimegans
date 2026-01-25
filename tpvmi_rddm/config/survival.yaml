@@ -14,19 +14,20 @@ train:
 diffusion:
   diffusion_embedding_dim: 128
   beta_start: 0.0001
-  beta_end: 0.01
-  num_steps: 100
+  beta_end: 0.1
+  num_steps: 20
+  schedule: "linear"
 
 # ==========================================
 # Model Feature Embeddings
 # ==========================================
 model:
-  featureemb: 128
-  channels: 64
+  featureemb: 64
+  channels: 128
   nheads: 4
   layers: 3
 # ==========================================
 # Testing / Imputation
 # ==========================================
 else:
-  m: 20
+  m: 5

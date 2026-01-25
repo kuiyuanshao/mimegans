@@ -1,33 +1,35 @@
-lapply(c("ggplot2", "dplyr", "tidyr", "RColorBrewer", "ggh4x"), require, character.only = T)
-load("./simulations/results.RData")
+lapply(c("ggplot2", "dplyr", "tidyr", "RColorBrewer", "ggh4x", "extrafont"), require, character.only = T)
 source("00_utils_functions.R")
+# font_import()
+# loadfonts(device="win") 
+load("./simulations/results_COMBINED.RData")
+methods <- c("true", "me", "complete_case", "raking",
+             "mice", "mixgb", "tpvmi_gans", "tpvmi_rddm")
 
-resultCI
-
-resultCoeff_long <- resultCoeff %>% 
+combined_resultCoeff_long <- combined_resultCoeff %>% 
   pivot_longer(
     cols = 1:14,
     names_to = "Covariate", 
     values_to = "Coefficient"
   ) %>%
   mutate(Coefficient = as.numeric(Coefficient), 
-         Method = factor(Method, levels = c("TRUE", "ME", "COMPLETE", "TPVMI_GANS", "MICE", "MIXGB", "RAKING")),
+         Method = factor(Method, levels = toupper(methods)),
          `Sampling Design` = factor(Design, levels = c("SRS", "BALANCE", "NEYMAN")),
-         Covariate = factor(Covariate, levels = names(resultCoeff)[1:14], labels = 
+         Covariate = factor(Covariate, levels = names(combined_resultCoeff)[1:14], labels = 
                               c("HbA1c", "rs4506565 1", "rs4506565 2", "AGE", "eGFR", "SEX TRUE", "INSURANCE TRUE", 
                                 "RACE AFR", "RACE AMR", "RACE SAS", "RACE EAS", "BMI", "SMOKE 2", "SMOKE 3")))
 
-means.coef <- resultCoeff_long %>% 
+means.coef <- combined_resultCoeff_long %>% 
   filter(Method == "TRUE") %>%
   select(-c("Design", "Method", "ID")) %>% 
   group_by(Covariate) %>%
   summarise(mean = mean(Coefficient))
 
-true.coeff <- resultCoeff %>% filter(Method == "TRUE") %>%
+true.coeff <- combined_resultCoeff %>% filter(Method == "TRUE") %>%
   select(-c("Design", "Method", "ID")) %>%
   mutate(across(everything(), as.numeric))
-cols <- intersect(names(true.coeff), names(resultCoeff))
-rmse_result <- resultCoeff %>%
+cols <- intersect(names(true.coeff), names(combined_resultCoeff))
+rmse_result <- combined_resultCoeff %>%
   filter(!Method %in% c("ME", "TRUE")) %>%
   select(Method, Design, any_of("ID"), all_of(cols)) %>%
   mutate(across(all_of(cols), as.numeric)) %>%
@@ -40,7 +42,7 @@ rmse_result <- resultCoeff %>%
     }
   ), .groups = "drop")
 
-diffCoeff <- resultCoeff %>%
+diffCoeff <- combined_resultCoeff %>%
   filter(!Method %in% c("ME", "TRUE")) %>%
   select(Method, Design, any_of("ID"), all_of(cols)) %>%
   mutate(across(all_of(cols), as.numeric)) %>%
@@ -60,7 +62,7 @@ rmse_result_long <- rmse_result %>%
     values_to = "Coefficient"
   ) %>%
   mutate(Coefficient = as.numeric(Coefficient), 
-         Method = factor(Method, levels = c("TRUE", "ME", "COMPLETE", "TPVMI_GANS", "MICE", "MIXGB", "RAKING")),
+         Method = factor(Method, levels = toupper(methods)),
          `Sampling Design` = factor(Design, levels = c("SRS", "BALANCE", "NEYMAN")),
          Covariate = factor(Covariate, levels = names(rmse_result)[3:16], labels = 
                               c("HbA1c", "rs4506565 1", "rs4506565 2", "AGE", "eGFR", "SEX TRUE", "INSURANCE TRUE", 
@@ -68,20 +70,20 @@ rmse_result_long <- rmse_result %>%
 
 truth <- colMeans(true.coeff)
 CIcoverage <- NULL
-for (design in unique(resultCI$Design)){
-  for (method in unique(resultCI$Method)){
-    ind <- which(resultCI$Design == design & resultCI$Method == method)
+for (design in unique(combined_resultCI$Design)){
+  for (method in unique(combined_resultCI$Method)){
+    ind <- which(combined_resultCI$Design == design & combined_resultCI$Method == method)
     curr_g <- NULL
     for (i in ind){
-      curr.lower <- resultCI[i, 1:14]
-      curr.upper <- resultCI[i, 15:28]
+      curr.lower <- combined_resultCI[i, 1:14]
+      curr.upper <- combined_resultCI[i, 15:28]
       curr_g <- rbind(curr_g, c(calcCICover(truth, curr.lower, curr.upper), design, method))
     }
     CIcoverage <- rbind(CIcoverage, curr_g)
   }
 }
 CIcoverage <- as.data.frame(CIcoverage)
-names(CIcoverage) <- c(names(resultCoeff)[1:14],
+names(CIcoverage) <- c(names(combined_resultCoeff)[1:14],
                       "Design", "Method")
 
 CIcoverage <- CIcoverage %>%
@@ -97,7 +99,7 @@ CIcoverage_long <- CIcoverage %>%
     values_to = "Coverage"
   ) %>%
   mutate(Coverage = as.numeric(Coverage), 
-         Method = factor(Method, levels = c("TRUE", "ME", "COMPLETE", "TPVMI_GANS", "MICE", "MIXGB", "RAKING")),
+         Method = factor(Method, levels = toupper(methods)),
          `Sampling Design` = factor(Design, levels = c("SRS", "BALANCE", "NEYMAN")),
          Covariate = factor(Covariate, levels = names(rmse_result)[3:16], labels = 
                               c("HbA1c", "rs4506565 1", "rs4506565 2", "AGE", "eGFR", "SEX TRUE", "INSURANCE TRUE", 
@@ -118,6 +120,8 @@ range_coef <- list(Covariate == "HbA1c" ~ scale_y_continuous(limits = c(means.co
                    Covariate == "SMOKE 2" ~ scale_y_continuous(limits = c(means.coef$mean[13] - 0.25, means.coef$mean[13] + 0.25)),
                    Covariate == "SMOKE 3" ~ scale_y_continuous(limits = c(means.coef$mean[14] - 0.25, means.coef$mean[14] + 0.25)))
 
+dev.off()
+
 ggplot(CIcoverage_long) + 
   geom_col(aes(x = Method, 
                y = Coverage,
@@ -125,19 +129,17 @@ ggplot(CIcoverage_long) +
   geom_hline(aes(yintercept = 0.95), lty = 2) + 
   facet_wrap(~ Covariate, scales = "free") + 
   theme_minimal() + 
-  theme(axis.title.x = element_text(family = "Georgia"),
-        axis.title.y = element_text(family = "Georgia"),
-        axis.text.x = element_text(family = "Georgia"),
-        axis.text.y = element_text(family = "Georgia"),
-        legend.title = element_text(family = "Georgia"),
-        legend.text = element_text(family = "Georgia"),
-        strip.text = element_text(family = "Georgia")) + 
+  theme(axis.title.x = element_text(family = "Times New Roman"),
+        axis.title.y = element_text(family = "Times New Roman"),
+        axis.text.x = element_text(family = "Times New Roman"),
+        axis.text.y = element_text(family = "Times New Roman"),
+        legend.title = element_text(family = "Times New Roman"),
+        legend.text = element_text(family = "Times New Roman"),
+        strip.text = element_text(family = "Times New Roman")) + 
   scale_fill_manual(
     values = c("SRS" = "red", "BALANCE" = "green", "NEYMAN" = "blue", "NA" = "black"),
     breaks = c("SRS", "BALANCE", "NEYMAN")) +
   ylim(0, 1.25)
-#facetted_pos_scales(y = range_coef)
-
 ggsave("./simulations/Imputation_Coverage_Barchart.png", width = 30, height = 10, limitsize = F)
 
 ggplot(rmse_result_long) + 
@@ -146,13 +148,13 @@ ggplot(rmse_result_long) +
                fill = `Sampling Design`), position = "dodge") + 
   facet_wrap(~ Covariate, scales = "free") + 
   theme_minimal() + 
-  theme(axis.title.x = element_text(family = "Georgia"),
-        axis.title.y = element_text(family = "Georgia"),
-        axis.text.x = element_text(family = "Georgia"),
-        axis.text.y = element_text(family = "Georgia"),
-        legend.title = element_text(family = "Georgia"),
-        legend.text = element_text(family = "Georgia"),
-        strip.text = element_text(family = "Georgia")) + 
+  theme(axis.title.x = element_text(family = "Times New Roman"),
+        axis.title.y = element_text(family = "Times New Roman"),
+        axis.text.x = element_text(family = "Times New Roman"),
+        axis.text.y = element_text(family = "Times New Roman"),
+        legend.title = element_text(family = "Times New Roman"),
+        legend.text = element_text(family = "Times New Roman"),
+        strip.text = element_text(family = "Times New Roman")) + 
   scale_fill_manual(
     values = c("SRS" = "red", "BALANCE" = "green", "NEYMAN" = "blue", "NA" = "black"),
     breaks = c("SRS", "BALANCE", "NEYMAN"))
@@ -161,20 +163,20 @@ ggplot(rmse_result_long) +
 ggsave("./simulations/Imputation_Coeff_Barchart.png", width = 30, height = 10, limitsize = F)
 
 
-ggplot(resultCoeff_long) + 
+ggplot(combined_resultCoeff_long) + 
   geom_boxplot(aes(x = Method, 
                    y = Coefficient,
                    colour = `Sampling Design`)) + 
   geom_hline(data = means.coef, aes(yintercept = mean), lty = 2) + 
   facet_wrap(~ Covariate, scales = "free") + 
   theme_minimal() + 
-  theme(axis.title.x = element_text(family = "Georgia"),
-        axis.title.y = element_text(family = "Georgia"),
-        axis.text.x = element_text(family = "Georgia"),
-        axis.text.y = element_text(family = "Georgia"),
-        legend.title = element_text(family = "Georgia"),
-        legend.text = element_text(family = "Georgia"),
-        strip.text = element_text(family = "Georgia")) + 
+  theme(axis.title.x = element_text(family = "Times New Roman"),
+        axis.title.y = element_text(family = "Times New Roman"),
+        axis.text.x = element_text(family = "Times New Roman"),
+        axis.text.y = element_text(family = "Times New Roman"),
+        legend.title = element_text(family = "Times New Roman"),
+        legend.text = element_text(family = "Times New Roman"),
+        strip.text = element_text(family = "Times New Roman")) + 
   scale_fill_manual(
     values = c("SRS" = "red", "BALANCE" = "green", "NEYMAN" = "blue", "NA" = "black"),
     breaks = c("SRS", "BALANCE", "NEYMAN")) + 
@@ -182,19 +184,19 @@ ggplot(resultCoeff_long) +
 
 ggsave("./simulations/Imputation_Coeff_Boxplot.png", width = 30, height = 10, limitsize = F)
 
-ggplot(resultStdError) + 
-  geom_boxplot(aes(x = factor(Method, levels = c("TRUE", "ME", "COMPLETE", "TPVMI_GANS", "MICE", "MIXGB", "RAKING")), 
+ggplot(combined_resultStdError) + 
+  geom_boxplot(aes(x = factor(Method, levels = toupper(methods)), 
                    y = as.numeric(`I((HbA1c - 50)/5)`),
                    colour = factor(Design, levels = c("SRS", "BALANCE", "NEYMAN")))) + 
   theme_minimal() + 
   labs(x = "Methods", y = "Standard Errors") + 
-  theme(axis.title.x = element_text(family = "Georgia"),
-        axis.title.y = element_text(family = "Georgia"),
-        axis.text.x = element_text(family = "Georgia"),
-        axis.text.y = element_text(family = "Georgia"),
-        legend.title = element_text(family = "Georgia"),
-        legend.text = element_text(family = "Georgia"),
-        strip.text = element_text(family = "Georgia")) + 
+  theme(axis.title.x = element_text(family = "Times New Roman"),
+        axis.title.y = element_text(family = "Times New Roman"),
+        axis.text.x = element_text(family = "Times New Roman"),
+        axis.text.y = element_text(family = "Times New Roman"),
+        legend.title = element_text(family = "Times New Roman"),
+        legend.text = element_text(family = "Times New Roman"),
+        strip.text = element_text(family = "Times New Roman")) + 
   scale_colour_manual(
     name = "Sampling Design",
     values = c("SRS" = "red", "BALANCE" = "green", "NEYMAN" = "blue", "NA" = "black"),

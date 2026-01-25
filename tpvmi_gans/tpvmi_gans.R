@@ -7,7 +7,7 @@ cwgangp_default <- function(batch_size = 500, lambda = 10,
                             g_weight_decay = 1e-6, d_weight_decay = 1e-6, noise_dim = 64, cond_dim = 128,
                             g_dim = c(256, 256), d_dim = c(256, 256), pac = 5, discriminator_steps = 3,
                             tau = 0.2, hard = F, type_g = "mlp", type_d = "mlp",
-                            num = "mmer", cat = "projp1", balancebatch = F){
+                            num = "mmer", cat = "projp1", balancebatch = T){
   batch_size <- pac * round(batch_size / pac)
   
   list(batch_size = batch_size, at_least_p = at_least_p, 
@@ -284,7 +284,7 @@ tpvmi_gans <- function(data, m = 5,
   swa_n <- 0
   swa_mean <- list()
   swa_sq_mean <- list()
-  swa_start <- as.integer(0.75 * epochs)
+  swa_start <- as.integer(0.25 * epochs)
   
   ones_buf <- torch_ones(c(params$batch_size, 1), device = device)
   for (i in 1:epochs){
@@ -349,21 +349,17 @@ tpvmi_gans <- function(data, m = 5,
       if (swa_n == 1) {
         for (key in names(curr_state)) {
           val <- curr_state[[key]]
-          # [FIXED]: 使用 inherits() 替代 is_torch_tensor()
           if (inherits(val, "torch_tensor") && val$dtype == torch_float()) {
             swa_mean[[key]] <- val$detach()$clone()
             swa_sq_mean[[key]] <- val$detach()$clone()^2
           } else {
-            # 非浮点数直接保存当前值
             swa_mean[[key]] <- val$detach()$clone()
             swa_sq_mean[[key]] <- val$detach()$clone()
           }
         }
       } else {
-        # 递归更新
         for (key in names(swa_mean)) {
           val <- curr_state[[key]]
-          # [FIXED]: 使用 inherits() 替代 is_torch_tensor()
           if (inherits(val, "torch_tensor") && val$dtype == torch_float()) {
             curr_val <- val$detach()
             # Mean Update
@@ -371,7 +367,6 @@ tpvmi_gans <- function(data, m = 5,
             # Sq Mean Update
             swa_sq_mean[[key]] <- (swa_sq_mean[[key]] * (swa_n - 1) + curr_val^2) / swa_n
           } else {
-            # 非浮点参数更新为最新值
             swa_mean[[key]] <- val$detach()$clone()
           }
         }

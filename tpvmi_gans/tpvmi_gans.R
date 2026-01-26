@@ -279,6 +279,11 @@ tpvmi_gans <- function(data, m = 5,
   it_p2 <- dataloader_make_iter(p2loader)
   it_D <- dataloader_make_iter(Dloader)
   
+  swa_n <- 0
+  swa_mean <- list()
+  swa_sq_mean <- list()
+  swa_start <- 1
+  
   ones_buf <- torch_ones(c(params$batch_size, 1), device = device)
   for (i in 1:epochs){
     gnet$train()
@@ -335,6 +340,34 @@ tpvmi_gans <- function(data, m = 5,
     g_loss$backward()
     g_solver$step()
     
+    if (i >= swa_start) {
+      swa_n <- swa_n + 1
+      curr_state <- gnet$state_dict()
+      if (swa_n == 1) {
+        for (key in names(curr_state)) {
+          if (is_torch_tensor(curr_state[[key]]) && curr_state[[key]]$dtype == torch_float()) {
+            swa_mean[[key]] <- curr_state[[key]]$detach()$clone()
+            swa_sq_mean[[key]] <- curr_state[[key]]$detach()$clone()^2
+          } else {
+            swa_mean[[key]] <- curr_state[[key]]$detach()$clone()
+            swa_sq_mean[[key]] <- curr_state[[key]]$detach()$clone()
+          }
+        }
+      } else {
+        for (key in names(swa_mean)) {
+          if (is_torch_tensor(curr_state[[key]]) && curr_state[[key]]$dtype == torch_float()) {
+            curr_val <- curr_state[[key]]$detach()
+            # Mean Update
+            swa_mean[[key]] <- (swa_mean[[key]] * (swa_n - 1) + curr_val) / swa_n
+            # Sq Mean Update
+            swa_sq_mean[[key]] <- (swa_sq_mean[[key]] * (swa_n - 1) + curr_val^2) / swa_n
+          } else {
+            swa_mean[[key]] <- curr_state[[key]]$detach()$clone()
+          }
+        }
+      }
+    }
+    
     training_loss[i, ] <- c(g_loss$item(), d_loss$item())
     pb$tick(tokens = list(
       g_loss = sprintf("%.3f", adv_term$item()),
@@ -342,23 +375,6 @@ tpvmi_gans <- function(data, m = 5,
       recon_loss = sprintf("%.3f", recon_loss$item())
     ))
     
-    if (!is.null(save.step)){
-      if (i %% save.step == 0){
-        gnet$eval()
-        for (modu in gnet$modules) {
-          if (inherits(modu, "nn_dropout")) {
-            modu$train(TRUE)
-          }
-        }
-        result <- generateImpute(gnet, m = 5, 
-                                 data_original, data_info, data_norm, 
-                                 data_encode, data_training,
-                                 phase1_vars_encode, phase2_vars_encode, 
-                                 num.normalizing, cat.encoding,
-                                 device, params, cat_groups_p2, num_inds_p2, tensor_list)
-        step_result[[p]] <- result
-        p <- p + 1
-      }
     }
   }
   pb$terminate()
@@ -372,12 +388,15 @@ tpvmi_gans <- function(data, m = 5,
       modu$train(TRUE)
     }
   }
+  
+  swag_stats <- list(mean = swa_mean, sq_mean = swa_sq_mean, n = swa_n)
   result <- generateImpute(gnet, m = m, 
                            data_original, data_info, data_norm, 
                            data_encode, data_training,
                            phase1_vars_encode, phase2_vars_encode,
                            num.normalizing, cat.encoding, 
-                           device, params, cat_groups_p2, num_inds_p2, tensor_list)
+                           device, params, cat_groups_p2, num_inds_p2, tensor_list,
+                           swag_stats)
   out <- list(imputation = result$imputation,
               gsample = result$gsample,
               loss = training_loss)

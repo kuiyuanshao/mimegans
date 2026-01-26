@@ -1,5 +1,6 @@
 install.packages(c(
-  "mvtnorm", "survey", "sandwich", "mice", "miceadds", "mixgb", 
-  "xgboost", "dplyr", "tidyr", "ggplot2", "torch", "stringr", 
-  "LDlinkR", "purrr", "BalancedSampling", "svyVGAM"), 
+  "stringr", "dplyr", "data.table", "survival",
+  "mvtnorm", "magrittr", "survey", "sandwich", "mice", "mixgb", 
+  "xgboost", "tidyr", "ggplot2", "torch", "stringr", 
+  "purrr", "svyVGAM", "arrow", "RColorBrewer", "ggh4x", "extrafont", "mitools"), 
   repos = "https://cran.rstudio.com")

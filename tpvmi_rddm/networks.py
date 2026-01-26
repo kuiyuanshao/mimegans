@@ -19,12 +19,12 @@ def Conv1d_with_init(in_channels, out_channels, kernel_size):
 
 
 class DiffusionEmbedding(nn.Module):
-    def __init__(self, num_steps, embedding_dim=128):
+    def __init__(self, num_steps, embedding_dim=128, dropout_rate = 0):
         super().__init__()
         self.register_buffer("embedding", self._build_embedding(num_steps, embedding_dim // 2), persistent=False)
         self.projection1 = nn.Linear(embedding_dim, embedding_dim)
         self.projection2 = nn.Linear(embedding_dim, embedding_dim)
-        self.dropout = nn.Dropout(0.2)
+        self.dropout = nn.Dropout(dropout_rate)
     def forward(self, diffusion_step):
         x = self.embedding[diffusion_step]
         return self.projection2(self.dropout(F.silu(self.projection1(self.dropout(x)))))
@@ -38,14 +38,14 @@ class DiffusionEmbedding(nn.Module):
 
 
 class ResidualBlock(nn.Module):
-    def __init__(self, side_dim, channels, diffusion_embedding_dim, nheads):
+    def __init__(self, side_dim, channels, diffusion_embedding_dim, nheads, dropout_rate = 0):
         super().__init__()
         self.diffusion_projection = nn.Linear(diffusion_embedding_dim, channels)
         self.cond_projection = Conv1d_with_init(side_dim, 2 * channels, 1)
         self.mid_projection = Conv1d_with_init(channels, 2 * channels, 1)
         self.output_projection = Conv1d_with_init(channels, 2 * channels, 1)
         self.feature_layer = get_torch_trans(heads=nheads, layers=1, channels=channels)
-        self.dropout = nn.Dropout(0.2)
+        self.dropout = nn.Dropout(dropout_rate)
 
     def forward(self, x, side_info, diffusion_emb):
         B, C, L = x.shape
@@ -63,11 +63,11 @@ class ResidualBlock(nn.Module):
 
 
 class HybridFeatureEmbedder(nn.Module):
-    def __init__(self, schema, channels):
+    def __init__(self, schema, channels, dropout_rate = 0):
         super().__init__()
         self.schema = schema
         self.projections = nn.ModuleDict()
-        self.dropout = nn.Dropout(0.2)
+        self.dropout = nn.Dropout(dropout_rate)
         for var in schema:
             name = var['name']
             input_dim = var['num_classes'] if 'categorical' in var['type'] else 1
@@ -90,28 +90,26 @@ class RDDM_NET(nn.Module):
         self.num_steps = config["diffusion"]["num_steps"]
         self.nheads = config["model"]["nheads"]
         self.layers = config["model"]["layers"]
+        self.dropout_rate = config["model"]["dropout"]
 
         self.target_schema = [v for v in variable_schema if 'aux' not in v['type']]
         self.aux_schema = [v for v in variable_schema if 'aux' in v['type']]
 
-        self.target_embedder = HybridFeatureEmbedder(self.target_schema, self.channels)
-        self.aux_embedder = HybridFeatureEmbedder(self.aux_schema, self.channels)
+        self.target_embedder = HybridFeatureEmbedder(self.target_schema, self.channels, dropout_rate = self.dropout_rate)
+        self.aux_embedder = HybridFeatureEmbedder(self.aux_schema, self.channels, dropout_rate = self.dropout_rate)
 
         # Learnable Mask Token for absorbing state
         self.mask_token = nn.Parameter(torch.randn(1, self.channels, 1))
 
         # Input Mixer: Takes x_t (Masked) + P1 (Condition)
         self.input_mixer = Conv1d_with_init(2 * self.channels, self.channels, 1)
-        self.dropout = nn.Dropout(0.2)
-        self.diffusion_embedding = DiffusionEmbedding(self.num_steps, self.channels)
+        self.dropout = nn.Dropout(self.dropout_rate)
+        self.diffusion_embedding = DiffusionEmbedding(self.num_steps, self.channels, self.dropout_rate)
 
         self.res_blocks = nn.ModuleList([
-            ResidualBlock(self.channels, self.channels, self.channels, self.nheads) for _ in range(self.layers)
+            ResidualBlock(self.channels, self.channels, self.channels, self.nheads, self.dropout_rate) for _ in range(self.layers)
         ])
 
-        # [ARCH FIX] Decoupled Output Heads
-        # Instead of one linear layer predicting (B, 2), we use two separate MLPs.
-        # This prevents the noisy gradients of epsilon from disturbing the residual signal.
         self.output_heads = nn.ModuleDict()
 
         for var in self.target_schema:
@@ -124,13 +122,13 @@ class RDDM_NET(nn.Module):
                     'res': nn.Sequential(
                         nn.Linear(self.channels, self.channels),
                         nn.SiLU(),
-                        nn.Dropout(0.2),
+                        nn.Dropout(self.dropout_rate),
                         nn.Linear(self.channels, 1)
                     ),
                     'eps': nn.Sequential(
                         nn.Linear(self.channels, self.channels),
                         nn.SiLU(),
-                        nn.Dropout(0.2),
+                        nn.Dropout(self.dropout_rate),
                         nn.Linear(self.channels, 1)
                     )
                 })

@@ -4,6 +4,7 @@ pmm <- function(yhatobs, yhatmis, yobs, k) {
   yobs[idx]
 }
 
+
 # Create batches of GPU tensor slices (Views)
 create_bfi <- function(data_nrow, batch_size, tensor_list){
   n <- ceiling(data_nrow / batch_size)
@@ -18,6 +19,28 @@ create_bfi <- function(data_nrow, batch_size, tensor_list){
   return(batches)
 }
 
+sample_swag_weights <- function(swag_stats, scale = 0.5) {
+  sampled_state <- list()
+  mean_dict <- swag_stats$mean
+  sq_mean_dict <- swag_stats$sq_mean
+  
+  for (key in names(mean_dict)) {
+    mu <- mean_dict[[key]]
+    if (is_torch_tensor(mu) && mu$dtype == torch_float()) {
+      sq_mu <- sq_mean_dict[[key]]
+      # Var = E[X^2] - (E[X])^2
+      # Clamp to avoid numerical issues (negative variance)
+      var_val <- torch_clamp(sq_mu - mu^2, min = 1e-30)
+      sigma <- torch_sqrt(var_val)
+      # Sample: w ~ N(mu, scale * sigma)
+      eps <- torch_randn_like(mu)
+      sampled_state[[key]] <- mu + scale * sigma * eps
+    } else {
+      sampled_state[[key]] <- mu
+    }
+  }
+  return(sampled_state)
+}
 # Row-wise acceptance probability calculation
 acc_prob_row <- function(mat, lb, ub, alpha = 1) {
   nr <- nrow(mat)
@@ -40,7 +63,7 @@ generateImpute <- function(gnet, m = 5,
                            num.normalizing, cat.encoding, 
                            device, params, 
                            cat_groups_p2, num_inds_p2,
-                           tensor_list){
+                           tensor_list, swag_stats){
   
   imputed_data_list <- vector("list", m)
   gsample_data_list <- vector("list", m)
@@ -75,31 +98,20 @@ generateImpute <- function(gnet, m = 5,
   
   # Encapsulates: Generation -> Activation -> CPU Transfer -> Decode -> Denormalize
   process_generated_batch <- function(gen_raw, A_curr, C_curr, rows_idx = NULL) {
-    # 1. Activation (Optimized batched call)
     gen_act <- activationFun(gen_raw, cat_groups_p2, num_inds_p2, params, gen = T)
     
-    # 2. Concatenate with conditions
     gen_combined <- torch_cat(list(gen_act, A_curr, C_curr), dim = 2)
-    
-    # 3. Move to CPU and convert to Frame
     df_raw <- as.data.frame(as.matrix(gen_combined$detach()$cpu()))
     names(df_raw) <- names(data_training)
-    
-    # 4. Decode
     df_decoded <- do.call(decode, args = list(data = df_raw, encode_obj = data_encode))
-    
-    # 5. Denormalize
     df_final <- do.call(denormalize, args = list(
       data = df_decoded,
       num_vars = data_info$num_vars, 
       norm_obj = data_norm
     ))$data
     
-    # 6. MMER Adjustment (if applicable)
     df_final <- df_final[, names(data_original)]
     if (params$num == "mmer") {
-      # If rows_idx is provided (rejection sampling), use subset of original data
-      # If rows_idx is NULL (main generation), assume full data order
       ref_data <- if (is.null(rows_idx)) data_original else data_original[rows_idx, ]
       df_final[, num_inds_gen] <- ref_data[, num_inds_ori] - df_final[, num_inds_gen]
     }
@@ -108,6 +120,9 @@ generateImpute <- function(gnet, m = 5,
   
   for (z in 1:m){
     # --- Phase 1: Main Batch Generation ---
+    new_weights <- sample_swag_weights(swag_stats, scale = 0.5)
+    gnet$load_state_dict(new_weights)
+    
     output_df_list <- vector("list", length(batchforimpute))
     
     for (i in seq_along(batchforimpute)){

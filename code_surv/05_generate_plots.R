@@ -18,6 +18,18 @@ combined_resultCoeff_long <- combined_resultCoeff %>%
          Covariate = factor(Covariate, levels = names(combined_resultCoeff)[1:14], labels = 
                               c("HbA1c", "rs4506565 1", "rs4506565 2", "AGE", "eGFR", "SEX TRUE", "INSURANCE TRUE", 
                                 "RACE AFR", "RACE AMR", "RACE SAS", "RACE EAS", "BMI", "SMOKE 2", "SMOKE 3")))
+combined_resultStdError_long <- combined_resultStdError %>% 
+  pivot_longer(
+    cols = 1:14,
+    names_to = "Covariate", 
+    values_to = "StdError"
+  ) %>%
+  mutate(StdError = as.numeric(StdError), 
+         Method = factor(Method, levels = toupper(methods)),
+         `Sampling Design` = factor(Design, levels = c("SRS", "BALANCE", "NEYMAN")),
+         Covariate = factor(Covariate, levels = names(combined_resultCoeff)[1:14], labels = 
+                              c("HbA1c", "rs4506565 1", "rs4506565 2", "AGE", "eGFR", "SEX TRUE", "INSURANCE TRUE", 
+                                "RACE AFR", "RACE AMR", "RACE SAS", "RACE EAS", "BMI", "SMOKE 2", "SMOKE 3")))
 
 means.coef <- combined_resultCoeff_long %>% 
   filter(Method == "TRUE") %>%
@@ -184,9 +196,9 @@ ggplot(combined_resultCoeff_long) +
 
 ggsave("./simulations/Imputation_Coeff_Boxplot.png", width = 30, height = 10, limitsize = F)
 
-ggplot(combined_resultStdError) + 
+ggplot(combined_resultStdError_long) + 
   geom_boxplot(aes(x = factor(Method, levels = toupper(methods)), 
-                   y = as.numeric(`I((HbA1c - 50)/5)`),
+                   y = StdError,
                    colour = factor(Design, levels = c("SRS", "BALANCE", "NEYMAN")))) + 
   theme_minimal() + 
   labs(x = "Methods", y = "Standard Errors") + 
@@ -197,10 +209,11 @@ ggplot(combined_resultStdError) +
         legend.title = element_text(family = "Times New Roman"),
         legend.text = element_text(family = "Times New Roman"),
         strip.text = element_text(family = "Times New Roman")) + 
+  facet_wrap(~ Covariate, scales = "free") + 
   scale_colour_manual(
     name = "Sampling Design",
     values = c("SRS" = "red", "BALANCE" = "green", "NEYMAN" = "blue", "NA" = "black"),
     breaks = c("SRS", "BALANCE", "NEYMAN")
   )
 
-ggsave("./simulations/Imputation_StdError_Boxplot.png", width = 10, height = 10, limitsize = F)
+ggsave("./simulations/Imputation_StdError_Boxplot.png", width = 30, height = 10, limitsize = F)

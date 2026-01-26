@@ -28,6 +28,7 @@
 *.parquet
 
 
+!results_*
 !covarInfo.RData
 !data_generation_seed.RData
 !data_sampling_seed.RData

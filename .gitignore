@@ -4,7 +4,9 @@
 *.RData
 *.xlsx
 *.pk
-
+*.xml
+*.iml
+*.pyc
 
 # Ignore log files
 *.log
@@ -25,8 +27,10 @@
 # Ignore temporary files
 *.tmp
 *.bak
+*.parquet
 
 
+!results_*
 !covarInfo.RData
 !data_generation_seed.RData
 !data_sampling_seed.RData
@@ -37,3 +41,6 @@
 !mixgb_balanceParams.RData
 !mixgb_neymanParams.RData
 !mixgb_srsParams.RData
+/tpvmi_rddm/__pycache__
+*.pyc
+tpvmi_rddm/__pycache__/tpvmi_rddm.cpython-313.pyc

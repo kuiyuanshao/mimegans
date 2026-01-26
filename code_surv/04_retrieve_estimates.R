@@ -1,26 +1,32 @@
-lapply(c("survival", "dplyr", "stringr", "survey", "mice", "readxl"), require, character.only = T)
+lapply(c("survival", "dplyr", "stringr", "survey", "mice", "arrow", "mitools"), require, character.only = T)
 source("00_utils_functions.R")
 
 options(survey.lonely.psu = "certainty")
 
 retrieveEst <- function(method){
   resultCoeff <- resultStdError <- resultCI <- NULL
-  sampling_designs <- c("Balance")#"SRS", "Balance", "Neyman")
-  for (i in 1:99){
+  sampling_designs <- c("SRS", "Balance", "Neyman")
+  for (i in 1:500){
     digit <- stringr::str_pad(i, 4, pad = 0)
     cat("Current:", digit, "\n")
     load(paste0("./data/True/", digit, ".RData"))
     if (method == "true"){
-      cox.mod <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +
-                          rs4506565 + I((AGE - 50) / 5) + I((eGFR - 90) / 10) +
-                          SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE, data = data)
+      cox.mod <- coxph(Surv(T_I, EVENT) ~
+                         poly(I((HbA1c - 53) / 15), 2, raw = TRUE) + I((eGFR - 60) / 20) + 
+                         I((BMI - 30) / 5) + rs4506565 + I((AGE - 60) / 15) + SEX +
+                         INSURANCE + RACE + SMOKE +
+                         I((HbA1c - 53) / 15):I((AGE - 60) / 15),
+                       data = data)
       resultCoeff <- rbind(resultCoeff, c(exp(coef(cox.mod)), toupper(method), toupper(method), digit))
       resultStdError <- rbind(resultStdError, c(sqrt(diag(vcov(cox.mod))), toupper(method), toupper(method), digit))
       resultCI <- rbind(resultCI, c(exp(confint(cox.mod)[, 1]), exp(confint(cox.mod)[, 2]), toupper(method), toupper(method), digit))
     }else if (method == "me"){
-      cox.mod <- coxph(Surv(T_I_STAR, EVENT_STAR) ~ I((HbA1c_STAR - 50) / 5) +
-                        rs4506565_STAR + I((AGE - 50) / 5) + I((eGFR - 90) / 10) +
-                        SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE_STAR, data = data)
+      cox.mod <- coxph(Surv(T_I_STAR, EVENT_STAR) ~
+                         poly(I((HbA1c_STAR - 53) / 15), 2, raw = TRUE) + I((eGFR_STAR - 60) / 20) + 
+                         I((BMI_STAR - 30) / 5) + rs4506565_STAR + I((AGE - 60) / 15) + SEX +
+                         INSURANCE + RACE + SMOKE_STAR +
+                         I((HbA1c_STAR - 53) / 15):I((AGE - 60) / 15),
+                       data = data)
       resultCoeff <- rbind(resultCoeff, c(exp(coef(cox.mod)), toupper(method), toupper(method), digit))
       resultStdError<- rbind(resultStdError, c(sqrt(diag(vcov(cox.mod))), toupper(method), toupper(method), digit))
       resultCI <- rbind(resultCI, c(exp(confint(cox.mod)[, 1]), exp(confint(cox.mod)[, 2]), toupper(method), toupper(method), digit))
@@ -32,13 +38,18 @@ retrieveEst <- function(method){
           if (j %in% c("Balance", "Neyman")){
             design <- svydesign(ids = ~1, strata = ~STRATA, weights = ~W, 
                                 data = samp)
-            cox.mod <- svycoxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +
-                                   rs4506565 + I((AGE - 50) / 5) + I((eGFR - 90) / 10) +
-                                   SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE, design)
+            cox.mod <- svycoxph(Surv(T_I, EVENT) ~
+                                  poly(I((HbA1c - 53) / 15), 2, raw = TRUE) + I((eGFR - 60) / 20) + 
+                                  I((BMI - 30) / 5) + rs4506565 + I((AGE - 60) / 15) + SEX +
+                                  INSURANCE + RACE + SMOKE +
+                                  I((HbA1c - 53) / 15):I((AGE - 60) / 15), design)
           }else{
-            cox.mod <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +
-                                rs4506565 + I((AGE - 50) / 5) + I((eGFR - 90) / 10) +
-                                SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE, data = samp)
+            cox.mod <- coxph(Surv(T_I, EVENT) ~
+                               poly(I((HbA1c - 53) / 15), 2, raw = TRUE) + I((eGFR - 60) / 20) + 
+                               I((BMI - 30) / 5) + rs4506565 + I((AGE - 60) / 15) + SEX +
+                               INSURANCE + RACE + SMOKE +
+                               I((HbA1c - 53) / 15):I((AGE - 60) / 15),
+                             data = data)
           }
           resultCoeff <- rbind(resultCoeff, c(exp(coef(cox.mod)), toupper(j), toupper(method), digit))
           resultStdError <- rbind(resultStdError, c(sqrt(diag(vcov(cox.mod))), toupper(j), toupper(method), digit))
@@ -55,42 +66,44 @@ retrieveEst <- function(method){
             load(paste0("./simulations/", j, "/", method, "/", digit, ".RData"), envir = temp_env)
             multi_impset <- temp_env[[ls(temp_env)[1]]]
           }else{
-            multi_impset <- lapply(excel_sheets(paste0("./simulations/", j, "/", method, "/", digit, ".xlsx")), function(x) {
-              read_excel(path = paste0("./simulations/", j, "/", method, "/", digit, ".xlsx"), sheet = x)
-            })
+            multi_impset <- read_parquet(paste0("./simulations/", j, "/", method, "/", digit, ".parquet"))
+            multi_impset <- multi_impset %>% group_split(imp_id)
+            multi_impset <- lapply(multi_impset, function(d) d %>% select(-imp_id))
           }
           
           if (method == "tpvmi_gans"){
             multi_impset$imputation <- lapply(multi_impset$imputation, function(dat){
               match_types(dat, data)
             })
-            imp.mids <- as.mids(multi_impset$imputation)
+            imp.mids <- imputationList(multi_impset$imputation)
           }else if (method == "tpvmi_rddm"){
             multi_impset <- lapply(multi_impset, function(dat){
               match_types(dat, data)
             })
-            imp.mids <- as.mids(multi_impset)
+            imp.mids <- imputationList(multi_impset)
           }else if (method == "mice"){
             multi_impset <- mice::complete(multi_impset, "all")
             multi_impset <- lapply(multi_impset, function(dat){
               match_types(dat, data)
             })
-            imp.mids <- as.mids(multi_impset)
+            imp.mids <- imputationList(multi_impset)
           }else if (method == "mixgb"){
             multi_impset <- lapply(multi_impset, function(dat){
               match_types(dat, data)
             })
-            imp.mids <- as.mids(multi_impset)
+            imp.mids <- imputationList(multi_impset)
           }
           cox.mod <- with(data = imp.mids, 
-                          exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +
-                                        rs4506565 + I((AGE - 50) / 5) + I((eGFR - 90) / 10) +
-                                        SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE))
-          pooled <- mice::pool(cox.mod)
+                          exp = coxph(Surv(T_I, EVENT) ~
+                                        poly(I((HbA1c - 53) / 15), 2, raw = TRUE) + I((eGFR - 60) / 20) + 
+                                        I((BMI - 30) / 5) + rs4506565 + I((AGE - 60) / 15) + SEX +
+                                        INSURANCE + RACE + SMOKE +
+                                        I((HbA1c - 53) / 15):I((AGE - 60) / 15)))
+          pooled <- MIcombine(cox.mod)
           sumry <- summary(pooled, conf.int = TRUE)
-          resultCoeff <- rbind(resultCoeff, c(exp(sumry$estimate), toupper(j), toupper(method), digit))
-          resultStdError <- rbind(resultStdError, c(sumry$std.error, toupper(j), toupper(method), digit))
-          resultCI <- rbind(resultCI, c(exp(sumry$`2.5 %`), exp(sumry$`97.5 %`), toupper(j), toupper(method), digit))
+          resultCoeff <- rbind(resultCoeff, c(exp(sumry$results), toupper(j), toupper(method), digit))
+          resultStdError <- rbind(resultStdError, c(sumry$se, toupper(j), toupper(method), digit))
+          resultCI <- rbind(resultCI, c(exp(sumry$`(lower`), exp(sumry$`upper)`), toupper(j), toupper(method), digit))
         }
       }
     }
@@ -115,7 +128,7 @@ methods <- c("true", "me", "complete_case", "raking",
 for (method in methods){
   retrieveEst(method)
 }
-retrieveEst("tpvmi_rddm")
+
 combine <- function(){
   filenames <- paste0("./simulations/results_", toupper(methods), ".RData")
   list_coeff <- list()
@@ -147,37 +160,54 @@ i <- 1
 digit <- stringr::str_pad(i, 4, pad = 0)
 cat("Current:", digit, "\n")
 load(paste0("./data/True/", digit, ".RData"))
-cox.fit <- coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +
-                   rs4506565 + I((AGE - 50) / 5) + I((eGFR - 90) / 10) +
-                   SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE, data = data)
-multi_impset <- lapply(excel_sheets(paste0("./simulations/Balance/tpvmi_rddm/", digit, ".xlsx")), function(x) {
-  read_excel(path = paste0("./simulations/Balance/tpvmi_rddm/", digit, ".xlsx"), sheet = x)
-})
+cox.fit <- coxph(Surv(T_I, EVENT) ~ poly(I((HbA1c - 53) / 15), 2, raw = TRUE) + I((eGFR - 60) / 20) + 
+                   I((BMI - 30) / 5) + rs4506565 + I((AGE - 60) / 15) + SEX +
+                   INSURANCE + RACE + SMOKE +
+                   I((HbA1c - 53) / 15):I((AGE - 60) / 15), data = data)
+multi_impset <- read_parquet(paste0("./simulations/SRS/tpvmi_rddm/", digit, ".parquet"))
+multi_impset <- multi_impset %>% group_split(imp_id)
+multi_impset <- lapply(multi_impset, function(d) d %>% select(-imp_id))
 multi_impset <- lapply(multi_impset, function(dat){
   match_types(dat, data)
 })
 
 
-imp.mids <- as.mids(multi_impset)
+imp.mids <- imputationList(multi_impset)
 cox.mod <- with(data = imp.mids, 
-                exp = coxph(Surv(T_I, EVENT) ~ I((HbA1c - 50) / 5) +
-                              rs4506565 + I((AGE - 50) / 5) + I((eGFR - 90) / 10) +
-                              SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE))
-pooled <- mice::pool(cox.mod)
+                exp = coxph(Surv(T_I, EVENT) ~
+                              poly(I((HbA1c - 53) / 15), 2, raw = TRUE) + I((eGFR - 60) / 20) + 
+                              I((BMI - 30) / 5) + rs4506565 + I((AGE - 60) / 15) + SEX +
+                              INSURANCE + RACE + SMOKE +
+                              I((HbA1c - 53) / 15):I((AGE - 60) / 15)))
+pooled <- MIcombine(cox.mod)
 sumry <- summary(pooled, conf.int = TRUE)
-exp(coef(cox.fit)) - exp(sumry$estimate)
-sumry$std.error[1]
+exp(coef(cox.fit)) - exp(sumry$results)
+sumry$se
 
-plot(x = multi_impset[[1]]$HbA1c, data$HbA1c)
-lines(x = 1:200, y = 1:200, col = "red")
+library(ggplot2)
 
-plot(x = multi_impset[[2]]$T_I, data$T_I)
-lines(x = 1:200, y = 1:200, col = "red")
+ggplot(data) + 
+  geom_density(aes(x = T_I), colour = "red") +
+  geom_density(data = multi_impset[[1]], aes(x = T_I), colour = "blue")
 
-proportions(table(multi_impset[[1]]$EVENT, data$EVENT))
-proportions(table(multi_impset[[1]]$SMOKE, data$SMOKE))
+ggplot(data) + 
+  geom_density(aes(x = HbA1c), colour = "red") +
+  geom_density(data = multi_impset[[1]], aes(x = HbA1c), colour = "blue")
 
-proportions(table(multi_impset[[2]]$SMOKE, multi_impset[[2]]$EVENT))
-proportions(table(data$SMOKE, data$EVENT))
+ggplot(data) + 
+  geom_density(aes(x = eGFR), colour = "red") +
+  geom_density(data = multi_impset[[1]], aes(x = eGFR), colour = "blue")
 
+ggplot(data) + 
+  geom_density(aes(x = BMI), colour = "red") +
+  geom_density(data = multi_impset[[1]], aes(x = BMI), colour = "blue")
+
+ggplot(data) + 
+  geom_point(aes(x = BMI, y = T_I), colour = "red") +
+  geom_point(data = multi_impset[[1]], aes(x = BMI, y = T_I), colour = "blue")
+
+samp <- read.csv(paste0("./data/Sample/SRS/", digit, ".csv"))
+plot(multi_impset[[1]]$T_I, data$T_I)
+
+plot(data$T_I, data$T_I_STAR)
 

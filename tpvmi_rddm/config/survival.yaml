@@ -3,9 +3,9 @@
 # ==========================================
 train:
   epochs: 500
-  batch_size: 64
+  batch_size: 128
   eval_batch_size: 1024
-  lr: 0.0002
+  lr: 0.0001 # 0.01 would be good for SGD
   val_ratio: 0
   val_interval: 100
 # ==========================================
@@ -14,8 +14,8 @@ train:
 diffusion:
   diffusion_embedding_dim: 128
   beta_start: 0.0001
-  beta_end: 0.1
-  num_steps: 20
+  beta_end: 0.02
+  num_steps: 50
   schedule: "linear"
 
 # ==========================================
@@ -26,9 +26,13 @@ model:
   channels: 128
   nheads: 4
   layers: 3
-  dropout: 0
+  dropout: 0.05 # if dropout is enabled, more epochs are required.
 # ==========================================
 # Testing / Imputation
 # ==========================================
 else:
   m: 5
+  mi_approx: "dropout" # switching between "SWAG", "dropout", "bootstrap", "None"
+                       # "SWAG" is very unstable due to SGD optimizer
+                       # "dropout" may lose some uncertainty
+                       # "bootstrap" is slow

@@ -6,12 +6,6 @@ calcCICover <- function(true, lower, upper){
   return (true >= lower) & (true <= upper)
 }
 
-as.mids <- function(imp_list){
-  imp_mids <- miceadds::datlist2mids(imp_list)
-  return (imp_mids)
-}
-
-
 exactAllocation <- function(data, stratum_variable, target_variable, sample_size){
   strata_units <- as.data.frame(table(data[[stratum_variable]]))
   colnames(strata_units) <- c(stratum_variable, "count")

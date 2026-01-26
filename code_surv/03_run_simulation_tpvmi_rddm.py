@@ -2,14 +2,14 @@ import yaml
 from tpvmi_rddm.tpvmi_rddm import TPVMI_RDDM
 import os
 
-if not os.path.exists("/simulations/SRS/tpvmi_rddm"):
-    os.makedirs("/simulations/SRS/tpvmi_rddm")
+if not os.path.exists("./simulations/SRS/tpvmi_rddm"):
+    os.makedirs("./simulations/SRS/tpvmi_rddm")
 
-if not os.path.exists("/simulations/Balance/tpvmi_rddm"):
-    os.makedirs("/simulations/Balance/tpvmi_rddm")
+if not os.path.exists("./simulations/Balance/tpvmi_rddm"):
+    os.makedirs("./simulations/Balance/tpvmi_rddm")
 
-if not os.path.exists("/simulations/Neyman/tpvmi_rddm"):
-    os.makedirs("/simulations/Neyman/tpvmi_rddm")
+if not os.path.exists("./simulations/Neyman/tpvmi_rddm"):
+    os.makedirs("./simulations/Neyman/tpvmi_rddm")
 
 data_info_srs = {
     "weight_var": "W",
@@ -168,30 +168,34 @@ for i in range(1, 101):
     save_path_bal = "F:/phd-thesis/code_surv/simulations/Balance/tpvmi_rddm/" + digit + ".parquet"
     save_path_ney = "F:/phd-thesis/code_surv/simulations/Neyman/tpvmi_rddm/" + digit + ".parquet"
 
-    if not os.path.exists(save_path_srs):
-        print(f"[SRS] Result not found at {save_path_srs}. Starting training and imputation...")
-        rddm_mod_srs = TPVMI_RDDM(config, data_info_srs)
-        rddm_mod_srs.fit(file_path_srs)
-        rddm_mod_srs.impute(save_path=save_path_srs)
-    else:
-        print(f"[SRS] Result exists at {save_path_srs}. Skipping.")
+    rddm_mod_srs = TPVMI_RDDM(config, data_info_srs)
+    rddm_mod_srs.fit(file_path_srs)
+    rddm_mod_srs.impute(save_path=save_path_srs)
 
-    # --- 2. Balanced Sampling ---
-    if not os.path.exists(save_path_bal):
-        print(f"[Balance] Result not found at {save_path_bal}. Starting training and imputation...")
-        rddm_mod_bal = TPVMI_RDDM(config, data_info_balance)
-        rddm_mod_bal.fit(file_path_bal)
-        rddm_mod_bal.impute(save_path=save_path_bal)
-    else:
-        print(f"[Balance] Result exists at {save_path_bal}. Skipping.")
-
-    # --- 3. Neyman Sampling ---
-    if not os.path.exists(save_path_ney):
-        print(f"[Neyman] Result not found at {save_path_ney}. Starting training and imputation...")
-        rddm_mod_ney = TPVMI_RDDM(config, data_info_neyman)
-        rddm_mod_ney.fit(file_path_ney)
-        rddm_mod_ney.impute(save_path=save_path_ney)
-    else:
-        print(f"[Neyman] Result exists at {save_path_ney}. Skipping.")
+    # if not os.path.exists(save_path_srs):
+    #     print(f"[SRS] Result not found at {save_path_srs}. Starting training and imputation...")
+    #     rddm_mod_srs = TPVMI_RDDM(config, data_info_srs)
+    #     rddm_mod_srs.fit(file_path_srs)
+    #     rddm_mod_srs.impute(save_path=save_path_srs)
+    # else:
+    #     print(f"[SRS] Result exists at {save_path_srs}. Skipping.")
+    #
+    # # --- 2. Balanced Sampling ---
+    # if not os.path.exists(save_path_bal):
+    #     print(f"[Balance] Result not found at {save_path_bal}. Starting training and imputation...")
+    #     rddm_mod_bal = TPVMI_RDDM(config, data_info_balance)
+    #     rddm_mod_bal.fit(file_path_bal)
+    #     rddm_mod_bal.impute(save_path=save_path_bal)
+    # else:
+    #     print(f"[Balance] Result exists at {save_path_bal}. Skipping.")
+    #
+    # # --- 3. Neyman Sampling ---
+    # if not os.path.exists(save_path_ney):
+    #     print(f"[Neyman] Result not found at {save_path_ney}. Starting training and imputation...")
+    #     rddm_mod_ney = TPVMI_RDDM(config, data_info_neyman)
+    #     rddm_mod_ney.fit(file_path_ney)
+    #     rddm_mod_ney.impute(save_path=save_path_ney)
+    # else:
+    #     print(f"[Neyman] Result exists at {save_path_ney}. Skipping.")
 
 

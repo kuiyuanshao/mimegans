@@ -367,7 +367,7 @@ class TPVMI_RDDM:
 
         return loss_total
 
-    def impute(self, m=None, save_path="imputed_results.parquet", batch_size=None, eta=0):
+    def impute(self, m=None, save_path="imputed_results.parquet", batch_size=None, eta=1):
         """
         Impute using Full SWAG Sampling and save to Parquet (Stacked format).
         """
@@ -389,8 +389,6 @@ class TPVMI_RDDM:
                 print("Warning: No SWAG models collected. Using base model point estimate.")
             else:
                 print(f"Using Full SWAG for sampling (Collected {self.swag_model.n_models.item()} models)")
-        elif self.config["else"]["mi_approx"] == "None":
-            eta = 1
 
         all_imputed_dfs = []
 

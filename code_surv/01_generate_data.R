@@ -1,6 +1,7 @@
 #################################### Generate Population ####################################
 # T2D across the whole population
 lapply(c("LDlinkR", "dplyr", "purrr", "mvtnorm", "stringr", "tidyr", "haven"), require, character.only = T)
+source("00_utils_functions.R")
 generateData <- function(n, seed){
   set.seed(seed)
   n <- n
@@ -67,9 +68,8 @@ generateData <- function(n, seed){
                            covarInfo$betas$FERRITIN, covarInfo$type$FERRITIN, covarInfo$sigma$FERRITIN)
   # VITAL SIGNS:
   data <- cbind(data, simCovs(data, covarInfo$formu$VITALS, covarInfo$betas$VITALS, covarInfo$type$VITALS, covarInfo$sigma$VITALS))
-  # data$SBP <- data$SBP - 234
   
-  for (i in c(29, (32:77)[!(32:77) %in% (57:60)])){
+  for (i in c(29, (32:76)[!(32:76) %in% (56:59)])){
     data[, i] <- exp(data[, i]) - 1
   }
   # HYPENTERSION
@@ -81,67 +81,21 @@ generateData <- function(n, seed){
   # WEIGHT:
   data$WEIGHT <- round(data$BMI * (data$HEIGHT / 100)^2, 3)
   
+  age_penalty <- 0.5 * (data$AGE - 40) * (data$AGE > 40) # Extra creatinine for age > 40
+  data$Creatinine <- data$Creatinine + 20 + age_penalty
+  
+  calculate_eGFR <- function(creat, age, sex) {
+    scr <- creat / 88.4 # convert to mg/dL
+    k <- ifelse(sex, 0.9, 0.7) 
+    alpha <- ifelse(sex, -0.411, -0.329)
+    factor_sex <- ifelse(sex, 1, 1.012) 
+    egfr <- 142 * (pmin(scr / k, 1) ^ alpha) * (pmax(scr / k, 1) ^ -1.200) * (0.9938 ^ age) * factor_sex
+    egfr <- pmin(round(egfr, 0), 140)
+    return(egfr)
+  }
+  data$eGFR <- calculate_eGFR(data$Creatinine, data$AGE, data$SEX)
+  
   # Adding Measurement Errors:
-  # SMOKE:
-  SMOKE_M <- matrix(c(0.70, 0.10, 0.20,
-                      0.10, 0.80, 0.10,
-                      0.05, 0.10, 0.85),
-                    nrow = 3, byrow = TRUE,
-                    dimnames = list(1:3, 1:3))
-  data$SMOKE_STAR <- sapply(as.character(data$SMOKE), 
-                            function(true_val) {sample(as.character(1:3), 
-                                                       size = 1, 
-                                                       prob = SMOKE_M[true_val, ])})
-  # ALC:
-  ALC_M <- matrix(c(0.75, 0.10, 0.15,
-                    0.20, 0.70, 0.10,
-                    0.10, 0.10, 0.80),
-                  nrow = 3, byrow = TRUE,
-                  dimnames = list(1:3, 1:3))
-  data$ALC_STAR <- sapply(as.character(data$ALC), 
-                          function(true_val) {sample(as.character(1:3), 
-                                                     size = 1, 
-                                                     prob = ALC_M[true_val, ])})
-  # EXER:
-  EXER_M <- matrix(
-    c(0.93, 0.02, 0.05, # 93 % Normal (right), 2% Low, 5% High
-      0.10, 0.84, 0.06,
-      0.02, 0.00, 0.98),
-    nrow = 3, byrow = TRUE,
-    dimnames = list(1:3, 
-                    1:3)
-  )
-  data$EXER_STAR <- sapply(as.character(data$EXER), 
-                          function(true_val) {sample(as.character(1:3), 
-                                                     size = 1, 
-                                                     prob = EXER_M[true_val, ])})
-  # INCOME:
-  INCOME_M <- matrix(
-    c(0.93, 0.03, 0.02, 0.01, 0.01,
-      0.01, 0.94, 0.04, 0.01, 0,
-      0.00, 0.01, 0.96, 0.03, 0,
-      0.00, 0.00, 0.00, 0.99, 0.01,
-      0.00, 0.00, 0.00, 0.00, 1),
-    nrow = 5, byrow = TRUE,
-    dimnames = list(1:5, 1:5)
-  )
-  data$INCOME_STAR <- sapply(as.character(data$INCOME), 
-                             function(true_val) {sample(as.character(1:5), 
-                                                        size = 1, 
-                                                        prob = INCOME_M[true_val, ])})
-  # EDU:
-  data$EDU_STAR <- data$EDU + sample(-3:3, n, replace = T, 
-                                     prob = c(0.02, 0.03, 0.02, 
-                                              0.8, 0.03, 0.04, 0.06))
-  # NUTRIENTS:
-  data$Na_INTAKE_STAR <- round(data$Na_INTAKE + rnorm(n, 0, 1) * 
-                                 ifelse(data$URBAN, sqrt(0.125), sqrt(0.25)), 3)
-  data$K_INTAKE_STAR <- round(data$K_INTAKE + rnorm(n, 0, 1) * 
-                                ifelse(data$URBAN, sqrt(0.09), sqrt(0.18)), 3)
-  data$KCAL_INTAKE_STAR <- round(data$KCAL_INTAKE + rnorm(n, 0, 1) * 
-                                   ifelse(data$URBAN, sqrt(0.16), sqrt(0.32)), 3)
-  data$PROTEIN_INTAKE_STAR <- round(data$PROTEIN_INTAKE + rnorm(n, 0, 1) * 
-                                      ifelse(data$URBAN, sqrt(0.05), sqrt(0.1)), 3)
   # GENOTYPES:
   GENO_M <- matrix(
     c(0.99, 0.005, 0.005,
@@ -157,57 +111,259 @@ generateData <- function(n, seed){
                                                                        size = 1, 
                                                                        prob = GENO_M[true_val, ])})
   }
-  # DIABETES:
-  selfReport <- function(true_today, sd_true_past, sd_mis_report,
-                         p_mis_report = 1/3){
-    past_value <- true_today + rnorm(length(true_today), 0, sd_true_past) # True Past Value differs from True Value Today
-    ind <- sample(length(true_today), round(p_mis_report * length(true_today)))
-    past_value[ind] <- past_value[ind] + rnorm(length(ind), 0, 1) * 
-      ifelse(data$URBAN[ind], sd_mis_report/2, sd_mis_report) # Patient mis-reported the True Past Value.
-    return (round(past_value, 3))
-  }
-  data$Glucose_STAR <- round(data$Glucose + rnorm(n, 0, 3.5), 3)
-  data$F_Glucose_STAR <- selfReport(data$F_Glucose, 2.5, 2.5)
-  data$HbA1c_STAR <- selfReport(data$HbA1c, 10, 10)
   
   # T_I: Self-Reported Time Interval between Treatment Initiation SGLT2 and T2D Diagnosis (Months)
-  data$eGFR_cap <- (pmin(pmax(data$eGFR, 0), 120) - 90) / 10
-  mm_T_I <- model.matrix(~ I((HbA1c - 50) / 5) + rs4506565 + I((AGE - 50) / 5) + I((eGFR_cap - 90) / 10) + 
-                           SEX + INSURANCE + RACE + I(BMI / 5) + SMOKE, data = data)
-  data$eGFR_cap <- NULL
-  betas_T_I <- log(c(1, 1.25, 1.02, 1.04, 1.05, 0.95,
-                     1.05, 1.2, 0.90, 0.90, 1, 0.95, 1.1, 0.85, 0.9))
-  eta_I <- as.vector(mm_T_I %*% betas_T_I)
-  k <- 1.2
-  lambda <- log(2) / (150 ^ k)
-  T_I <- (-log(runif(n)) / (lambda*exp(eta_I)))^(1/k) + 1
+  # 1. SCALING 
+  # ----------------------------------------------------------------------------
+  A1c_sc  <- (data$HbA1c - 53) / 15 
+  Age_sc  <- (data$AGE - 60) / 15
+  eGFR_sc <- (data$eGFR - 60) / 20
+  BMI_sc  <- (data$BMI - 30) / 5
+  geno_eff <- as.numeric(data$rs4506565) 
   
-  C_drop <- rexp(n, rate = 0.07)
-  betas <- c(
-    `(Intercept)` = 1.00, 
-    AGE = 0.02, 
-    EDU = -0.02,
-    INCOME2 = -0.10, 
-    INCOME3 = -0.20,
-    INCOME4 = -0.30,
-    INCOME5 = -0.40,
-    URBANTRUE = -0.10,
-    SMOKE2 = 0.2,
-    SMOKE3 = -0.3
+  # 2. PROPENSITY FOR ACUTE SWITCH
+  # Boosted coefficients to ensure clean separation and significance
+  prob_acute <- plogis(-2.5 +                
+                         0.6 * A1c_sc +        
+                         0.3 * BMI_sc +        
+                         0.3 * geno_eff +      
+                         0.6 * as.numeric(data$INSURANCE) +
+                         # RACE Effect: Asians/Blacks might have higher acute risk
+                         0.4 * as.numeric(data$RACE %in% c("AFR", "SAS")))
+  
+  is_acute <- (runif(n) < prob_acute)
+  
+  # 3. LINEAR PREDICTOR (Hazard Strength)
+  # - Only ONE Quadratic term (HbA1c)
+  # - Boosted SMOKE/RACE coefficients to prevent non-significance
+  
+  # RACE Effect Vector
+  # EUR=0, AFR=0.3, AMR=0.1, SAS=0.4, EAS=0.2
+  race_eff <- case_when(
+    data$RACE == "AFR" ~ 0.4,
+    data$RACE == "SAS" ~ 0.5,
+    data$RACE == "EAS" ~ 0.3,
+    data$RACE == "AMR" ~ 0.2,
+    TRUE ~ 0.0
   )
-  C_drop_star <- C_drop + rnorm(n, 0, 2) + 
-    abs(rnorm(n, 0, 2)) * (model.matrix(~ AGE + EDU + INCOME + URBAN + SMOKE, data = data) %*% betas)
   
-  C <- pmax(0.01, pmin(24.001, C_drop))
-  C_STAR <- pmax(0.01, pmin(24.001, C_drop_star))
+  eta_I <- (0.4 * A1c_sc + 0.1 * A1c_sc^2) +      # HbA1c: Quadratic Only
+    (0.3 * eGFR_sc) +                      # eGFR: Linear
+    (0.2 * BMI_sc) +                       # BMI: Linear
+    (-0.2 * A1c_sc * Age_sc) +             # Interaction
+    (0.2 * geno_eff) +                     # Genotype
+    (0.3 * as.numeric(data$SEX)) +         # Sex
+    (0.5 * as.numeric(data$SMOKE == 1)) +  # SMOKE (Current=1): Strong effect
+    race_eff                               # Race Effect
+  
+  # 4. TIME GENERATION
+  # Acute: Mean ~3m
+  T_acute <- (3.0 * exp(-0.4 * eta_I)) * (-log(runif(n)))^(1/1.2)
+  
+  # Routine: Mean ~20m
+  T_routine <- rlnorm(n, meanlog = log(20) - 0.25 * eta_I, sdlog = 0.5)
+  
+  T_I <- ifelse(is_acute, T_acute, T_routine)
+  
+  # 5. CENSORING & TRUE OBSERVED
+  # Weaker censoring to ensure we have enough events for significance
+  c_rate <- 0.02 * exp(-0.01 * (data$AGE - 60) + 0.1 * as.numeric(data$URBAN))
+  C <- pmin(rexp(n, c_rate), 36.0) 
+  
+  # TRUE OUTCOMES (For "True Model" Benchmark)
+  data$T_I <- T_I
   data$C <- C
-  data$C_STAR <- C_STAR
-  
+  data$EVENT <- as.integer(T_I <= C)
+  data <- add_measurement_errors(data)
   data$T_I <- pmin(T_I, C)
-  data$EVENT <- T_I <= C
-  data$T_I_STAR <- pmin(T_I, C_STAR)
-  data$EVENT_STAR <- T_I <= C_STAR
+  
+  cols_to_transform <- setdiff(data_info_srs$cat_vars, c("R", "EVENT", "EVENT_STAR"))
+  data[cols_to_transform] <- lapply(data[cols_to_transform], as.character)
+  
   return (data)
+}
+
+add_measurement_errors <- function(data) {
+  n <- nrow(data)
+  
+  # --- Helper for Categorical Sampling ---
+  vectorized_choice <- function(prob_matrix) {
+    cum_probs <- t(apply(prob_matrix, 1, cumsum))
+    rowSums(runif(nrow(prob_matrix)) > cum_probs) + 1
+  }
+  
+  # ============================================================================
+  # 1. SURVIVAL & EVENT (Aggressive Misclassification & Delay)
+  # ============================================================================
+  
+  # A. Censoring (Ghost Follow-up)
+  # Base log-odds increased to -0.5 to create more ghosts (patients lost but not recorded)
+  prob_ghost <- plogis(-0.5 - 0.02 * (data$AGE - 50) - 0.8 * as.numeric(data$INSURANCE))
+  is_ghost <- (data$C < 36.0) & (runif(n) < prob_ghost)
+  
+  data$C_STAR <- data$C + rnorm(n, 0, 0.2)
+  data$C_STAR[is_ghost] <- 36.0 + rnorm(sum(is_ghost), 0, 0.2) 
+  data$C_STAR <- pmax(0.1, data$C_STAR)
+  
+  # B. Latent Event Time (Administrative Delay)
+  # Rate modifier adjusted so delay is longer and more variable
+  rate_mod <- 2.0 * (1 + 0.5 * as.numeric(data$INSURANCE)) 
+  t_latent <- data$T_I + rgamma(n, shape = 3.0, rate = rate_mod) 
+  
+  # C. Observed Outcomes (Lower Sensitivity / Specificity)
+  data$EVENT_STAR <- 0 
+  data$T_I_STAR <- data$C_STAR
+  
+  # Sensitivity: Urban effect stronger, base lower (harder to capture events)
+  sens_prob <- plogis(1.5 + 0.5 * as.numeric(data$URBAN)) 
+  captured <- (runif(n) < sens_prob)
+  
+  valid <- (data$EVENT == 1) & captured & (t_latent <= data$C_STAR)
+  data$EVENT_STAR[valid] <- 1
+  data$T_I_STAR[valid] <- t_latent[valid]
+  
+  # False Positives: Specificity reduced to 0.98 (2% random spurious events)
+  false_alarm <- (data$EVENT == 0) & (runif(n) > 0.98)
+  fp_idx <- which(false_alarm)
+  if(length(fp_idx) > 0){
+    data$EVENT_STAR[fp_idx] <- 1
+    data$T_I_STAR[fp_idx] <- runif(length(fp_idx), 0, data$C_STAR[fp_idx])
+  }
+  
+  # ============================================================================
+  # 2. RENAL (Noisier Creatinine & eGFR)
+  # ============================================================================
+  # Increased protein effect (0.15) and analytical noise (0.15)
+  prot_eff <- 0.15 * pmax(0, data$PROTEIN_INTAKE)
+  gluc_int <- ifelse(data$Glucose > 15, 0.10, 0.0)
+  noise <- rnorm(n, 0, 0.15) 
+  
+  data$Creatinine_STAR <- round(data$Creatinine * exp(prot_eff + gluc_int + noise), 0)
+  
+  # Recalculate eGFR
+  scr <- data$Creatinine_STAR / 88.4
+  k <- ifelse(data$SEX, 0.9, 0.7); alpha <- ifelse(data$SEX, -0.411, -0.329)
+  sex_f <- ifelse(data$SEX, 1.0, 1.018)
+  data$eGFR_STAR <- 141 * (pmin(scr/k, 1)^alpha) * (pmax(scr/k, 1)^-1.209) * (0.993^data$AGE) * sex_f
+  data$eGFR_STAR <- pmin(round(data$eGFR_STAR, 0), 140)
+  
+  # ============================================================================
+  # 3. DIABETES (Stronger HbA1c Bias)
+  # ============================================================================
+  # HbA1c: "Optimism Bias" slope increased to -0.40
+  bias_a1c <- -0.40 * pmax(0, data$HbA1c - 55) 
+  sigma_a1c <- exp(log(5.0) + 0.01*(data$AGE-50) - 0.1*(data$EDU-14)) 
+  data$HbA1c_STAR <- round(data$HbA1c + bias_a1c + rnorm(n, 0, sigma_a1c), 0)
+  
+  # Glucose: Higher volatility
+  sigma_fg <- 1.0 * (1 + 0.05*(data$BMI-25)) 
+  data$F_Glucose_STAR <- pmax(3.0, round(data$F_Glucose + 0.5 + rt(n, 4)*sigma_fg, 1))
+  data$Glucose_STAR <- pmax(3.0, round(data$Glucose + rnorm(n, 0, 3.0), 1))
+  data$Insulin_STAR <- round(data$Insulin * exp(rnorm(n, 0, 0.25)), 1)
+  
+  # ============================================================================
+  # 4. BIOMETRICS (Stronger Vanity Bias)
+  # ============================================================================
+  # Weight: Under-reporting slope -0.5 kg per kg over 75
+  TRUE_WEIGHT <- data$BMI * (data$HEIGHT / 100)^2
+  bias_w <- -0.5 * pmax(0, TRUE_WEIGHT - 75)
+  WEIGHT_STAR <- TRUE_WEIGHT + bias_w + rnorm(n, 0, 3.0)
+  
+  # Height: Over-reporting (Men +2.5cm)
+  bias_h <- ifelse(data$SEX, 2.5, 1.0) + 0.1 * pmax(0, data$AGE - 50)
+  data$HEIGHT_STAR <- round(data$HEIGHT + bias_h + rnorm(n, 0, 2.0), 0)
+  
+  data$BMI_STAR <- round(WEIGHT_STAR / (data$HEIGHT_STAR / 100)^2, 1)
+  
+  # SBP: Stronger White Coat + Cuff Error
+  white_coat <- pmax(0, 5.0 + 0.2 * (data$AGE - 50))
+  cuff_error <- rep(0, n)
+  obese_idx <- which(data$BMI > 30)
+  if(length(obese_idx) > 0) {
+    bad_cuff <- sample(obese_idx, size = 0.4 * length(obese_idx)) # 40% wrong cuff
+    cuff_error[bad_cuff] <- 8.0 + 0.6 * (data$BMI[bad_cuff] - 30)
+  }
+  data$SBP_STAR <- round(data$SBP + white_coat + cuff_error + rnorm(n, 0, 10), 0)
+  
+  # Lipids: Non-fasting artifact
+  gluc_diff <- (data$F_Glucose_STAR - data$F_Glucose) 
+  non_fasting <- (gluc_diff > 2.0)
+  tg_bias <- rep(0, n); tg_bias[non_fasting] <- 0.6 * data$Triglyceride[non_fasting]
+  data$Triglyceride_STAR <- round(data$Triglyceride + tg_bias + rnorm(n, 0, 0.3), 1)
+  
+  ldl_err <- -(data$Triglyceride_STAR - data$Triglyceride) / 2.2
+  data$LDL_STAR <- round(data$LDL + ldl_err + rnorm(n, 0, 0.2), 1)
+  
+  # ============================================================================
+  # 5. NUTRIENTS (High Reporting Error)
+  # ============================================================================
+  log_RR <- -0.20 - 0.02*(data$BMI - 25) + rnorm(n, 0, 0.35)
+  RR <- exp(log_RR)
+  
+  data$KCAL_INTAKE_STAR <- round(data$KCAL_INTAKE * RR, 0)
+  data$PROTEIN_INTAKE_STAR <- round(data$PROTEIN_INTAKE * RR * exp(rnorm(n, 0, 0.15)), 1)
+  data$Na_INTAKE_STAR <- round(data$Na_INTAKE * RR * exp(rnorm(n, 0, 0.5)), 0)
+  data$K_INTAKE_STAR <- round(data$K_INTAKE * RR * exp(rnorm(n, 0, 0.4)), 0)
+  
+  # ============================================================================
+  # 6. CATEGORICAL (High Misclassification)
+  # ============================================================================
+  data$SMOKE <- as.integer(data$SMOKE); data$ALC <- as.integer(data$ALC)
+  data$EXER <- as.integer(data$EXER); data$INCOME <- as.integer(data$INCOME)
+  
+  # SMOKE: High denial rate
+  P_S <- matrix(0, n, 3)
+  idx <- which(data$SMOKE==1); if(length(idx)>0) { 
+    p <- pmin(0.40 + 0.05*(data$EDU[idx]-14), 0.9) 
+    P_S[idx,] <- cbind(1-p, p*0.6, p*0.4) 
+  }
+  idx <- which(data$SMOKE==2); if(length(idx)>0) {
+    p <- 0.2 
+    P_S[idx,] <- cbind(0.05, 1-p, p)
+  }
+  idx <- which(data$SMOKE==3); if(length(idx)>0) P_S[idx,] <- rep(c(0.02,0.05,0.93), each=length(idx))
+  data$SMOKE_STAR <- vectorized_choice(P_S)
+  
+  # ALC: High denial rate
+  P_A <- matrix(0, n, 3)
+  idx <- which(data$ALC==1); if(length(idx)>0) P_A[idx,] <- rep(c(0.85,0.1,0.05), each=length(idx))
+  idx <- which(data$ALC==2); if(length(idx)>0) P_A[idx,] <- rep(c(0.15,0.85,0.0), each=length(idx))
+  idx <- which(data$ALC==3); if(length(idx)>0) {
+    p <- 0.5 
+    P_A[idx,] <- cbind(p, 0.05, 1-p-0.05)
+  }
+  data$ALC_STAR <- vectorized_choice(P_A)
+  
+  # EXER: Wishful thinking (Low -> Normal)
+  P_E <- matrix(0, n, 3)
+  idx <- which(data$EXER==1); if(length(idx)>0) P_E[idx,] <- rep(c(0.8,0.1,0.1), each=length(idx))
+  idx <- which(data$EXER==2); if(length(idx)>0) {
+    p <- 0.4 # 40% of low exercise report normal
+    P_E[idx,] <- cbind(p, 1-p, 0.0)
+  }
+  idx <- which(data$EXER==3); if(length(idx)>0) P_E[idx,] <- rep(c(0.2,0.0,0.8), each=length(idx))
+  data$EXER_STAR <- vectorized_choice(P_E)
+  
+  # INCOME: Bias based on Edu mismatch
+  P_I <- matrix(0, n, 5)
+  for(k in 1:5){
+    idx <- which(data$INCOME == k); if(length(idx)==0) next
+    row_p <- rep(0, 5); row_p[k] <- 0.7 # Base accuracy reduced to 70%
+    if(k>1) row_p[k-1] <- 0.15; if(k<5) row_p[k+1] <- 0.15
+    mat_p <- matrix(rep(row_p, length(idx)), nrow=length(idx), byrow=T)
+    if(k==1) { sub <- which(data$EDU[idx]>16); mat_p[sub, 1:2] <- c(0.4, 0.6) }
+    if(k==5) { sub <- which(data$EDU[idx]<12); mat_p[sub, 4:5] <- c(0.3, 0.7) }
+    P_I[idx,] <- mat_p / rowSums(mat_p)
+  }
+  data$INCOME_STAR <- vectorized_choice(P_I)
+  
+  # EDU: Credentialism + Age Noise
+  bias_edu <- ifelse(data$INCOME >= 4 & data$EDU < 12, 2.0, 0.0) # +2 years bias
+  sigma_edu <- ifelse(data$AGE > 60, 2.0, 1.0)
+  data$EDU_STAR <- round(data$EDU + bias_edu + rnorm(n, 0, sigma_edu), 0)
+  data$EDU_STAR <- pmax(0, data$EDU_STAR)
+  
+  return(data)
 }
 
 loadGenotypeInfo <- function(){
@@ -323,7 +479,7 @@ loadCovarInfo <- function(genoInfo){
     formu_HEIGHT <- as.formula(paste0(" ~ SEX + ", paste0(genoInfo$genoTrait[genoInfo$genoTrait$PHENO == "HEIGHT", ]$Query, collapse = " + ")))
     betas_HEIGHT <- c(162, 13, transform_betas(genoInfo$genoTrait[genoInfo$genoTrait$PHENO == "HEIGHT", ]$Beta))
     sigma_HEIGHT <- 7
-    # SMOKE ~ AGE + SEX + RACE (Current Smoker, Ex-Smoker, Never Smoked, Question not asked)
+    # SMOKE ~ AGE + SEX + RACE (Current Smoker, Ex-Smoker, Never Smoked)
     formu_SMOKE <- as.formula(paste0("~", Mod_list$SMOKE$formula[3]))
     betas_SMOKE <- Mod_list$SMOKE$coeff
     # EXER ~ AGE + SEX + RACE + SMOKE (Normal, Low, High)
@@ -417,7 +573,6 @@ loadCovarInfo <- function(genoInfo){
     
     # RENAL
     formu_RENAL <- list(Creatinine = as.formula(paste("~", Mod_list$Renal$Creatinine$formula[3])),
-                        eGFR = as.formula(paste("~", Mod_list$Renal$eGFR$formula[3])),
                         Urea = as.formula(paste("~", Mod_list$Renal$Urea$formula[3])),
                         Potassium = as.formula(paste("~", Mod_list$Renal$Potassium$formula[3])),
                         Sodium = as.formula(paste("~", Mod_list$Renal$Sodium$formula[3])),
@@ -427,7 +582,6 @@ loadCovarInfo <- function(genoInfo){
                         Magnesium = as.formula(paste("~", Mod_list$Renal$Magnesium$formula[3])), 
                         Phosphate = as.formula(paste("~", Mod_list$Renal$Phosphate$formula[3])))
     betas_RENAL <- list(Creatinine = Mod_list$Renal$Creatinine$coeff,
-                        eGFR = Mod_list$Renal$eGFR$coeff,
                         Urea = Mod_list$Renal$Urea$coeff,
                         Potassium = Mod_list$Renal$Potassium$coeff,
                         Sodium = Mod_list$Renal$Sodium$coeff,
@@ -602,7 +756,6 @@ fetch_parameters <- function(){
     
     # ====== Renal / electrolyte + acid–base panel =================================
     Creatinine = c("Creatinine", "Whole Blood Creatinine"),
-    eGFR       = c("eGFR"),
     Urea       = c("Urea", "Whole Blood Urea"),
     Potassium  = c("Potassium", "Potassium blood", "Potassium whole blood"),
     Sodium     = c("Sodium", "Sodium blood", "Sodium whole blood"),
@@ -917,6 +1070,35 @@ for (i in 1:replicate){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   data <- suppressMessages({generateData(n, seed[i])})
+  
+  # data$HbA1c_c  <- (data$HbA1c - 53) / 15
+  # data$eGFR_c <- (data$eGFR - 60) / 20
+  # data$BMI_c <- (data$BMI - 30) / 5
+  # data$AGE_c <- (data$AGE - 60) / 15
+  # data$SMOKE <- as.character(data$SMOKE)
+  # 
+  # data$HbA1c_STAR_c  <- (data$HbA1c_STAR - 53) / 15
+  # data$eGFR_STAR_c <- (data$eGFR_STAR - 60) / 20
+  # data$BMI_STAR_c <- (data$BMI_STAR - 30) / 5
+  # data$SMOKE_STAR <- as.character(data$SMOKE_STAR)
+  
+  # fit.STAR <- coxph(Surv(T_I_STAR, EVENT_STAR) ~ 
+  #                     poly(HbA1c_STAR_c, 2, raw = TRUE) + eGFR_STAR_c + BMI_STAR_c +
+  #                     rs4506565_STAR + AGE_c + SEX + 
+  #                     INSURANCE + RACE + SMOKE_STAR +
+  #                     HbA1c_STAR_c:AGE_c,
+  #                   data = data)
+  
+  # fit.TRUE <- coxph(Surv(T_I, EVENT) ~ 
+  #                     poly(HbA1c_c, 2, raw = TRUE) + eGFR_c + BMI_c +
+  #                     rs4506565 + AGE_c + SEX + 
+  #                     INSURANCE + RACE + SMOKE +
+  #                     HbA1c_c:AGE_c,
+  #                   data = data)
   save(data, file = paste0("./data/True/", digit, ".RData"))
 }
+
+
+
+
 

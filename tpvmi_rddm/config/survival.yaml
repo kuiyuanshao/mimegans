@@ -26,10 +26,10 @@ model:
   channels: 128
   nheads: 4
   layers: 3
-  dropout: 0 # if dropout is enabled, more epochs are required.
+  dropout: 0.05 # if dropout is enabled, more epochs are required.
 # ==========================================
 # Testing / Imputation
 # ==========================================
 else:
   m: 5
-  mi_approx: "None"
+  mi_approx: "dropout"

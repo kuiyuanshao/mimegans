@@ -6,7 +6,7 @@ options(survey.lonely.psu = "certainty")
 retrieveEst <- function(method){
   resultCoeff <- resultStdError <- resultCI <- NULL
   sampling_designs <- c("SRS", "Balance", "Neyman")
-  for (i in 1:37){
+  for (i in 1:500){
     digit <- stringr::str_pad(i, 4, pad = 0)
     cat("Current:", digit, "\n")
     load(paste0("./data/True/", digit, ".RData"))
@@ -115,7 +115,7 @@ methods <- c("true", "me", "complete_case", "raking",
 for (method in methods){
   retrieveEst(method)
 }
-retrieveEst("tpvmi_rddm")
+
 combine <- function(){
   filenames <- paste0("./simulations/results_", toupper(methods), ".RData")
   list_coeff <- list()
@@ -143,7 +143,7 @@ combine <- function(){
 combine()
 
 
-i <- 44
+i <- 3
 digit <- stringr::str_pad(i, 4, pad = 0)
 cat("Current:", digit, "\n")
 load(paste0("./data/True/", digit, ".RData"))

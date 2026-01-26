@@ -43,3 +43,4 @@
 !mixgb_srsParams.RData
 /tpvmi_rddm/__pycache__
 *.pyc
+tpvmi_rddm/__pycache__/tpvmi_rddm.cpython-313.pyc

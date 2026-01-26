@@ -14,8 +14,8 @@ train:
 diffusion:
   diffusion_embedding_dim: 128
   beta_start: 0.0001
-  beta_end: 0.1
-  num_steps: 20
+  beta_end: 0.02
+  num_steps: 50
   schedule: "linear"
 
 # ==========================================

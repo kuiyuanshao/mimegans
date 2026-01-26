@@ -22,82 +22,53 @@ from utils import inverse_transform_data, process_data
 class FullSWAG(nn.Module):
     def __init__(self, base_model, max_num_models=20, var_clamp=1e-30):
         super(FullSWAG, self).__init__()
-        # Deep copy the base model structure
         self.base = copy.deepcopy(base_model)
         self.base.train()
         self.max_num_models = max_num_models
         self.var_clamp = var_clamp
         self.n_models = torch.zeros([1], dtype=torch.long)
-
         self.params = list()
 
-        # Initialize Buffers
         for name, param in self.base.named_parameters():
-            # [FIX]: PyTorch buffer names cannot contain ".", replace with "_"
             safe_name = name.replace(".", "_")
-
-            # 1. First Moment (Mean)
             self.register_buffer(f"{safe_name}_mean", torch.zeros_like(param.data))
-            # 2. Second Moment (Diagonal Variance)
             self.register_buffer(f"{safe_name}_sq_mean", torch.zeros_like(param.data))
-            # 3. Low-Rank Matrix (Covariance Queue)
             self.register_buffer(f"{safe_name}_cov_mat_sqrt", torch.empty(0, param.numel()))
-
-            # Store (original_name, safe_name, param_reference)
             self.params.append((name, safe_name, param))
 
     def collect_model(self, base_model):
-        """
-        Updates Mean, Sq_Mean, and pushes current deviation to Low-Rank queue.
-        """
         curr_params = dict(base_model.named_parameters())
         n = self.n_models.item()
-
         for name, safe_name, _ in self.params:
             if name not in curr_params: continue
             param = curr_params[name]
-
-            # Get Buffers using safe_name
             mean = getattr(self, f"{safe_name}_mean")
             sq_mean = getattr(self, f"{safe_name}_sq_mean")
             cov_mat_sqrt = getattr(self, f"{safe_name}_cov_mat_sqrt")
 
-            # Standard SWA Updates
             mean = mean * n / (n + 1.0) + param.data.to(mean.device) / (n + 1.0)
             sq_mean = sq_mean * n / (n + 1.0) + (param.data.to(sq_mean.device) ** 2) / (n + 1.0)
-
-            # Full SWAG Low-Rank Update
             dev = (param.data.to(mean.device) - mean).view(-1, 1)
             cov_mat_sqrt = torch.cat((cov_mat_sqrt, dev.t()), dim=0)
 
-            # Queue Maintenance
             if (cov_mat_sqrt.size(0)) > self.max_num_models:
                 cov_mat_sqrt = cov_mat_sqrt[1:, :]
 
-            # Write back
             setattr(self, f"{safe_name}_mean", mean)
             setattr(self, f"{safe_name}_sq_mean", sq_mean)
             setattr(self, f"{safe_name}_cov_mat_sqrt", cov_mat_sqrt)
-
         self.n_models.add_(1)
 
     def sample(self, scale=1, cov=True):
-        """
-        Samples new weights and loads them into self.base.
-        """
         scale_sqrt = scale ** 0.5
-
         for name, safe_name, base_param in self.params:
             mean = getattr(self, f"{safe_name}_mean")
             sq_mean = getattr(self, f"{safe_name}_sq_mean")
             cov_mat_sqrt = getattr(self, f"{safe_name}_cov_mat_sqrt")
 
-            # 1. Diagonal Part
-            # [FIX]: Extra protection against NaN in variance calculation
             var = torch.clamp(sq_mean - mean ** 2, min=self.var_clamp)
             var_sample = var.sqrt() * torch.randn_like(var)
 
-            # 2. Low-Rank Part
             if cov and cov_mat_sqrt.size(0) > 0:
                 K = cov_mat_sqrt.size(0)
                 z2 = torch.randn(K, 1, device=mean.device)
@@ -107,12 +78,8 @@ class FullSWAG(nn.Module):
             else:
                 rand_sample = var_sample
 
-            # Final Combine
             sample = mean + scale_sqrt * rand_sample
-
-            # In-place update to self.base parameter
             base_param.data.copy_(sample)
-
         return self.base
 
 
@@ -129,14 +96,16 @@ class TPVMI_RDDM:
         elif config["diffusion"]["schedule"] == "cosine":
             self.alpha_bars = self._get_cosine_schedule(self.num_steps).to(self.device)
 
-        # Config respects user YAML (0.0001 -> 0.01)
+        # [FIX]: Increase beta_end default from 0.01 to 0.1
+        # This increases the starting noise at t=T, giving the model more freedom
+        # to move away from P1 (Proxy) and avoid "Ghost traps".
         beta_start = config["diffusion"].get("beta_start", 0.0001)
-        beta_end = config["diffusion"].get("beta_end", 0.01)
+        beta_end = config["diffusion"].get("beta_end", 0.1)
         self.beta_bars = torch.linspace(beta_start, beta_end, self.num_steps).to(self.device)
 
         self.model = None
         self.model_list = []
-        self.swag_model = None  # Placeholder for FullSWAG
+        self.swag_model = None
         self._global_p1 = None
         self._global_p2 = None
         self._global_aux = None
@@ -211,7 +180,7 @@ class TPVMI_RDDM:
             num_train_mods = 1
 
         for k in range(num_train_mods):
-            print(f"\n[TPVMI-RDDM] Training {k+1}/{num_train_mods}...")
+            print(f"\n[TPVMI-RDDM] Training {k + 1}/{num_train_mods}...")
             rng = np.random.default_rng()
             if self.config["else"]["mi_approx"] == "bootstrap":
                 current_rows = rng.choice(valid_rows, size=len(valid_rows), replace=True)
@@ -222,22 +191,27 @@ class TPVMI_RDDM:
             train_rows, val_rows = current_rows[n_val:], current_rows[:n_val] if n_val > 0 else []
 
             train_p1, train_p2, train_aux = get_tensors(train_rows)
-            # Initialize Model
             self.model = RDDM_NET(self.config, self.device, self.variable_schema).to(self.device)
 
             if mi_approx == "SWAG":
                 swa_start = int(epochs * 0.80)
                 optimizer = SGD(self.model.parameters(), lr=lr, momentum=0.9)
                 scheduler = CosineAnnealingLR(optimizer, T_max=swa_start, eta_min=lr * 0.5)
-                self.swag_model = FullSWAG(self.model, max_num_models = int(self.config["else"]["m"] * 5)).to(self.device)
+                self.swag_model = FullSWAG(self.model, max_num_models=int(self.config["else"]["m"] * 5)).to(self.device)
             else:
                 optimizer = Adam(self.model.parameters(), lr=self.config["train"]["lr"])
+
             num_train = len(train_rows)
-            steps_per_epoch = max(1, num_train // batch_size)
+            steps_per_epoch = math.ceil(num_train / batch_size)
 
             for epoch in range(epochs):
                 self.model.train()
                 epoch_losses = []
+
+                # Shuffle indices once per epoch for non-bootstrap modes
+                if mi_approx != "bootstrap":
+                    epoch_indices = np.random.permutation(num_train)
+
                 it = tqdm(range(steps_per_epoch), desc=f"Epoch {epoch + 1}", file=sys.stdout)
 
                 if mi_approx == "SWAG":
@@ -250,31 +224,33 @@ class TPVMI_RDDM:
                     else:
                         current_lr = optimizer.param_groups[0]['lr']
 
-                for _ in it:
-                    b_idx = np.random.randint(0, num_train, batch_size)
+                for step in it:
+                    if mi_approx == "bootstrap":
+                        b_idx = np.random.randint(0, num_train, batch_size)
+                    else:
+                        start_idx = step * batch_size
+                        end_idx = min(start_idx + batch_size, num_train)
+                        if start_idx >= num_train: break
+                        b_idx = epoch_indices[start_idx:end_idx]
+
                     b_p1 = train_p1[b_idx]
                     b_p2 = train_p2[b_idx]
                     b_aux = train_aux[b_idx]
 
                     optimizer.zero_grad()
                     loss = self.calc_unified_loss(b_p1, b_p2, b_aux)
-
                     loss.backward()
 
                     if mi_approx == "SWAG":
                         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1)
 
                     optimizer.step()
-
                     epoch_losses.append(loss.item())
                     it.set_postfix(loss=f"{loss.item():.4f}")
 
                 if mi_approx == "SWAG":
-                    if not is_swa_phase:
-                        scheduler.step()
-
-                    if is_swa_phase:
-                        self.swag_model.collect_model(self.model)
+                    if not is_swa_phase: scheduler.step()
+                    if is_swa_phase: self.swag_model.collect_model(self.model)
 
                 if len(val_rows) > 0 and (epoch + 1) % self.config["train"].get("val_interval", 100) == 0:
                     v_p1 = self._global_p1[val_rows]
@@ -309,7 +285,7 @@ class TPVMI_RDDM:
 
         x_t_dict, p1_dict, aux_dict, mask_dict = {}, {}, {}, {}
 
-        # --- NUMERIC: FORCE VISIBILITY ---
+        # --- NUMERIC ---
         if len(self.num_idxs) > 0:
             batch_p2_num = p2[:, self.num_idxs]
             batch_p1_num = p1[:, self.num_idxs]
@@ -321,7 +297,7 @@ class TPVMI_RDDM:
                 p1_dict[name] = batch_p1_num[:, i:i + 1]
                 mask_dict[name] = torch.ones((B, 1), device=self.device)
 
-        # --- CATEGORICAL: USE ABSORBING MASK ---
+        # --- CATEGORICAL ---
         target_cat_list = []
         if len(self.cat_idxs) > 0:
             batch_p1_cat = p1[:, self.cat_idxs].long()
@@ -333,12 +309,9 @@ class TPVMI_RDDM:
             for i, var in enumerate(self.cat_vars):
                 name = var['name']
                 K = var['num_classes']
-
                 x_t_dict[name] = F.one_hot(x_t_indices[:, i], K).float()
                 p1_dict[name] = F.one_hot(batch_p1_cat[:, i], K).float()
-
                 target_cat_list.append(batch_p2_cat[:, i])
-                # Mask: 1=Clean, 0=Absorbed. This is correct for Categorical.
                 mask_dict[name] = mask[:, i:i + 1].float()
 
         if aux.shape[1] > 0:
@@ -357,23 +330,24 @@ class TPVMI_RDDM:
 
         if len(self.num_vars) > 0:
             pred_stack = torch.stack([model_out[name] for name in self.num_vars], dim=1)
-            loss_total += (F.mse_loss(pred_stack[:, :, 0], true_residual) +
+            # [FIX]: Use 5.0 weighting for Residual.
+            # 1.0 was too loose (Cloud), 10.0 was too strict (Line/Suffocated).
+            # 5.0 balances Trend vs Variance.
+            loss_total += (5.0 * F.mse_loss(pred_stack[:, :, 0], true_residual) +
                            F.mse_loss(pred_stack[:, :, 1], eps))
 
         if len(self.cat_vars) > 0:
             for i, var in enumerate(self.cat_vars):
                 ce_loss = F.cross_entropy(model_out[var['name']], target_cat_list[i], reduction='none')
-
                 is_absorbed = ~mask[:, i]
                 masked_loss = ce_loss * is_absorbed.float()
                 loss_total += (masked_loss.sum() / (is_absorbed.sum() + 1e-6))
 
         return loss_total
 
-    def impute(self, m=None, save_path="imputed_results.parquet", batch_size=None, eta=1):
-        """
-        Impute using Full SWAG Sampling and save to Parquet (Stacked format).
-        """
+    def impute(self, m=None, save_path="imputed_results.parquet", batch_size=None, eta=0.0):
+        # [FIX]: Set default eta to 0.0.
+        # Variance should come from the high-beta diffusion process, not random noise injection.
 
         if not save_path.endswith('.parquet'):
             base = os.path.splitext(save_path)[0]
@@ -409,7 +383,7 @@ class TPVMI_RDDM:
                     if modu.__class__.__name__.startswith('Dropout'):
                         modu.train()
             elif self.config["else"]["mi_approx"] == "bootstrap":
-                model_to_use = self.model_list[samp_i-1]
+                model_to_use = self.model_list[samp_i - 1]
                 model_to_use.eval()
             else:
                 model_to_use = self.model_list[0]
@@ -420,20 +394,16 @@ class TPVMI_RDDM:
                 for start in tqdm(range(0, N, eval_bs)):
                     end = min(start + eval_bs, N)
                     B = end - start
-
                     b_p1 = self._global_p1[start:end]
                     b_aux = self._global_aux[start:end]
 
-                    # ... [Initialization & Variable Mapping - Same as before] ...
                     x_t_dict, p1_dict, aux_dict, mask_dict = {}, {}, {}, {}
 
-                    # --- Initialization ---
                     if len(self.num_idxs) > 0:
                         curr_p1_num = b_p1[:, self.num_idxs]
                         init_eps = torch.randn_like(curr_p1_num)
                         start_beta = self.beta_bars[-1]
                         x_T_num = curr_p1_num + start_beta * init_eps
-
                         for k, name in enumerate(self.num_vars):
                             cp1 = curr_p1_num[:, k:k + 1]
                             x_t_dict[name] = x_T_num[:, k:k + 1]
@@ -460,7 +430,6 @@ class TPVMI_RDDM:
                                     aux_dict[var['name']] = curr
                                 aux_c += 1
 
-                    # --- Diffusion Loop (Same as before) ---
                     for t in reversed(range(self.num_steps)):
                         t_b = torch.full((B,), t, device=self.device).long()
                         out = model_to_use(x_t_dict, t_b, p1_dict, aux_dict, mask_dict)
@@ -478,7 +447,12 @@ class TPVMI_RDDM:
                             term_res = (a_t - a_prev) * pred_res
                             valid_root = torch.sqrt(torch.clamp(b_prev ** 2 - sigma_t ** 2, min=0.0))
                             term_eps = (b_t - valid_root) * pred_eps
-                            x_t_dict[name] = x_t_dict[name] - term_res - term_eps + sigma_t * torch.randn_like(pred_eps)
+
+                            noise = torch.randn_like(pred_eps)
+                            x_t_dict[name] = x_t_dict[name] - term_res - term_eps + sigma_t * noise
+
+                            # [FIX] Clamp to remove extreme artifacts from diffusion instability
+                            x_t_dict[name] = torch.clamp(x_t_dict[name], -4.0, 4.0)
 
                         # Categorical Update
                         for k, var in enumerate(self.cat_vars):
@@ -501,7 +475,6 @@ class TPVMI_RDDM:
                             x_next_indices = torch.multinomial(posterior_probs, 1).squeeze(-1)
                             x_t_dict[name] = F.one_hot(x_next_indices, K).float()
 
-                    # Collect Results
                     batch_res = []
                     for var in self.variable_schema:
                         if 'aux' in var['type']: continue
@@ -512,25 +485,17 @@ class TPVMI_RDDM:
                             batch_res.append(x_t_dict[var['name']])
                     all_p2.append(torch.cat(batch_res, dim=1).cpu())
 
-            # Inverse transform and fill NA
             df_p2 = inverse_transform_data(torch.cat(all_p2, dim=0).numpy(), self.norm_stats, self.data_info)
             df_f = self.raw_df.copy()
 
-            # Fill missing values
             for c in df_p2.columns:
                 if c in df_f.columns:
                     df_f[c] = df_f[c].fillna(df_p2[c])
 
-            # [NEW]: Add Imputation ID column for R identification
             df_f.insert(0, "imp_id", samp_i)
             all_imputed_dfs.append(df_f)
 
-        # 4. Stack all imputations and save to Parquet
         final_df = pd.concat(all_imputed_dfs, ignore_index=True)
-
-        # Ensure correct dtypes for Parquet (sometimes object types cause issues)
-        # Convert 'imp_id' to integer explicitly
         final_df['imp_id'] = final_df['imp_id'].astype(int)
-
         final_df.to_parquet(save_path, index=False)
         print(f"Saved stacked imputations to: {save_path} (Shape: {final_df.shape})")

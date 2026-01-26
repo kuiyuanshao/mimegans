@@ -4,7 +4,9 @@
 *.RData
 *.xlsx
 *.pk
-
+*.xml
+*.iml
+*.pyc
 
 # Ignore log files
 *.log

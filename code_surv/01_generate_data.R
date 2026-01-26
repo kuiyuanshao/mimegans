@@ -1070,35 +1070,36 @@ for (i in 1:replicate){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   data <- suppressMessages({generateData(n, seed[i])})
-  
-  # data$HbA1c_c  <- (data$HbA1c - 53) / 15
-  # data$eGFR_c <- (data$eGFR - 60) / 20
-  # data$BMI_c <- (data$BMI - 30) / 5
-  # data$AGE_c <- (data$AGE - 60) / 15
-  # data$SMOKE <- as.character(data$SMOKE)
-  # 
-  # data$HbA1c_STAR_c  <- (data$HbA1c_STAR - 53) / 15
-  # data$eGFR_STAR_c <- (data$eGFR_STAR - 60) / 20
-  # data$BMI_STAR_c <- (data$BMI_STAR - 30) / 5
-  # data$SMOKE_STAR <- as.character(data$SMOKE_STAR)
-  
-  # fit.STAR <- coxph(Surv(T_I_STAR, EVENT_STAR) ~ 
-  #                     poly(HbA1c_STAR_c, 2, raw = TRUE) + eGFR_STAR_c + BMI_STAR_c +
-  #                     rs4506565_STAR + AGE_c + SEX + 
-  #                     INSURANCE + RACE + SMOKE_STAR +
-  #                     HbA1c_STAR_c:AGE_c,
-  #                   data = data)
-  
-  # fit.TRUE <- coxph(Surv(T_I, EVENT) ~ 
-  #                     poly(HbA1c_c, 2, raw = TRUE) + eGFR_c + BMI_c +
-  #                     rs4506565 + AGE_c + SEX + 
-  #                     INSURANCE + RACE + SMOKE +
-  #                     HbA1c_c:AGE_c,
-  #                   data = data)
   save(data, file = paste0("./data/True/", digit, ".RData"))
 }
 
 
+
+
+# data$HbA1c_c  <- (data$HbA1c - 53) / 15
+# data$eGFR_c <- (data$eGFR - 60) / 20
+# data$BMI_c <- (data$BMI - 30) / 5
+# data$AGE_c <- (data$AGE - 60) / 15
+# data$SMOKE <- as.character(data$SMOKE)
+# 
+# data$HbA1c_STAR_c  <- (data$HbA1c_STAR - 53) / 15
+# data$eGFR_STAR_c <- (data$eGFR_STAR - 60) / 20
+# data$BMI_STAR_c <- (data$BMI_STAR - 30) / 5
+# data$SMOKE_STAR <- as.character(data$SMOKE_STAR)
+
+# fit.STAR <- coxph(Surv(T_I_STAR, EVENT_STAR) ~ 
+#                     poly(HbA1c_STAR_c, 2, raw = TRUE) + eGFR_STAR_c + BMI_STAR_c +
+#                     rs4506565_STAR + AGE_c + SEX + 
+#                     INSURANCE + RACE + SMOKE_STAR +
+#                     HbA1c_STAR_c:AGE_c,
+#                   data = data)
+
+# fit.TRUE <- coxph(Surv(T_I, EVENT) ~ 
+#                     poly(HbA1c_c, 2, raw = TRUE) + eGFR_c + BMI_c +
+#                     rs4506565 + AGE_c + SEX + 
+#                     INSURANCE + RACE + SMOKE +
+#                     HbA1c_c:AGE_c,
+#                   data = data)
 
 
 

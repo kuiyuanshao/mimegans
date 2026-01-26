@@ -98,7 +98,7 @@ if (file.exists("./data/data_sampling_seed.RData")){
 for (i in 1:replicate){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
-  load(paste0("./data/Complete/", digit, ".RData"))
+  load(paste0("./data/True/", digit, ".RData"))
   samp_result <- generateSample(data, 0.05, seed[i])
   write.csv(samp_result$samp_srs, 
             file = paste0("./data/Sample/SRS/", digit, ".csv"))

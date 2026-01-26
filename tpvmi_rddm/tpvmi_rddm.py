@@ -124,7 +124,10 @@ class TPVMI_RDDM:
         self.num_steps = config["diffusion"]["num_steps"]
 
         # Schedules
-        self.alpha_bars = self._get_cosine_schedule(self.num_steps).to(self.device)
+        if config["diffusion"]["schedule"] == "linear":
+            self.alpha_bars = torch.linspace(1, 0, self.num_steps).to(self.device)
+        elif config["diffusion"]["schedule"] == "cosine":
+            self.alpha_bars = self._get_cosine_schedule(self.num_steps).to(self.device)
 
         # Config respects user YAML (0.0001 -> 0.01)
         beta_start = config["diffusion"].get("beta_start", 0.0001)
@@ -367,7 +370,7 @@ class TPVMI_RDDM:
 
         return loss_total
 
-    def impute(self, m=None, save_path="imputed_results.parquet", batch_size=None, eta=1):
+    def impute(self, m=None, save_path="imputed_results.parquet", batch_size=None, eta=0):
         """
         Impute using Full SWAG Sampling and save to Parquet (Stacked format).
         """

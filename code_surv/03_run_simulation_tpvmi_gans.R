@@ -31,8 +31,8 @@ if(!dir.exists('./simulations/Neyman/tpvmi_gans')){dir.create('./simulations/Ney
 
 do_tpvmi_gans <- function(samp, info, nm, digit) {
   tm <- system.time({
-    tpvmi_gans_imp <- tpvmi_gans(samp, m = 5, epochs = 10000,
-                                 data_info = info, device = "cpu")
+    tpvmi_gans_imp <- tpvmi_gans(samp, m = 20, epochs = 2000,
+                                 data_info = info, params = list(mi_approx = "bootstrap"), device = "cpu")
   })
   tpvmi_gans_imp$imputation <- lapply(tpvmi_gans_imp$imputation, function(dat){
     match_types(dat, data)

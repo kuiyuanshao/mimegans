@@ -145,22 +145,65 @@ gradientPenalty <- function(D, real_samples, fake_samples, params, device, ones_
   return (gradient_penalty)
 }
 
-lossCalc <- function(gen, true, info, inds){
-  rmse_num <- 0; mis_cat <- 0
-  num_vars <- info$phase2_vars[info$phase2_vars %in% info$num_vars]
-  cat_vars <- info$phase2_vars[info$phase2_vars %in% info$cat_vars]
+create_data_loaders <- function(data_original, data_encode, data_info, params, 
+                                phase1_rows, phase2_rows, p1set, p2set, 
+                                p1b_t, p2b_t, epochs) {
   
-  if (length(num_vars) > 0) {
-    diff_sq <- (gen$gsample[[1]][inds, num_vars, drop = FALSE] - true[inds, num_vars, drop = FALSE])^2
-    rmse_num <- sum(sqrt(colMeans(diff_sq, na.rm = TRUE)))
-  }
+  p1loader <- NULL
+  p2loader <- NULL
+  Dloader  <- NULL
+  phase1_bins <- character(0)
   
-  n_inds <- sum(inds)
-  if (length(cat_vars) > 0 && n_inds > 0) {
-    for (i in cat_vars){
-      mis_num <- sum(gen$gsample[[1]][[i]][inds] != true[[i]][inds])
-      mis_cat <- mis_cat + mis_num / n_inds
+  # Logic for Balanced Sampling strategy
+  if (params$balancebatch) {
+    # Identify categorical variables present in phase 1 but not in phase 2 for balancing
+    p1_exclusive_vars <- data_info$cat_vars[!(data_info$cat_vars %in% data_info$phase2_vars)]
+    
+    if (length(p1_exclusive_vars) > 0) {
+      # Filter for variables that have more than one level in both subsets to avoid sampler collapse
+      phase1_bins <- p1_exclusive_vars[sapply(p1_exclusive_vars, function(col) {
+        length(unique(data_original[phase1_rows, col])) > 1 && 
+          length(unique(data_original[phase2_rows, col])) > 1
+      })]
     }
+    
+    # Initialize Balanced Samplers
+    if (p1b_t > 0) {
+      p1sampler <- BalancedSampler(data_original[phase1_rows, ], phase1_bins, p1b_t, epochs)
+      p1loader <- dataloader(p1set, sampler = p1sampler, pin_memory = TRUE,
+                             collate_fn = function(bl) bl[[1]])
+    }
+    
+    p2sampler <- BalancedSampler(data_original[phase2_rows, ], phase1_bins, p2b_t, epochs)
+    p2loader <- dataloader(p2set, sampler = p2sampler, pin_memory = TRUE,
+                           collate_fn = function(bl) bl[[1]])
+    
+    # Discriminator loader typically uses the full batch size on the most informative set (phase 2)
+    D_sampler <- BalancedSampler(data_original[phase2_rows, ], phase1_bins, params$batch_size, epochs)
+    Dloader <- dataloader(p2set, sampler = D_sampler, pin_memory = TRUE,
+                          collate_fn = function(bl) bl[[1]])
+    
+  } else {
+    # Fallback to Simple Random Sampling (SRS)
+    if (p1b_t > 0) {
+      p1sampler <- SRSSampler(length(phase1_rows), p1b_t, epochs)
+      p1loader <- dataloader(p1set, sampler = p1sampler, pin_memory = TRUE,
+                             collate_fn = function(bl) bl[[1]])
+    }
+    
+    p2sampler <- SRSSampler(length(phase2_rows), p2b_t, epochs)
+    p2loader <- dataloader(p2set, sampler = p2sampler, pin_memory = TRUE,
+                           collate_fn = function(bl) bl[[1]])
+    
+    D_sampler <- SRSSampler(length(phase2_rows), params$batch_size, epochs)
+    Dloader <- dataloader(p2set, sampler = D_sampler, pin_memory = TRUE,
+                          collate_fn = function(bl) bl[[1]])
   }
-  return (c(rmse_num, mis_cat))
+  
+  return(list(
+    p1loader = p1loader,
+    p2loader = p2loader,
+    Dloader = Dloader,
+    phase1_bins = phase1_bins
+  ))
 }

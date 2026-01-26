@@ -11,7 +11,6 @@ as.mids <- function(imp_list){
   return (imp_mids)
 }
 
-
 exactAllocation <- function(data, stratum_variable, target_variable, sample_size){
   strata_units <- as.data.frame(table(data[[stratum_variable]]))
   colnames(strata_units) <- c(stratum_variable, "count")
@@ -22,7 +21,7 @@ exactAllocation <- function(data, stratum_variable, target_variable, sample_size
     logical = "as.logical",
     factor = "as.factor"
   )
-  strata_units[, 1] <-  do.call(conversion_functions[[class(data[[stratum_variable]])[1]]], list(strata_units[, 1]))
+  strata_units[, 1] <- do.call(conversion_functions[[class(data[[stratum_variable]])[1]]], list(strata_units[, 1]))
   
   data <- merge(data, strata_units, by = stratum_variable)
   Y_bars <- aggregate(as.formula(paste0(target_variable, " ~ ", stratum_variable)), data = data, FUN = function(x) sum(x) / length(x))

@@ -25,6 +25,7 @@
 # Ignore temporary files
 *.tmp
 *.bak
+*.parquet
 
 
 !covarInfo.RData

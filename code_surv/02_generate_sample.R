@@ -17,11 +17,11 @@ generateSample <- function(data, proportion, seed){
                   W = 1,
                   across(all_of(p2vars), ~ ifelse(R == 0, NA, .)))
   # Balanced Sampling
-  egfr_cut <- as.numeric(cut(data$eGFR_STAR, breaks = c(-Inf, 45, 90, Inf), 
-                             labels = 1:3))
-  hba1c_cut <- as.numeric(cut(data$HbA1c_STAR, breaks = c(-Inf, 45, 75, Inf), 
+  time_cut <- as.numeric(cut(data$T_I_STAR, breaks = c(-Inf, 2, 10, 18, 26, Inf), 
+                             labels = 1:5))
+  hba1c_cut <- as.numeric(cut(data$HbA1c_STAR, breaks = c(-Inf, 60, 80, Inf), 
                    labels = 1:3))
-  strata <- interaction(data$EVENT_STAR, egfr_cut, hba1c_cut, drop = TRUE)
+  strata <- interaction(data$EVENT_STAR, time_cut, hba1c_cut, drop = TRUE)
   data$STRATA <- strata
   k <- nlevels(strata)
   per_strat <- floor(n_phase2 / k)

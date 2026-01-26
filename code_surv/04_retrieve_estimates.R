@@ -202,3 +202,12 @@ ggplot(data) +
   geom_density(aes(x = BMI), colour = "red") +
   geom_density(data = multi_impset[[1]], aes(x = BMI), colour = "blue")
 
+ggplot(data) + 
+  geom_point(aes(x = BMI, y = T_I), colour = "red") +
+  geom_point(data = multi_impset[[1]], aes(x = BMI, y = T_I), colour = "blue")
+
+samp <- read.csv(paste0("./data/Sample/SRS/", digit, ".csv"))
+plot(multi_impset[[1]]$T_I, data$T_I)
+
+plot(data$T_I, data$T_I_STAR)
+

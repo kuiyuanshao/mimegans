@@ -15,7 +15,7 @@ diffusion:
   diffusion_embedding_dim: 128
   beta_start: 0.0001
   beta_end: 0.1
-  num_steps: 50
+  num_steps: 20
   schedule: "linear"
 
 # ==========================================
@@ -25,7 +25,7 @@ model:
   featureemb: 64
   channels: 128
   nheads: 4
-  layers: 5
+  layers: 3
   dropout: 0.05 # if dropout is enabled, more epochs are required.
 # ==========================================
 # Testing / Imputation

@@ -41,3 +41,5 @@
 !mixgb_balanceParams.RData
 !mixgb_neymanParams.RData
 !mixgb_srsParams.RData
+/tpvmi_rddm/__pycache__
+*.pyc

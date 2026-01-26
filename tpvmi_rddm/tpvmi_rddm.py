@@ -357,7 +357,7 @@ class TPVMI_RDDM:
 
         if len(self.num_vars) > 0:
             pred_stack = torch.stack([model_out[name] for name in self.num_vars], dim=1)
-            loss_total += (10 * F.mse_loss(pred_stack[:, :, 0], true_residual) +
+            loss_total += (F.mse_loss(pred_stack[:, :, 0], true_residual) +
                            F.mse_loss(pred_stack[:, :, 1], eps))
 
         if len(self.cat_vars) > 0:
@@ -366,11 +366,11 @@ class TPVMI_RDDM:
 
                 is_absorbed = ~mask[:, i]
                 masked_loss = ce_loss * is_absorbed.float()
-                loss_total += 10 * (masked_loss.sum() / (is_absorbed.sum() + 1e-6))
+                loss_total += (masked_loss.sum() / (is_absorbed.sum() + 1e-6))
 
         return loss_total
 
-    def impute(self, m=None, save_path="imputed_results.parquet", batch_size=None, eta=0):
+    def impute(self, m=None, save_path="imputed_results.parquet", batch_size=None, eta=1):
         """
         Impute using Full SWAG Sampling and save to Parquet (Stacked format).
         """

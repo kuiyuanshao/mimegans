@@ -42,14 +42,13 @@ generator.mlp <- nn_module(
   },
   forward = function(N, A, C, ...){
     cond <- torch_cat(list(A, C), dim = 2)
-    cond <- self$cond_encoder(cond)
+    cond <- self$cond_encoder(self$dropout(cond))
     if (self$params$g_dropout > 0){
       cond <- self$dropout(cond)
     }
     input <- torch_cat(list(N, cond), dim = 2)
     X_fake <- self$seq(input)
     
-    # X_fake[, self$params$cat_inds] <- X_fake[, self$params$cat_inds] + 5 * A[, self$params$cat_inds]
     return (X_fake)
   }
 )

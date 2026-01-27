@@ -134,8 +134,6 @@ generateData <- function(n, seed){
   is_acute <- (runif(n) < prob_acute)
   
   # 3. LINEAR PREDICTOR (Hazard Strength)
-  # - Only ONE Quadratic term (HbA1c)
-  # - Boosted SMOKE/RACE coefficients to prevent non-significance
   
   # RACE Effect Vector
   # EUR=0, AFR=0.3, AMR=0.1, SAS=0.4, EAS=0.2
@@ -186,290 +184,276 @@ generateData <- function(n, seed){
 add_measurement_errors <- function(data) {
   n <- nrow(data)
   
-  # --- Helper for Categorical Sampling ---
-  vectorized_choice <- function(prob_matrix) {
-    cum_probs <- t(apply(prob_matrix, 1, cumsum))
-    rowSums(runif(nrow(prob_matrix)) > cum_probs) + 1
+  # ============================================================================
+  # 0. HELPER FUNCTIONS
+  # ============================================================================
+  
+  # Linear Measurement Error Model: W = a0 + a1*X + a2*Z1 + ... + e
+  apply_linear_error <- function(true_vec, 
+                                 slope = 1.0, 
+                                 intercept = 0.0, 
+                                 z_list = NULL,    
+                                 z_coeffs = NULL,  
+                                 noise_sd = 0.1) {
+    
+    # 1. Base Transformation
+    val <- intercept + slope * true_vec
+    
+    # 2. Add Systematic Covariate Bias (Z effects)
+    if (!is.null(z_list) && !is.null(z_coeffs)) {
+      if (length(z_list) != length(z_coeffs)) stop("Mismatch in Z variables and coefficients")
+      
+      for (i in 1:length(z_list)) {
+        covariate <- as.numeric(z_list[[i]])
+        cov_centered <- covariate - mean(covariate, na.rm = TRUE)
+        val <- val + z_coeffs[i] * cov_centered
+      }
+    }
+    
+    # 3. Add Random Noise
+    val <- val + rnorm(length(true_vec), mean = 0, sd = noise_sd)
+    
+    # Sanity check
+    return(pmax(0.1, val))
+  }
+  
+  # Categorical Misclassification (Vectorized)
+  apply_cat_error <- function(true_vec, levels_vec, z_list = NULL, z_coeffs = NULL, base_accuracy = 0.85) {
+    n_obs <- length(true_vec)
+    logits <- rep(qlogis(base_accuracy), n_obs)
+    
+    if (!is.null(z_list) && !is.null(z_coeffs)) {
+      for (i in 1:length(z_list)) {
+        covariate <- as.numeric(z_list[[i]])
+        cov_scaled <- as.vector(scale(covariate))
+        logits <- logits + z_coeffs[i] * cov_scaled
+      }
+    }
+    
+    p_correct <- plogis(logits)
+    res <- true_vec
+    is_error <- runif(n_obs) > p_correct
+    
+    if (sum(is_error) > 0) {
+      error_indices <- which(is_error)
+      for (idx in error_indices) {
+        curr_val <- true_vec[idx]
+        candidates <- levels_vec[levels_vec != curr_val]
+        if (length(candidates) == 1) {
+          res[idx] <- candidates
+        } else {
+          res[idx] <- sample(candidates, 1)
+        }
+      }
+    }
+    return(res)
   }
   
   # ============================================================================
-  # 1. SURVIVAL & EVENT (Aggressive Misclassification & Delay)
+  # 1. DIABETES VARIABLES (Self-Reported -> High Bias & Noise)
   # ============================================================================
   
-  # A. Censoring (Ghost Follow-up)
-  # Base log-odds increased to -0.5 to create more ghosts (patients lost but not recorded)
-  prob_ghost <- plogis(-0.5 - 0.02 * (data$AGE - 50) - 0.8 * as.numeric(data$INSURANCE))
-  is_ghost <- (data$C < 36.0) & (runif(n) < prob_ghost)
+  # HbA1c: Critical variable. 
+  # - Slope 0.75: Massive regression to mean (typical of poor self-recall).
+  # - Noise 6.0: ~10-15% precision error.
+  # - Strong Bias from Education (-0.8) and Age.
+  data$HbA1c_STAR <- apply_linear_error(data$HbA1c, 
+                                        slope = 0.75, intercept = 5.0,
+                                        z_list = list(data$EDU, data$AGE),
+                                        z_coeffs = c(-0.8, 0.2), 
+                                        noise_sd = 6.0)
   
-  data$C_STAR <- data$C + rnorm(n, 0, 0.2)
-  data$C_STAR[is_ghost] <- 36.0 + rnorm(sum(is_ghost), 0, 0.2) 
-  data$C_STAR <- pmax(0.1, data$C_STAR)
+  # Glucose: 
+  # - Slope 0.70: Finger-stick vs Venous plasma diff.
+  # - Noise 20.0: Huge variability.
+  data$Glucose_STAR <- apply_linear_error(data$Glucose, 
+                                          slope = 0.70, intercept = 15.0,
+                                          z_list = list(data$INSURANCE, data$BMI),
+                                          z_coeffs = c(-8.0, 0.8),
+                                          noise_sd = 20.0)
   
-  # B. Latent Event Time (Administrative Delay)
-  # Rate modifier adjusted so delay is longer and more variable
-  rate_mod <- 2.0 * (1 + 0.5 * as.numeric(data$INSURANCE)) 
-  t_latent <- data$T_I + rgamma(n, shape = 3.0, rate = rate_mod) 
+  # Fasting Glucose
+  data$F_Glucose_STAR <- apply_linear_error(data$F_Glucose, slope = 0.80, noise_sd = 10.0)
   
-  # C. Observed Outcomes (Lower Sensitivity / Specificity)
-  data$EVENT_STAR <- 0 
-  data$T_I_STAR <- data$C_STAR
+  # Insulin
+  data$Insulin_STAR <- apply_linear_error(data$Insulin, 
+                                          slope = 0.70, 
+                                          z_list = list(data$BMI), 
+                                          z_coeffs = c(3.0), 
+                                          noise_sd = 15.0)
   
-  # Sensitivity: Urban effect stronger, base lower (harder to capture events)
-  sens_prob <- plogis(1.5 + 0.5 * as.numeric(data$URBAN)) 
-  captured <- (runif(n) < sens_prob)
+  # ============================================================================
+  # 2. BIOMETRICS (Strong Vanity Bias)
+  # ============================================================================
   
-  valid <- (data$EVENT == 1) & captured & (t_latent <= data$C_STAR)
-  data$EVENT_STAR[valid] <- 1
-  data$T_I_STAR[valid] <- t_latent[valid]
+  # Weight: 
+  # - Slope 0.90: Heavier people under-report proportionately more.
+  # - BMI Bias (-1.5): Direct systematic bias linked to obesity.
+  # - Noise 5.0: Significant random error.
+  TRUE_WEIGHT <- data$BMI * (data$HEIGHT / 100)^2
+  data$WEIGHT_STAR <- apply_linear_error(TRUE_WEIGHT, 
+                                         slope = 0.90, intercept = -3.0,
+                                         z_list = list(data$BMI, data$SEX),
+                                         z_coeffs = c(-1.5, 2.5), 
+                                         noise_sd = 5.0)
   
-  # False Positives: Specificity reduced to 0.98 (2% random spurious events)
-  false_alarm <- (data$EVENT == 0) & (runif(n) > 0.98)
-  fp_idx <- which(false_alarm)
-  if(length(fp_idx) > 0){
-    data$EVENT_STAR[fp_idx] <- 1
-    data$T_I_STAR[fp_idx] <- runif(length(fp_idx), 0, data$C_STAR[fp_idx])
+  # Height:
+  # - Slope 1.05: People generally think they are taller.
+  # - Noise 3.0 cm.
+  data$HEIGHT_STAR <- apply_linear_error(data$HEIGHT, 
+                                         slope = 1.05, intercept = 2.0,
+                                         z_list = list(data$AGE, data$SEX),
+                                         z_coeffs = c(0.2, 2.0),
+                                         noise_sd = 3.0)
+  
+  # Recalculate BMI_STAR
+  data$BMI_STAR <- data$WEIGHT_STAR / (data$HEIGHT_STAR / 100)^2
+  
+  # ============================================================================
+  # 3. NUTRIENTS (FFQ - Extreme Measurement Error)
+  # ============================================================================
+  # Nutrients often have correlations of < 0.5 with truth.
+  nutrient_list <- c("Na_INTAKE", "K_INTAKE", "KCAL_INTAKE", "PROTEIN_INTAKE")
+  for(v in nutrient_list) {
+    sd_val <- sd(data[[v]], na.rm=TRUE)
+    data[[paste0(v, "_STAR")]] <- apply_linear_error(data[[v]], 
+                                                     slope = 0.50, # Extreme attenuation
+                                                     z_list = list(data$BMI),
+                                                     z_coeffs = c(-0.8 * sd_val), # Heavy BMI bias
+                                                     noise_sd = sd_val * 0.8) # Noise nearly equal to signal
   }
   
   # ============================================================================
-  # 2. RENAL (Noisier Creatinine & eGFR)
+  # 4. SOLID LAB TESTS (Analytical Error)
   # ============================================================================
-  # Increased protein effect (0.15) and analytical noise (0.15)
-  prot_eff <- 0.15 * pmax(0, data$PROTEIN_INTAKE)
-  gluc_int <- ifelse(data$Glucose > 15, 0.10, 0.0)
-  noise <- rnorm(n, 0, 0.15) 
   
-  data$Creatinine_STAR <- round(data$Creatinine * exp(prot_eff + gluc_int + noise), 0)
+  # Renal: Increased to ~20% error (hydration status, lab calibration)
+  renal_vars <- c("Creatinine", "Urea", "Potassium", "Sodium", "Chloride", 
+                  "Bicarbonate", "Calcium", "Magnesium", "Phosphate")
+  for(v in renal_vars) {
+    sd_val <- sd(data[[v]], na.rm=TRUE)
+    data[[paste0(v, "_STAR")]] <- apply_linear_error(data[[v]], slope = 1.0, noise_sd = sd_val * 0.20)
+  }
   
-  # Recalculate eGFR
+  # Recalculate eGFR (using much noisier Creatinine)
   scr <- data$Creatinine_STAR / 88.4
-  k <- ifelse(data$SEX, 0.9, 0.7); alpha <- ifelse(data$SEX, -0.411, -0.329)
+  k <- ifelse(data$SEX, 0.9, 0.7)
+  alpha <- ifelse(data$SEX, -0.411, -0.329)
   sex_f <- ifelse(data$SEX, 1.0, 1.018)
   data$eGFR_STAR <- 141 * (pmin(scr/k, 1)^alpha) * (pmax(scr/k, 1)^-1.209) * (0.993^data$AGE) * sex_f
   data$eGFR_STAR <- pmin(round(data$eGFR_STAR, 0), 140)
   
-  # ============================================================================
-  # 3. DIABETES (Stronger HbA1c Bias)
-  # ============================================================================
-  # HbA1c: "Optimism Bias" slope increased to -0.40
-  bias_a1c <- -0.40 * pmax(0, data$HbA1c - 55) 
-  sigma_a1c <- exp(log(5.0) + 0.01*(data$AGE-50) - 0.1*(data$EDU-14)) 
-  data$HbA1c_STAR <- round(data$HbA1c + bias_a1c + rnorm(n, 0, sigma_a1c), 0)
-  
-  # Glucose: Higher volatility
-  sigma_fg <- 1.0 * (1 + 0.05*(data$BMI-25)) 
-  data$F_Glucose_STAR <- pmax(3.0, round(data$F_Glucose + 0.5 + rt(n, 4)*sigma_fg, 1))
-  data$Glucose_STAR <- pmax(3.0, round(data$Glucose + rnorm(n, 0, 3.0), 1))
-  data$Insulin_STAR <- round(data$Insulin * exp(rnorm(n, 0, 0.25)), 1)
-  
-  # ============================================================================
-  # 4. BIOMETRICS (Stronger Vanity Bias)
-  # ============================================================================
-  # Weight: Under-reporting slope -0.5 kg per kg over 75
-  TRUE_WEIGHT <- data$BMI * (data$HEIGHT / 100)^2
-  bias_w <- -0.5 * pmax(0, TRUE_WEIGHT - 75)
-  WEIGHT_STAR <- TRUE_WEIGHT + bias_w + rnorm(n, 0, 3.0)
-  
-  # Height: Over-reporting (Men +2.5cm)
-  bias_h <- ifelse(data$SEX, 2.5, 1.0) + 0.1 * pmax(0, data$AGE - 50)
-  data$HEIGHT_STAR <- round(data$HEIGHT + bias_h + rnorm(n, 0, 2.0), 0)
-  
-  data$BMI_STAR <- round(WEIGHT_STAR / (data$HEIGHT_STAR / 100)^2, 1)
-  
-  # SBP: Stronger White Coat + Cuff Error
-  white_coat <- pmax(0, 5.0 + 0.2 * (data$AGE - 50))
-  cuff_error <- rep(0, n)
-  obese_idx <- which(data$BMI > 30)
-  if(length(obese_idx) > 0) {
-    bad_cuff <- sample(obese_idx, size = 0.4 * length(obese_idx)) # 40% wrong cuff
-    cuff_error[bad_cuff] <- 8.0 + 0.6 * (data$BMI[bad_cuff] - 30)
+  # Liver & Hematology: ~15-20% Error
+  liver_vars <- c("AST", "ALT", "ALP", "GGT", "Bilirubin", "Albumin", "Globulin", "Protein")
+  for(v in liver_vars) {
+    sd_val <- sd(data[[v]], na.rm=TRUE)
+    data[[paste0(v, "_STAR")]] <- apply_linear_error(data[[v]], slope = 1.0, noise_sd = sd_val * 0.20)
   }
-  data$SBP_STAR <- round(data$SBP + white_coat + cuff_error + rnorm(n, 0, 10), 0)
+  hema_vars <- c("Hb", "HCT", "RBC", "WBC", "Platelet", "MCV", "RDW", 
+                 "Neutrophils", "Lymphocytes", "Monocytes", "Eosinophils", "Basophils", "Ferritin")
+  for(v in hema_vars) {
+    sd_val <- sd(data[[v]], na.rm=TRUE)
+    data[[paste0(v, "_STAR")]] <- apply_linear_error(data[[v]], slope = 1.0, noise_sd = sd_val * 0.15)
+  }
   
-  # Lipids: Non-fasting artifact
-  gluc_diff <- (data$F_Glucose_STAR - data$F_Glucose) 
-  non_fasting <- (gluc_diff > 2.0)
-  tg_bias <- rep(0, n); tg_bias[non_fasting] <- 0.6 * data$Triglyceride[non_fasting]
-  data$Triglyceride_STAR <- round(data$Triglyceride + tg_bias + rnorm(n, 0, 0.3), 1)
-  
-  ldl_err <- -(data$Triglyceride_STAR - data$Triglyceride) / 2.2
-  data$LDL_STAR <- round(data$LDL + ldl_err + rnorm(n, 0, 0.2), 1)
+  # Lipids: Triglycerides (30% error), others 15%
+  data$Triglyceride_STAR <- apply_linear_error(data$Triglyceride, slope = 1.0, noise_sd = sd(data$Triglyceride)*0.30)
+  data$LDL_STAR <- apply_linear_error(data$LDL, slope = 1.0, noise_sd = sd(data$LDL)*0.15)
+  data$HDL_STAR <- apply_linear_error(data$HDL, slope = 1.0, noise_sd = sd(data$HDL)*0.15)
   
   # ============================================================================
-  # 5. NUTRIENTS (High Reporting Error)
+  # 5. VITALS (Instrumental Error)
   # ============================================================================
-  log_RR <- -0.20 - 0.02*(data$BMI - 25) + rnorm(n, 0, 0.35)
-  RR <- exp(log_RR)
   
-  data$KCAL_INTAKE_STAR <- round(data$KCAL_INTAKE * RR, 0)
-  data$PROTEIN_INTAKE_STAR <- round(data$PROTEIN_INTAKE * RR * exp(rnorm(n, 0, 0.15)), 1)
-  data$Na_INTAKE_STAR <- round(data$Na_INTAKE * RR * exp(rnorm(n, 0, 0.5)), 0)
-  data$K_INTAKE_STAR <- round(data$K_INTAKE * RR * exp(rnorm(n, 0, 0.4)), 0)
+  # SBP: White coat bias + high cuff variability (SD 15)
+  data$SBP_STAR <- apply_linear_error(data$SBP, 
+                                      slope = 1.0, 
+                                      intercept = 8.0, 
+                                      z_list = list(data$AGE),
+                                      z_coeffs = c(0.2),
+                                      noise_sd = 15.0)
+  
+  data$HR_STAR <- apply_linear_error(data$HR, slope = 1.0, noise_sd = 8.0)
+  data$SpO2_STAR <- apply_linear_error(data$SpO2, slope = 1.0, noise_sd = 3.0)
+  data$Temperature_STAR <- apply_linear_error(data$Temperature, slope = 1.0, noise_sd = 0.5)
   
   # ============================================================================
-  # 6. CATEGORICAL (High Misclassification)
+  # 6. CATEGORICAL VARIABLES (Strong Misclassification)
   # ============================================================================
-  data$SMOKE <- as.integer(data$SMOKE); data$ALC <- as.integer(data$ALC)
-  data$EXER <- as.integer(data$EXER); data$INCOME <- as.integer(data$INCOME)
   
-  # SMOKE: High denial rate
-  P_S <- matrix(0, n, 3)
-  idx <- which(data$SMOKE==1); if(length(idx)>0) { 
-    p <- pmin(0.40 + 0.05*(data$EDU[idx]-14), 0.9) 
-    P_S[idx,] <- cbind(1-p, p*0.6, p*0.4) 
-  }
-  idx <- which(data$SMOKE==2); if(length(idx)>0) {
-    p <- 0.2 
-    P_S[idx,] <- cbind(0.05, 1-p, p)
-  }
-  idx <- which(data$SMOKE==3); if(length(idx)>0) P_S[idx,] <- rep(c(0.02,0.05,0.93), each=length(idx))
-  data$SMOKE_STAR <- vectorized_choice(P_S)
+  # Smoke: Accuracy reduced to 70%
+  data$SMOKE_STAR <- apply_cat_error(data$SMOKE, sort(unique(data$SMOKE)), 
+                                     z_list = list(data$EDU), z_coeffs = c(0.3), base_accuracy = 0.70)
   
-  # ALC: High denial rate
-  P_A <- matrix(0, n, 3)
-  idx <- which(data$ALC==1); if(length(idx)>0) P_A[idx,] <- rep(c(0.85,0.1,0.05), each=length(idx))
-  idx <- which(data$ALC==2); if(length(idx)>0) P_A[idx,] <- rep(c(0.15,0.85,0.0), each=length(idx))
-  idx <- which(data$ALC==3); if(length(idx)>0) {
-    p <- 0.5 
-    P_A[idx,] <- cbind(p, 0.05, 1-p-0.05)
-  }
-  data$ALC_STAR <- vectorized_choice(P_A)
+  data$ALC_STAR <- apply_cat_error(data$ALC, sort(unique(data$ALC)), 
+                                   z_list = list(data$AGE), z_coeffs = c(0.2), base_accuracy = 0.75)
   
-  # EXER: Wishful thinking (Low -> Normal)
-  P_E <- matrix(0, n, 3)
-  idx <- which(data$EXER==1); if(length(idx)>0) P_E[idx,] <- rep(c(0.8,0.1,0.1), each=length(idx))
-  idx <- which(data$EXER==2); if(length(idx)>0) {
-    p <- 0.4 # 40% of low exercise report normal
-    P_E[idx,] <- cbind(p, 1-p, 0.0)
-  }
-  idx <- which(data$EXER==3); if(length(idx)>0) P_E[idx,] <- rep(c(0.2,0.0,0.8), each=length(idx))
-  data$EXER_STAR <- vectorized_choice(P_E)
+  data$EXER_STAR <- apply_cat_error(data$EXER, sort(unique(data$EXER)), 
+                                    z_list = list(data$BMI), z_coeffs = c(-0.4), base_accuracy = 0.65)
   
-  # INCOME: Bias based on Edu mismatch
-  P_I <- matrix(0, n, 5)
-  for(k in 1:5){
-    idx <- which(data$INCOME == k); if(length(idx)==0) next
-    row_p <- rep(0, 5); row_p[k] <- 0.7 # Base accuracy reduced to 70%
-    if(k>1) row_p[k-1] <- 0.15; if(k<5) row_p[k+1] <- 0.15
-    mat_p <- matrix(rep(row_p, length(idx)), nrow=length(idx), byrow=T)
-    if(k==1) { sub <- which(data$EDU[idx]>16); mat_p[sub, 1:2] <- c(0.4, 0.6) }
-    if(k==5) { sub <- which(data$EDU[idx]<12); mat_p[sub, 4:5] <- c(0.3, 0.7) }
-    P_I[idx,] <- mat_p / rowSums(mat_p)
-  }
-  data$INCOME_STAR <- vectorized_choice(P_I)
+  data$INCOME_STAR <- apply_cat_error(data$INCOME, sort(unique(data$INCOME)), 
+                                      z_list = list(data$EDU), z_coeffs = c(0.4), base_accuracy = 0.60)
   
-  # EDU: Credentialism + Age Noise
-  bias_edu <- ifelse(data$INCOME >= 4 & data$EDU < 12, 2.0, 0.0) # +2 years bias
-  sigma_edu <- ifelse(data$AGE > 60, 2.0, 1.0)
-  data$EDU_STAR <- round(data$EDU + bias_edu + rnorm(n, 0, sigma_edu), 0)
+  data$EDU_STAR <- round(apply_linear_error(data$EDU, slope = 1.0, z_list = list(data$INCOME), z_coeffs = c(0.3), noise_sd = 2.0))
   data$EDU_STAR <- pmax(0, data$EDU_STAR)
   
+  geno_cols <- grep("^rs", names(data), value = TRUE)
+  geno_cols <- geno_cols[!grepl("_STAR$", geno_cols)]
+  for (g in geno_cols) {
+    data[[paste0(g, "_STAR")]] <- apply_cat_error(data[[g]], levels_vec = 0:2, base_accuracy = 0.98)
+  }
+  
+  # ============================================================================
+  # 7. TIME-TO-EVENT (Misspecification Logic - MisspecificationSimulation.R)
+  # ============================================================================
+  
+  # A. Censoring Time Error (Visit Process)
+  # Observed Censoring (C_STAR) loosely correlated with True
+  data$C_STAR <- pmax(0.1, data$C + rnorm(n, mean = 0, sd = 1.0))
+  
+  # B. Event Classification (Status Error)
+  # Sensitivity (P(Event_STAR=1 | Event=1)): Reduced to ~75-85%
+  # Depends heavily on Urban (Access) and Insurance
+  sens_logits <- 1.0 + 
+    0.6 * as.numeric(data$URBAN) + 
+    0.5 * as.numeric(data$INSURANCE) - 
+    0.02 * (data$AGE - 50)
+  prob_sens <- plogis(sens_logits) 
+  
+  # Specificity: 98% (2% false positives)
+  prob_spec <- 0.98 
+  
+  # Generate Observed Status
+  data$EVENT_STAR <- ifelse(data$EVENT == 1, 
+                            rbinom(n, 1, prob_sens),      # True Positives
+                            rbinom(n, 1, 1 - prob_spec))  # False Positives
+  
+  # C. Time Assignment
+  data$T_I_STAR <- data$T_I # Initialize
+  
+  # Scenario 1: True Positive (Hit) -> True Time + Delay
+  hits <- which(data$EVENT == 1 & data$EVENT_STAR == 1)
+  delay <- rgamma(length(hits), shape = 2, rate = 0.3) # Longer delay (mean ~6 months)
+  data$T_I_STAR[hits] <- data$T_I[hits] + delay
+  
+  # Scenario 2: False Positive (Spurious) -> Random Time
+  false_pos <- which(data$EVENT == 0 & data$EVENT_STAR == 1)
+  data$T_I_STAR[false_pos] <- runif(length(false_pos), 0, data$C_STAR[false_pos])
+  
+  # Scenario 3: False Negative (The "Ghost" Case) 
+  # Missed event -> Censored at C_STAR. 
+  # This creates the "Ghost" censoring pattern (Low True Time, High Obs Time).
+  false_neg <- which(data$EVENT == 1 & data$EVENT_STAR == 0)
+  data$T_I_STAR[false_neg] <- data$C_STAR[false_neg]
+  
+  # Scenario 4: True Negative -> Censored at C_STAR
+  true_neg <- which(data$EVENT == 0 & data$EVENT_STAR == 0)
+  data$T_I_STAR[true_neg] <- data$C_STAR[true_neg]
+  
+  # Final Cap
+  data$T_I_STAR <- pmin(data$T_I_STAR, 40.0)
+  
   return(data)
-}
-
-loadGenotypeInfo <- function(){
-  rsids <- data.frame(refsnp_id = c("rs10811661", "rs7756992", "rs11708067", "rs17036101", "rs17584499",
-                                    "rs1111875", "rs4402960", "rs4607103", "rs7754840", "rs9300039",
-                                    "rs5015480", "rs9465871", "rs4506565", "rs5219", "rs358806"),
-                      chr = c(9, 6, 3, 3, 9, 
-                              10, 3, 3, 6, 11,
-                              10, 6, 10, 11, 3))
-  unique_chrs <- unique(rsids$chr)
-  race <- c(unique(list_pop()$super_pop_code)[-1])
-  retrieveFreq <- function(rsid, race){
-    LDhap(snps = rsid,
-          pop = race,
-          token = "979f246a6b57")
-  }
-  retrieveCorr <- function(rsids, chr, race){
-    LDmatrix(snp = rsids$refsnp_id[rsids$chr == chr],
-             pop = race, 
-             r2d = "r2",
-             token = "979f246a6b57") 
-  }
-  if (!file.exists("./data/genoFreq.RData")){
-    genoFreq <- vector("list", 150)
-    m <- 1
-    for (i in rsids$refsnp_id){
-      for (j in race){
-        mat <- retrieveFreq(i, j) %>%
-          dplyr::rename(allele = i) %>%
-          mutate(Race = j, refsnp_id = i)
-        genoFreq[[m]] <- mat
-        m <- m + 1
-      }
-    }
-    genoFreq <- bind_rows(genoFreq)
-    genoFreq <- merge(genoFreq, rsids)
-    save(genoFreq, file = "./data/genoFreq.RData")
-  }else{
-    load("./data/genoFreq.RData")
-  }
-  if (!file.exists("./data/genoCorr.RData")){
-    genoCorr <- list()
-    for (i in unique_chrs){
-      chr_list <- vector("list", 5)
-      if (sum(rsids$chr == i) > 1){
-        for (j in race){
-          mat <- retrieveCorr(rsids, i, j) %>%
-            mutate(Race = j, chr = i)
-          chr_list[[j]] <- mat
-        }
-        genoCorr[[as.character(i)]] <- bind_rows(chr_list) 
-      }
-    }
-    save(genoCorr, file = "./data/genoCorr.RData")
-  }else{
-    load("./data/genoCorr.RData")
-  }
-  if (!file.exists("./data/genoTrait.RData")){
-    pat <- "^[+-]?[0-9]+(?:\\.[0-9]+)?-[+-]?[0-9]+(?:\\.[0-9]+)?"
-    trait <- LDtrait(snps = rsids$refsnp_id,
-                     pop = "ALL",
-                     win_size = "1",
-                     token = "979f246a6b57")
-    trait <- trait %>%
-      mutate(Beta_or_OR = str_extract(Beta_or_OR, pat)) %>%
-      separate(Beta_or_OR, into = c("low", "high"), sep = "-", convert = TRUE) %>%
-      mutate(Beta = (low + high) / 2)
-    phenos <- list(
-      BMI    = "Body mass index",
-      T2D    = c("Type 2 diabetes",
-                 "Type ii diabetes",
-                 "Type 2 diabetes (PheCode 250.2)",
-                 "Type 2 diabetes with renal manifestations (PheCode 250.22)",
-                 "Type 2 diabetes with ophthalmic manifestations (PheCode 250.23)",
-                 "Type 2 diabetes with neurological manifestations (PheCode 250.24)"),
-      HCT    = "hematocrit (maximum, inv-norm transformed)",
-      SBP    = "Systolic blood pressure",
-      Med    = c("Medication use (drugs used in diabetes)",
-                 "Takes medication for Diabetes/sugar?"),
-      Glucose = "Glucose (finger stick, mean, inv-norm transformed)",
-      F_Glucose= c("Fasting blood glucose",
-                   "Fasting plasma glucose",
-                   "Fasting glucose"),
-      LDL    = c("low density lipoprotein cholesterol (LDLC, mean, inv-norm transformed)"),
-      HbA1c  = "Hemoglobin A1c (HbA1c, mean, inv-norm transformed)",
-      HEIGHT = "Height",
-      Triglyceride = "Triglyceride levels",
-      ALT    = c("Alanine levels (UKB data field 23460)", "Alanine levels",
-                 "Alanine aminotransferase levels"),
-      ALP    = "Serum alkaline phosphatase levels",
-      Albumin= "Serum albumin levels",
-      Insulin= "Fasting insulin"
-    )
-    all_mats <- imap(phenos, function(trait_names, pheno_code) {
-      trait %>%
-        filter(GWAS_Trait %in% trait_names) %>%
-        group_by(Query) %>%
-        summarise(Beta = mean(Beta, na.rm = TRUE), .groups = "drop") %>%
-        mutate(PHENO = pheno_code)
-    })
-    genoTrait <- bind_rows(all_mats)
-    save(genoTrait, file = "./data/genoTrait.RData")
-  }else{
-    load("./data/genoTrait.RData")
-  }
-  return (list(rsids = rsids, genoFreq = genoFreq, genoCorr = genoCorr, genoTrait = genoTrait))
 }
 
 loadCovarInfo <- function(genoInfo){
@@ -1066,7 +1050,7 @@ if (file.exists("./data/data_generation_seed.RData")){
   save(seed, file = "./data/data_generation_seed.RData")
 }
 
-for (i in 1:replicate){
+for (i in 1:5){
   digit <- stringr::str_pad(i, 4, pad = 0)
   cat("Current:", digit, "\n")
   data <- suppressMessages({generateData(n, seed[i])})
@@ -1074,32 +1058,29 @@ for (i in 1:replicate){
 }
 
 
-
-
 # data$HbA1c_c  <- (data$HbA1c - 53) / 15
 # data$eGFR_c <- (data$eGFR - 60) / 20
 # data$BMI_c <- (data$BMI - 30) / 5
 # data$AGE_c <- (data$AGE - 60) / 15
 # data$SMOKE <- as.character(data$SMOKE)
-# 
 # data$HbA1c_STAR_c  <- (data$HbA1c_STAR - 53) / 15
 # data$eGFR_STAR_c <- (data$eGFR_STAR - 60) / 20
 # data$BMI_STAR_c <- (data$BMI_STAR - 30) / 5
 # data$SMOKE_STAR <- as.character(data$SMOKE_STAR)
-
-# fit.STAR <- coxph(Surv(T_I_STAR, EVENT_STAR) ~ 
+# fit.STAR <- coxph(Surv(T_I_STAR, EVENT_STAR) ~
 #                     poly(HbA1c_STAR_c, 2, raw = TRUE) + eGFR_STAR_c + BMI_STAR_c +
-#                     rs4506565_STAR + AGE_c + SEX + 
+#                     rs4506565_STAR + AGE_c + SEX +
 #                     INSURANCE + RACE + SMOKE_STAR +
 #                     HbA1c_STAR_c:AGE_c,
 #                   data = data)
-
-# fit.TRUE <- coxph(Surv(T_I, EVENT) ~ 
+# fit.TRUE <- coxph(Surv(T_I, EVENT) ~
 #                     poly(HbA1c_c, 2, raw = TRUE) + eGFR_c + BMI_c +
-#                     rs4506565 + AGE_c + SEX + 
+#                     rs4506565 + AGE_c + SEX +
 #                     INSURANCE + RACE + SMOKE +
 #                     HbA1c_c:AGE_c,
 #                   data = data)
-
-
+# exp(coef(fit.TRUE)) - exp(coef(fit.STAR))
+# ggplot(data) + geom_point(aes(x = T_I, y = T_I_STAR))
+# ggplot(data) + 
+#   geom_point(aes(x = HbA1c, y = HbA1c_STAR))
 

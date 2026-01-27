@@ -5,31 +5,30 @@ source("00_utils_functions.R")
 load("./simulations/results_COMBINED.RData")
 methods <- c("true", "me", "complete_case", "raking",
              "mice", "mixgb", "tpvmi_gans", "tpvmi_rddm")
-
+vars_vec <- c("HbA1c", "HbA1c^2", "eGFR", "BMI", "rs4506565 1", "rs4506565 2", 
+              "AGE", "SEX TRUE", "INSURANCE TRUE",
+              "RACE AMR", "RACE EAS", "RACE EUR", "RACE SAS", "SMOKE 2", "SMOKE 3",
+              "AGE:HbA1c")
 combined_resultCoeff_long <- combined_resultCoeff %>% 
   pivot_longer(
-    cols = 1:14,
+    cols = 1:16,
     names_to = "Covariate", 
     values_to = "Coefficient"
   ) %>%
   mutate(Coefficient = as.numeric(Coefficient), 
          Method = factor(Method, levels = toupper(methods)),
          `Sampling Design` = factor(Design, levels = c("SRS", "BALANCE", "NEYMAN")),
-         Covariate = factor(Covariate, levels = names(combined_resultCoeff)[1:14], labels = 
-                              c("HbA1c", "rs4506565 1", "rs4506565 2", "AGE", "eGFR", "SEX TRUE", "INSURANCE TRUE", 
-                                "RACE AFR", "RACE AMR", "RACE SAS", "RACE EAS", "BMI", "SMOKE 2", "SMOKE 3")))
+         Covariate = factor(Covariate, levels = vars_vec))
 combined_resultStdError_long <- combined_resultStdError %>% 
   pivot_longer(
-    cols = 1:14,
+    cols = 1:16,
     names_to = "Covariate", 
     values_to = "StdError"
   ) %>%
   mutate(StdError = as.numeric(StdError), 
          Method = factor(Method, levels = toupper(methods)),
          `Sampling Design` = factor(Design, levels = c("SRS", "BALANCE", "NEYMAN")),
-         Covariate = factor(Covariate, levels = names(combined_resultCoeff)[1:14], labels = 
-                              c("HbA1c", "rs4506565 1", "rs4506565 2", "AGE", "eGFR", "SEX TRUE", "INSURANCE TRUE", 
-                                "RACE AFR", "RACE AMR", "RACE SAS", "RACE EAS", "BMI", "SMOKE 2", "SMOKE 3")))
+         Covariate = factor(Covariate, levels = vars_vec))
 
 means.coef <- combined_resultCoeff_long %>% 
   filter(Method == "TRUE") %>%
@@ -69,16 +68,14 @@ diffCoeff <- combined_resultCoeff %>%
 
 rmse_result_long <- rmse_result %>% 
   pivot_longer(
-    cols = 3:16,
+    cols = 3:18,
     names_to = "Covariate", 
     values_to = "Coefficient"
   ) %>%
   mutate(Coefficient = as.numeric(Coefficient), 
          Method = factor(Method, levels = toupper(methods)),
          `Sampling Design` = factor(Design, levels = c("SRS", "BALANCE", "NEYMAN")),
-         Covariate = factor(Covariate, levels = names(rmse_result)[3:16], labels = 
-                              c("HbA1c", "rs4506565 1", "rs4506565 2", "AGE", "eGFR", "SEX TRUE", "INSURANCE TRUE", 
-                                "RACE AFR", "RACE AMR", "RACE SAS", "RACE EAS", "BMI", "SMOKE 2", "SMOKE 3")))
+         Covariate = factor(Covariate, levels = vars_vec))
 
 truth <- colMeans(true.coeff)
 CIcoverage <- NULL
@@ -87,51 +84,52 @@ for (design in unique(combined_resultCI$Design)){
     ind <- which(combined_resultCI$Design == design & combined_resultCI$Method == method)
     curr_g <- NULL
     for (i in ind){
-      curr.lower <- combined_resultCI[i, 1:14]
-      curr.upper <- combined_resultCI[i, 15:28]
+      curr.lower <- combined_resultCI[i, 1:16]
+      curr.upper <- combined_resultCI[i, 17:33]
       curr_g <- rbind(curr_g, c(calcCICover(truth, curr.lower, curr.upper), design, method))
     }
     CIcoverage <- rbind(CIcoverage, curr_g)
   }
 }
 CIcoverage <- as.data.frame(CIcoverage)
-names(CIcoverage) <- c(names(combined_resultCoeff)[1:14],
+names(CIcoverage) <- c(names(combined_resultCoeff)[1:16],
                       "Design", "Method")
 
 CIcoverage <- CIcoverage %>%
   select(Method, Design, all_of(cols)) %>%
-  mutate(across(all_of(names(.)[3:16]), as.logical)) %>%
+  mutate(across(all_of(names(.)[3:18]), as.logical)) %>%
   group_by(Design, Method) %>%
   summarise(across(all_of(cols), ~ mean(.x)), .groups = "drop")
 
 CIcoverage_long <- CIcoverage %>%
   pivot_longer(
-    cols = 3:16,
+    cols = 3:18,
     names_to = "Covariate", 
     values_to = "Coverage"
   ) %>%
   mutate(Coverage = as.numeric(Coverage), 
          Method = factor(Method, levels = toupper(methods)),
          `Sampling Design` = factor(Design, levels = c("SRS", "BALANCE", "NEYMAN")),
-         Covariate = factor(Covariate, levels = names(rmse_result)[3:16], labels = 
-                              c("HbA1c", "rs4506565 1", "rs4506565 2", "AGE", "eGFR", "SEX TRUE", "INSURANCE TRUE", 
-                                "RACE AFR", "RACE AMR", "RACE SAS", "RACE EAS", "BMI", "SMOKE 2", "SMOKE 3")))
+         Covariate = factor(Covariate, levels = vars_vec))
 
-range_coef <- list(Covariate == "HbA1c" ~ scale_y_continuous(limits = c(means.coef$mean[1] - 0.15, means.coef$mean[1] + 0.15)),
-                   Covariate == "rs4506565 1" ~ scale_y_continuous(limits = c(means.coef$mean[2] - 0.25, means.coef$mean[2] + 0.25)),
-                   Covariate == "rs4506565 2" ~ scale_y_continuous(limits = c(means.coef$mean[3] - 0.25, means.coef$mean[3] + 0.25)),
-                   Covariate == "AGE" ~ scale_y_continuous(limits = c(means.coef$mean[4] - 0.1, means.coef$mean[4] + 0.1)),
-                   Covariate == "eGFR" ~ scale_y_continuous(limits = c(means.coef$mean[5] - 0.1, means.coef$mean[5] + 0.1)),
-                   Covariate == "SEX TRUE" ~ scale_y_continuous(limits = c(means.coef$mean[6] - 0.2, means.coef$mean[6] + 0.2)),
-                   Covariate == "INSURANCE TRUE" ~ scale_y_continuous(limits = c(means.coef$mean[7] - 0.2, means.coef$mean[7] + 0.2)),
-                   Covariate == "RACE AFR" ~ scale_y_continuous(limits = c(means.coef$mean[8] - 0.25, means.coef$mean[8] + 0.25)),
-                   Covariate == "RACE AMR" ~ scale_y_continuous(limits = c(means.coef$mean[9] - 0.25, means.coef$mean[9] + 0.25)),
-                   Covariate == "RACE SAS" ~ scale_y_continuous(limits = c(means.coef$mean[10] - 0.25, means.coef$mean[10] + 0.25)),
-                   Covariate == "RACE EAS" ~ scale_y_continuous(limits = c(means.coef$mean[11] - 0.25, means.coef$mean[11] + 0.25)),
-                   Covariate == "BMI" ~ scale_y_continuous(limits = c(means.coef$mean[12] - 0.25, means.coef$mean[12] + 0.25)),
-                   Covariate == "SMOKE 2" ~ scale_y_continuous(limits = c(means.coef$mean[13] - 0.25, means.coef$mean[13] + 0.25)),
-                   Covariate == "SMOKE 3" ~ scale_y_continuous(limits = c(means.coef$mean[14] - 0.25, means.coef$mean[14] + 0.25)))
-
+range_coef <- list(
+  Covariate == "HbA1c"          ~ scale_y_continuous(limits = c(means.coef$mean[1] - 0.15, means.coef$mean[1] + 0.15)),
+  Covariate == "HbA1c^2"        ~ scale_y_continuous(limits = c(means.coef$mean[2] - 0.15, means.coef$mean[2] + 0.15)),
+  Covariate == "eGFR"           ~ scale_y_continuous(limits = c(means.coef$mean[3] - 0.1,  means.coef$mean[3] + 0.1)),
+  Covariate == "BMI"            ~ scale_y_continuous(limits = c(means.coef$mean[4] - 0.25, means.coef$mean[4] + 0.25)),
+  Covariate == "rs4506565 1"    ~ scale_y_continuous(limits = c(means.coef$mean[5] - 0.25, means.coef$mean[5] + 0.25)),
+  Covariate == "rs4506565 2"    ~ scale_y_continuous(limits = c(means.coef$mean[6] - 0.25, means.coef$mean[6] + 0.25)),
+  Covariate == "AGE"            ~ scale_y_continuous(limits = c(means.coef$mean[7] - 0.1,  means.coef$mean[7] + 0.1)),
+  Covariate == "SEX TRUE"       ~ scale_y_continuous(limits = c(means.coef$mean[8] - 0.2,  means.coef$mean[8] + 0.2)),
+  Covariate == "INSURANCE TRUE" ~ scale_y_continuous(limits = c(means.coef$mean[9] - 0.2,  means.coef$mean[9] + 0.2)),
+  Covariate == "RACE AMR"       ~ scale_y_continuous(limits = c(means.coef$mean[10] - 0.25, means.coef$mean[10] + 0.25)),
+  Covariate == "RACE EAS"       ~ scale_y_continuous(limits = c(means.coef$mean[11] - 0.25, means.coef$mean[11] + 0.25)),
+  Covariate == "RACE EUR"       ~ scale_y_continuous(limits = c(means.coef$mean[12] - 0.25, means.coef$mean[12] + 0.25)),
+  Covariate == "RACE SAS"       ~ scale_y_continuous(limits = c(means.coef$mean[13] - 0.25, means.coef$mean[13] + 0.25)),
+  Covariate == "SMOKE 2"        ~ scale_y_continuous(limits = c(means.coef$mean[14] - 0.25, means.coef$mean[14] + 0.25)),
+  Covariate == "SMOKE 3"        ~ scale_y_continuous(limits = c(means.coef$mean[15] - 0.25, means.coef$mean[15] + 0.25)),
+  Covariate == "AGE:HbA1c"      ~ scale_y_continuous(limits = c(means.coef$mean[16] - 0.15, means.coef$mean[16] + 0.15))
+)
 dev.off()
 
 ggplot(CIcoverage_long) + 

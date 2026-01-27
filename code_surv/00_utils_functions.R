@@ -33,16 +33,31 @@ exactAllocation <- function(data, stratum_variable, target_variable, sample_size
   NS <- strata_units$count * sqrt(Ss[, 2])
   names(NS) <- Ss[, 1]
   NS <- NS[order(NS, decreasing = T)]
-  # Type-II
+  
+  upper <- strata_units$count
+  names(upper) <- strata_units[[stratum_variable]]
+  upper <- upper[names(NS)]
+  
   columns <- sample_size - 2 * nrow(Ss)
-  priority <- matrix(0, nrow = columns, ncol = nrow(Ss))
+  nc <- max(upper)
+  
+  priority <- matrix(0, nrow = nc, ncol = nrow(Ss))
   colnames(priority) <- names(NS)
+  
   for (h in names(NS)){
-    priority[, h] <- NS[[h]] / sqrt((2:(columns + 1)) * (3:(columns + 2)))
+    p_vals <- NS[[h]] / sqrt((2:(nc + 1)) * (3:(nc + 2)))
+    limit <- upper[[h]]
+    if (limit - 1 <= nc) {
+      start_mask <- max(1, limit - 1)
+      p_vals[start_mask:nc] <- -1
+    }
+    priority[, h] <- p_vals
   }
+  
   priority <- as.data.frame(priority)
   priority <- stack(priority)
   colnames(priority) <- c("value", stratum_variable)
+  
   order_priority <- order(priority$value, decreasing = T)
   alloc <- (table(priority[[stratum_variable]][order_priority[1:columns]]) + 2)
   alloc <- alloc[names(table(data[[stratum_variable]]))]

@@ -6,7 +6,7 @@ options(survey.lonely.psu = "certainty")
 retrieveEst <- function(method){
   resultCoeff <- resultStdError <- resultCI <- NULL
   sampling_designs <- c("SRS", "Balance", "Neyman")
-  for (i in 1:500){
+  for (i in 1:22){
     digit <- stringr::str_pad(i, 4, pad = 0)
     cat("Current:", digit, "\n")
     load(paste0("./data/True/", digit, ".RData"))
@@ -29,7 +29,8 @@ retrieveEst <- function(method){
                        data = data)
       resultCoeff <- rbind(resultCoeff, c(exp(coef(cox.mod)), toupper(method), toupper(method), digit))
       resultStdError<- rbind(resultStdError, c(sqrt(diag(vcov(cox.mod))), toupper(method), toupper(method), digit))
-      resultCI <- rbind(resultCI, c(exp(confint(cox.mod)[, 1]), exp(confint(cox.mod)[, 2]), toupper(method), toupper(method), digit))
+      resultCI <- rbind(resultCI, c(exp(confint(cox.mod)[, 1]), 
+                                    exp(confint(cox.mod)[, 2]), toupper(method), toupper(method), digit))
     }else{
       for (j in sampling_designs){
         if (method == "complete_case"){
@@ -53,7 +54,8 @@ retrieveEst <- function(method){
           }
           resultCoeff <- rbind(resultCoeff, c(exp(coef(cox.mod)), toupper(j), toupper(method), digit))
           resultStdError <- rbind(resultStdError, c(sqrt(diag(vcov(cox.mod))), toupper(j), toupper(method), digit))
-          resultCI <- rbind(resultCI, c(exp(confint(cox.mod)[, 1]), exp(confint(cox.mod)[, 2]), toupper(j), toupper(method), digit))
+          resultCI <- rbind(resultCI, c(exp(confint(cox.mod)[, 1]), 
+                                        exp(confint(cox.mod)[, 2]), toupper(j), toupper(method), digit))
         }else if (method == "raking"){
           load(paste0("./simulations/", j, "/", method, "/", digit, ".RData"))
           cox.mod <- rakingest
@@ -108,8 +110,10 @@ retrieveEst <- function(method){
       }
     }
   }
-  vars_vec <- c("I((HbA1c - 50)/5)", "rs45065651", "rs45065652", "I((AGE - 50)/5)", "I((eGFR - 90)/10)", "SEXTRUE", "INSURANCETRUE",
-                "RACEAFR", "RACEAMR", "RACESAS", "RACEEAS", "I(BMI/5)", "SMOKE2", "SMOKE3")
+  vars_vec <- c("HbA1c", "HbA1c^2", "eGFR", "BMI", "rs4506565 1", "rs4506565 2", 
+                "AGE", "SEX TRUE", "INSURANCE TRUE",
+                "RACE AMR", "RACE EAS", "RACE EUR", "RACE SAS", "SMOKE 2", "SMOKE 3",
+                "AGE:HbA1c")
   resultCoeff <- as.data.frame(resultCoeff)
   names(resultCoeff) <- c(vars_vec, "Design", "Method", "ID")
   resultStdError <- as.data.frame(resultStdError)
@@ -122,13 +126,13 @@ retrieveEst <- function(method){
        file = paste0("./simulations/results_", toupper(method),".RData"))
 }
 
-methods <- c("true", "me", "complete_case", "raking",
-             "mice", "mixgb", "tpvmi_gans", "tpvmi_rddm")
-
+#methods <- c("true", "me", "complete_case", "raking",
+#             "mice", "mixgb", "tpvmi_gans", "tpvmi_rddm")
+methods <- c("true", "me", "complete_case", "tpvmi_rddm")
 for (method in methods){
   retrieveEst(method)
 }
-
+retrieveEst("me")
 combine <- function(){
   filenames <- paste0("./simulations/results_", toupper(methods), ".RData")
   list_coeff <- list()
@@ -170,8 +174,6 @@ multi_impset <- lapply(multi_impset, function(d) d %>% select(-imp_id))
 multi_impset <- lapply(multi_impset, function(dat){
   match_types(dat, data)
 })
-
-
 imp.mids <- imputationList(multi_impset)
 cox.mod <- with(data = imp.mids, 
                 exp = coxph(Surv(T_I, EVENT) ~
@@ -181,8 +183,8 @@ cox.mod <- with(data = imp.mids,
                               I((HbA1c - 53) / 15):I((AGE - 60) / 15)))
 pooled <- MIcombine(cox.mod)
 sumry <- summary(pooled, conf.int = TRUE)
-exp(coef(cox.fit)) - exp(sumry$results)
-sumry$se
+as.vector(exp(coef(cox.fit)) - exp(sumry$results))
+
 
 library(ggplot2)
 
@@ -202,12 +204,5 @@ ggplot(data) +
   geom_density(aes(x = BMI), colour = "red") +
   geom_density(data = multi_impset[[1]], aes(x = BMI), colour = "blue")
 
-ggplot(data) + 
-  geom_point(aes(x = BMI, y = T_I), colour = "red") +
-  geom_point(data = multi_impset[[1]], aes(x = BMI, y = T_I), colour = "blue")
 
-samp <- read.csv(paste0("./data/Sample/SRS/", digit, ".csv"))
-plot(multi_impset[[1]]$T_I, data$T_I)
-
-plot(data$T_I, data$T_I_STAR)
 

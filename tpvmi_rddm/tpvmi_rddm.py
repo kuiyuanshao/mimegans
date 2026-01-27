@@ -220,9 +220,6 @@ class TPVMI_RDDM:
                         swa_lr = lr * 0.5
                         for param_group in optimizer.param_groups:
                             param_group['lr'] = swa_lr
-                        current_lr = swa_lr
-                    else:
-                        current_lr = optimizer.param_groups[0]['lr']
 
                 for step in it:
                     if mi_approx == "bootstrap":
@@ -291,6 +288,20 @@ class TPVMI_RDDM:
             batch_p1_num = p1[:, self.num_idxs]
             true_residual = batch_p2_num - batch_p1_num
             eps = torch.randn_like(batch_p2_num)
+
+            # centered_res = true_residual - true_residual.mean(dim=0, keepdim=True)
+            # cov_matrix = torch.matmul(centered_res.T, centered_res) / (B - 1 + 1e-6)
+            # cov_matrix = cov_matrix + torch.eye(cov_matrix.shape[0], device=self.device) * 1e-4
+            # L = torch.diag(torch.sqrt(torch.diagonal(cov_matrix)))
+            #
+            # structured_eps = torch.matmul(eps, L.t())
+            # idx_shuf = torch.randperm(B, device=self.device)
+            # shuffled_residual = true_residual[idx_shuf]
+            # shuffle_prob = 0.2
+            # mask = (torch.rand((B, 1), device=self.device) > shuffle_prob).float()
+            # hybrid_residual = mask * true_residual + (1 - mask) * shuffled_residual
+            # x_t_num = batch_p1_num + a_bar * hybrid_residual + b_bar * eps
+
             x_t_num = a_bar * batch_p2_num + (1 - a_bar) * batch_p1_num + b_bar * eps
             for i, name in enumerate(self.num_vars):
                 x_t_dict[name] = x_t_num[:, i:i + 1]
@@ -330,10 +341,29 @@ class TPVMI_RDDM:
 
         if len(self.num_vars) > 0:
             pred_stack = torch.stack([model_out[name] for name in self.num_vars], dim=1)
-            # [FIX]: Use 5.0 weighting for Residual.
-            # 1.0 was too loose (Cloud), 10.0 was too strict (Line/Suffocated).
-            # 5.0 balances Trend vs Variance.
-            loss_total += (5.0 * F.mse_loss(pred_stack[:, :, 0], true_residual) +
+
+            # pred_res = pred_stack[:, :, 0]
+            # pred_eps = pred_stack[:, :, 1]
+            # pred_gate_logits = pred_stack[:, :, 2]
+            #
+            # threshold = 0.05
+            # is_shift_target = (torch.abs(true_residual) > threshold).float()
+            # ghost_mask = (is_shift_target > 0.5).squeeze()
+
+            # if ghost_mask.sum() > 0:
+            #     res_ghosts = pred_res[ghost_mask]
+            #     true_res_ghosts = true_residual[ghost_mask]
+            #     res_loss = F.mse_loss(res_ghosts, true_res_ghosts)
+            # else:
+            #     res_loss = torch.tensor(0.0, device=self.device)
+
+            # gate_loss = F.binary_cross_entropy_with_logits(pred_gate_logits, is_shift_target)
+            # eps_loss = F.mse_loss(pred_eps, eps)
+
+            # Weighting: Prioritize accurate Gating and Residuals over Noise
+            # loss_total += (10.0 * res_loss + 5.0 * gate_loss + eps_loss)
+
+            loss_total += (F.mse_loss(pred_stack[:, :, 0], true_residual) +
                            F.mse_loss(pred_stack[:, :, 1], eps))
 
         if len(self.cat_vars) > 0:
@@ -346,9 +376,6 @@ class TPVMI_RDDM:
         return loss_total
 
     def impute(self, m=None, save_path="imputed_results.parquet", batch_size=None, eta=0.0):
-        # [FIX]: Set default eta to 0.0.
-        # Variance should come from the high-beta diffusion process, not random noise injection.
-
         if not save_path.endswith('.parquet'):
             base = os.path.splitext(save_path)[0]
             save_path = f"{base}.parquet"
@@ -398,7 +425,6 @@ class TPVMI_RDDM:
                     b_aux = self._global_aux[start:end]
 
                     x_t_dict, p1_dict, aux_dict, mask_dict = {}, {}, {}, {}
-
                     if len(self.num_idxs) > 0:
                         curr_p1_num = b_p1[:, self.num_idxs]
                         init_eps = torch.randn_like(curr_p1_num)
@@ -444,15 +470,13 @@ class TPVMI_RDDM:
                         for name in self.num_vars:
                             pred_res = out[name][:, 0:1]
                             pred_eps = out[name][:, 1:2]
+
                             term_res = (a_t - a_prev) * pred_res
                             valid_root = torch.sqrt(torch.clamp(b_prev ** 2 - sigma_t ** 2, min=0.0))
                             term_eps = (b_t - valid_root) * pred_eps
 
                             noise = torch.randn_like(pred_eps)
                             x_t_dict[name] = x_t_dict[name] - term_res - term_eps + sigma_t * noise
-
-                            # [FIX] Clamp to remove extreme artifacts from diffusion instability
-                            x_t_dict[name] = torch.clamp(x_t_dict[name], -4.0, 4.0)
 
                         # Categorical Update
                         for k, var in enumerate(self.cat_vars):

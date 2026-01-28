@@ -5,11 +5,12 @@ generateSample <- function(data, proportion, seed){
   set.seed(seed)
   nRow <- N <- nrow(data)
   n_phase2 <- n <- round(nRow * proportion) 
-  p2vars <- c("rs10811661", "rs7756992", "rs11708067", "rs17036101", "rs17584499", "rs1111875", "rs4402960", "rs4607103",
-              "rs7754840", "rs9300039", "rs5015480", "rs9465871", "rs4506565", "rs5219", "rs358806", "C",
-              "EVENT", "T_I", "Creatinine", "eGFR", "HbA1c", "F_Glucose", "Glucose", "Insulin",
-              "KCAL_INTAKE", "PROTEIN_INTAKE", "Na_INTAKE", "K_INTAKE", "SMOKE", "ALC", "EXER", "INCOME",
-              "EDU", "HEIGHT", "BMI", "SBP", "Triglyceride")
+  p2vars <- c("rs10811661", "rs7756992", "rs11708067", "rs17036101", "rs17584499", 
+              "rs1111875", "rs4402960", "rs4607103", "rs7754840", "rs9300039", 
+              "rs5015480", "rs9465871", "rs4506565", "rs5219", "rs358806",
+              "HbA1c", "Creatinine", "eGFR", "WEIGHT", "HEIGHT", "BMI", 
+              "SMOKE", "INCOME", "ALC", "EXER", "EDU", "SBP", "Triglyceride", 
+              "C", "EVENT", "T_I")
   # Simple Random Sampling
   srs_ind <- sample(nRow, n_phase2)
   samp_srs <- data %>%
@@ -17,9 +18,9 @@ generateSample <- function(data, proportion, seed){
                   W = 1,
                   across(all_of(p2vars), ~ ifelse(R == 0, NA, .)))
   # Balanced Sampling
-  time_cut <- as.numeric(cut(data$T_I_STAR, breaks = c(-Inf, 2, 10, 18, 26, Inf), 
-                             labels = 1:5))
-  hba1c_cut <- as.numeric(cut(data$HbA1c_STAR, breaks = c(-Inf, 60, 80, Inf), 
+  time_cut <- as.numeric(cut(data$T_I_STAR, breaks = c(-Inf, 10, 15, 25, Inf), 
+                             labels = 1:4))
+  hba1c_cut <- as.numeric(cut(data$HbA1c_STAR, breaks = c(-Inf, 50, 65, Inf), 
                    labels = 1:3))
   strata <- interaction(data$EVENT_STAR, time_cut, hba1c_cut, drop = TRUE)
   data$STRATA <- strata
@@ -49,7 +50,7 @@ generateSample <- function(data, proportion, seed){
   # Stratified Sampling with Neyman Allocation
   ### Getting Influence Function by auxiliary variables
   copy <- data
-  copy$HbA1c_STAR_c  <- (copy$HbA1c_STAR - 53) / 15
+  copy$HbA1c_STAR_c  <- (copy$HbA1c_STAR - 50) / 15
   copy$eGFR_STAR_c <- (copy$eGFR_STAR - 60) / 20
   copy$BMI_STAR_c <- (copy$BMI_STAR - 30) / 5
   copy$SMOKE_STAR <- copy$SMOKE_STAR

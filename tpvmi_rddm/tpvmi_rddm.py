@@ -10,6 +10,7 @@ import copy
 from torch.optim import SGD, Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
+from sklearn.metrics import confusion_matrix
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from networks import RDDM_NET
@@ -89,19 +90,31 @@ class TPVMI_RDDM:
         self.data_info = data_info
         self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
         self.num_steps = config["diffusion"]["num_steps"]
-
+        self.sum_scale = torch.tensor(config["diffusion"]["sum_scale"])
+        self.task = config["else"]["task"]
         # Schedules
-        if config["diffusion"]["schedule"] == "linear":
-            self.alpha_bars = torch.linspace(1, 0, self.num_steps).to(self.device)
-        elif config["diffusion"]["schedule"] == "cosine":
-            self.alpha_bars = self._get_cosine_schedule(self.num_steps).to(self.device)
+        b = torch.linspace(0, 1, self.num_steps).to(self.device) ** 3
+        a = torch.flip(torch.linspace(0, 1, self.num_steps).to(self.device), dims=[0])
+        alphas = a / a.sum()
+        betas = b / b.sum() * self.sum_scale
+        betas_cumsum = betas.cumsum(dim=0).clip(0, 1)
 
-        # [FIX]: Increase beta_end default from 0.01 to 0.1
-        # This increases the starting noise at t=T, giving the model more freedom
-        # to move away from P1 (Proxy) and avoid "Ghost traps".
-        beta_start = config["diffusion"].get("beta_start", 0.0001)
-        beta_end = config["diffusion"].get("beta_end", 0.1)
-        self.beta_bars = torch.linspace(beta_start, beta_end, self.num_steps).to(self.device)
+        self.alpha_bars = alphas.cumsum(dim=0).clip(0, 1)
+        alphas_cumsum_prev = F.pad(self.alpha_bars[:-1], (1, 0), value=self.alpha_bars[1])
+
+        betas_cumsum_prev = F.pad(betas_cumsum[:-1], (1, 0), value=betas_cumsum[1])
+        self.beta_bars = torch.sqrt(betas_cumsum)
+
+        posterior_variance = betas * betas_cumsum_prev / betas_cumsum
+        posterior_variance[0] = 0
+        self.posterior_log_variance = torch.log(posterior_variance.clamp(min=1e-20))
+
+        self.posterior_mean_coef1 = betas_cumsum_prev / betas_cumsum
+        self.posterior_mean_coef2 = (betas * alphas_cumsum_prev-betas_cumsum_prev*alphas) / betas_cumsum
+        self.posterior_mean_coef3 = betas / betas_cumsum
+        self.posterior_mean_coef1[0] = 0
+        self.posterior_mean_coef2[0] = 0
+        self.posterior_mean_coef3[0] = 1
 
         self.model = None
         self.model_list = []
@@ -154,6 +167,7 @@ class TPVMI_RDDM:
 
         self._global_p1 = torch.from_numpy(proc_data[:, p1_idx]).float().to(self.device)
         self._global_p2 = torch.from_numpy(proc_data[:, p2_idx]).float().to(self.device)
+
         all_idx = set(range(proc_data.shape[1]))
         reserved = set(p1_idx) | set(p2_idx)
         aux_idx = np.array(sorted(list(all_idx - reserved)), dtype=int)
@@ -161,6 +175,30 @@ class TPVMI_RDDM:
             self._global_aux = torch.from_numpy(proc_data[:, aux_idx]).float().to(self.device)
         else:
             self._global_aux = torch.empty((proc_data.shape[0], 0)).float().to(self.device)
+
+        self.Q_dict = {}
+        if len(self.cat_idxs) > 0:
+            rel_cat_idxs = self.cat_idxs.cpu().numpy()
+
+            # Extract valid pairs for estimation
+            valid_p1_entries = proc_data[valid_rows][:, p1_idx[rel_cat_idxs]].astype(int)
+            valid_p2_entries = proc_data[valid_rows][:, p2_idx[rel_cat_idxs]].astype(int)
+
+            for i, var in enumerate(self.cat_vars):
+                name = var['name']
+                K = var['num_classes']
+
+                # Compute Q: Rows=Truth (P2), Cols=Proxy (P1)
+                cm = confusion_matrix(
+                    valid_p2_entries[:, i],
+                    valid_p1_entries[:, i],
+                    labels=range(K)
+                )
+
+                # Laplace Smoothing and Normalization
+                cm_smooth = cm + 1
+                Q = cm_smooth / cm_smooth.sum(axis=1, keepdims=True)
+                self.Q_dict[name] = torch.tensor(Q, device=self.device).float()
 
         def get_tensors(rows):
             t_p1 = torch.from_numpy(proc_data[rows][:, p1_idx]).float().to(self.device)
@@ -191,6 +229,7 @@ class TPVMI_RDDM:
             train_rows, val_rows = current_rows[n_val:], current_rows[:n_val] if n_val > 0 else []
 
             train_p1, train_p2, train_aux = get_tensors(train_rows)
+
             self.model = RDDM_NET(self.config, self.device, self.variable_schema).to(self.device)
 
             if mi_approx == "SWAG":
@@ -280,50 +319,42 @@ class TPVMI_RDDM:
         a_bar = self.alpha_bars[t].view(B, 1)
         b_bar = self.beta_bars[t].view(B, 1)
 
-        x_t_dict, p1_dict, aux_dict, mask_dict = {}, {}, {}, {}
+        x_t_dict, p1_dict, aux_dict = {}, {}, {}
 
         # --- NUMERIC ---
         if len(self.num_idxs) > 0:
             batch_p2_num = p2[:, self.num_idxs]
             batch_p1_num = p1[:, self.num_idxs]
-            true_residual = batch_p2_num - batch_p1_num
+            true_residual = batch_p1_num - batch_p2_num
             eps = torch.randn_like(batch_p2_num)
 
-            # centered_res = true_residual - true_residual.mean(dim=0, keepdim=True)
-            # cov_matrix = torch.matmul(centered_res.T, centered_res) / (B - 1 + 1e-6)
-            # cov_matrix = cov_matrix + torch.eye(cov_matrix.shape[0], device=self.device) * 1e-4
-            # L = torch.diag(torch.sqrt(torch.diagonal(cov_matrix)))
-            #
-            # structured_eps = torch.matmul(eps, L.t())
-            # idx_shuf = torch.randperm(B, device=self.device)
-            # shuffled_residual = true_residual[idx_shuf]
-            # shuffle_prob = 0.2
-            # mask = (torch.rand((B, 1), device=self.device) > shuffle_prob).float()
-            # hybrid_residual = mask * true_residual + (1 - mask) * shuffled_residual
-            # x_t_num = batch_p1_num + a_bar * hybrid_residual + b_bar * eps
-
-            x_t_num = a_bar * batch_p2_num + (1 - a_bar) * batch_p1_num + b_bar * eps
+            x_t_num = batch_p2_num + a_bar * true_residual + b_bar * eps
             for i, name in enumerate(self.num_vars):
                 x_t_dict[name] = x_t_num[:, i:i + 1]
                 p1_dict[name] = batch_p1_num[:, i:i + 1]
-                mask_dict[name] = torch.ones((B, 1), device=self.device)
 
         # --- CATEGORICAL ---
         target_cat_list = []
         if len(self.cat_idxs) > 0:
             batch_p1_cat = p1[:, self.cat_idxs].long()
             batch_p2_cat = p2[:, self.cat_idxs].long()
-            probs_matrix = a_bar.expand(B, len(self.cat_vars))
-            mask = torch.bernoulli(probs_matrix).bool()
-            x_t_indices = torch.where(mask, batch_p2_cat, batch_p1_cat)
 
             for i, var in enumerate(self.cat_vars):
                 name = var['name']
                 K = var['num_classes']
-                x_t_dict[name] = F.one_hot(x_t_indices[:, i], K).float()
-                p1_dict[name] = F.one_hot(batch_p1_cat[:, i], K).float()
+                oh_p1 = F.one_hot(batch_p1_cat[:, i], K).float()
+                oh_p2 = F.one_hot(batch_p2_cat[:, i], K).float()
+
+                p1_indices = batch_p1_cat[:, i]  # B
+                noise_dist = self.Q_dict[name][p1_indices]
+                proxy_mix = (1 - b_bar) * oh_p1 + b_bar * noise_dist
+
+                pi_t = (1 - a_bar) * oh_p2 + a_bar * proxy_mix
+                x_t_indices = torch.multinomial(pi_t, 1).squeeze(-1)
+                x_t_dict[name] = F.one_hot(x_t_indices, K).float()
+                p1_dict[name] = oh_p1
+
                 target_cat_list.append(batch_p2_cat[:, i])
-                mask_dict[name] = mask[:, i:i + 1].float()
 
         if aux.shape[1] > 0:
             aux_c = 0
@@ -336,42 +367,23 @@ class TPVMI_RDDM:
                         aux_dict[var['name']] = curr
                     aux_c += 1
 
-        model_out = self.model(x_t_dict, t, p1_dict, aux_dict, mask_dict)
+        model_out = self.model(x_t_dict, t, p1_dict, aux_dict)
         loss_total = 0.0
 
         if len(self.num_vars) > 0:
             pred_stack = torch.stack([model_out[name] for name in self.num_vars], dim=1)
-
-            # pred_res = pred_stack[:, :, 0]
-            # pred_eps = pred_stack[:, :, 1]
-            # pred_gate_logits = pred_stack[:, :, 2]
-            #
-            # threshold = 0.05
-            # is_shift_target = (torch.abs(true_residual) > threshold).float()
-            # ghost_mask = (is_shift_target > 0.5).squeeze()
-
-            # if ghost_mask.sum() > 0:
-            #     res_ghosts = pred_res[ghost_mask]
-            #     true_res_ghosts = true_residual[ghost_mask]
-            #     res_loss = F.mse_loss(res_ghosts, true_res_ghosts)
-            # else:
-            #     res_loss = torch.tensor(0.0, device=self.device)
-
-            # gate_loss = F.binary_cross_entropy_with_logits(pred_gate_logits, is_shift_target)
-            # eps_loss = F.mse_loss(pred_eps, eps)
-
-            # Weighting: Prioritize accurate Gating and Residuals over Noise
-            # loss_total += (10.0 * res_loss + 5.0 * gate_loss + eps_loss)
-
-            loss_total += (F.mse_loss(pred_stack[:, :, 0], true_residual) +
-                           F.mse_loss(pred_stack[:, :, 1], eps))
+            if self.task == "Res-N":
+                loss_total += (F.mse_loss(pred_stack[:, :, 0], true_residual) +
+                               F.mse_loss(pred_stack[:, :, 1], eps))
+            elif self.task == "Res":
+                loss_total += F.mse_loss(pred_stack[:, :, 0], true_residual)
+            elif self.task == "N":
+                loss_total += F.mse_loss(pred_stack[:, :, 0], eps)
 
         if len(self.cat_vars) > 0:
             for i, var in enumerate(self.cat_vars):
-                ce_loss = F.cross_entropy(model_out[var['name']], target_cat_list[i], reduction='none')
-                is_absorbed = ~mask[:, i]
-                masked_loss = ce_loss * is_absorbed.float()
-                loss_total += (masked_loss.sum() / (is_absorbed.sum() + 1e-6))
+                ce_loss = F.cross_entropy(model_out[var['name']], target_cat_list[i], reduction='mean', label_smoothing=0)
+                loss_total += ce_loss
 
         return loss_total
 
@@ -424,26 +436,30 @@ class TPVMI_RDDM:
                     b_p1 = self._global_p1[start:end]
                     b_aux = self._global_aux[start:end]
 
-                    x_t_dict, p1_dict, aux_dict, mask_dict = {}, {}, {}, {}
+                    x_t_dict, p1_dict, aux_dict = {}, {}, {}
                     if len(self.num_idxs) > 0:
                         curr_p1_num = b_p1[:, self.num_idxs]
                         init_eps = torch.randn_like(curr_p1_num)
-                        start_beta = self.beta_bars[-1]
-                        x_T_num = curr_p1_num + start_beta * init_eps
+                        x_T_num = curr_p1_num + torch.sqrt(self.sum_scale) * init_eps
                         for k, name in enumerate(self.num_vars):
                             cp1 = curr_p1_num[:, k:k + 1]
                             x_t_dict[name] = x_T_num[:, k:k + 1]
                             p1_dict[name] = cp1
-                            mask_dict[name] = torch.ones((B, 1), device=self.device)
 
                     if len(self.cat_idxs) > 0:
                         curr_p1_cat = b_p1[:, self.cat_idxs].long()
                         for k, var in enumerate(self.cat_vars):
                             name = var['name']
-                            oh_p1 = F.one_hot(curr_p1_cat[:, k], var['num_classes']).float()
-                            x_t_dict[name] = oh_p1.clone()
+                            K = var['num_classes']
+                            oh_p1 = F.one_hot(curr_p1_cat[:, k], K).float()
+
+                            p1_indices = curr_p1_cat[:, k]
+                            noise_dist = self.Q_dict[name][p1_indices]  # B x K
+
+                            pi_T = (1 - torch.sqrt(self.sum_scale)) * oh_p1 + torch.sqrt(self.sum_scale) * noise_dist
+                            x_T_indices = torch.multinomial(pi_T, 1).squeeze(-1)
+                            x_t_dict[name] = F.one_hot(x_T_indices, K).float()
                             p1_dict[name] = oh_p1
-                            mask_dict[name] = torch.zeros((B, 1), device=self.device)
 
                     if b_aux.shape[1] > 0:
                         aux_c = 0
@@ -458,44 +474,58 @@ class TPVMI_RDDM:
 
                     for t in reversed(range(self.num_steps)):
                         t_b = torch.full((B,), t, device=self.device).long()
-                        out = model_to_use(x_t_dict, t_b, p1_dict, aux_dict, mask_dict)
-
-                        a_t = self.alpha_bars[t]
-                        b_t = self.beta_bars[t]
-                        a_prev = self.alpha_bars[t - 1] if t > 0 else torch.tensor(1.0).to(self.device)
-                        b_prev = self.beta_bars[t - 1] if t > 0 else torch.tensor(0.0).to(self.device)
-                        sigma_t = eta * b_prev
+                        out = model_to_use(x_t_dict, t_b, p1_dict, aux_dict)
 
                         # Numeric Update
                         for name in self.num_vars:
-                            pred_res = out[name][:, 0:1]
-                            pred_eps = out[name][:, 1:2]
+                            x_t = x_t_dict[name]
+                            x_input = p1_dict[name]
+                            if self.task == "Res-N":
+                                pred_res = out[name][:, 0:1]
+                                pred_eps = out[name][:, 1:2]
+                                x_start_pred = x_t - self.alpha_bars[t] * pred_res - self.beta_bars[t] * pred_eps
+                                x_start_pred = x_start_pred.clamp(-5.0, 5.0)
+                            elif self.task == "Res":
+                                pred_res = out[name]
+                                pred_eps = (x_t - x_input - (self.alpha_bars[t] - 1) * pred_res) / self.beta_bars[t]
+                                x_start_pred = x_t - self.alpha_bars[t] * pred_res - self.beta_bars[t] * pred_eps
+                                x_start_pred = x_start_pred.clamp(-5.0, 5.0)
+                            elif self.task == "N":
+                                pred_eps = out[name]
+                                x_start_pred = (x_t - self.alpha_bars[t] * x_input - self.beta_bars[t] * pred_eps) / (1 - self.alpha_bars[t]).clamp(min=1e-5)
+                                x_start_pred = x_start_pred.clamp(-5.0, 5.0)
+                                pred_res = x_input - x_start_pred
 
-                            term_res = (a_t - a_prev) * pred_res
-                            valid_root = torch.sqrt(torch.clamp(b_prev ** 2 - sigma_t ** 2, min=0.0))
-                            term_eps = (b_t - valid_root) * pred_eps
-
-                            noise = torch.randn_like(pred_eps)
-                            x_t_dict[name] = x_t_dict[name] - term_res - term_eps + sigma_t * noise
+                            posterior_mean = self.posterior_mean_coef1[t] * x_t + self.posterior_mean_coef2[t] * pred_res + self.posterior_mean_coef3[t] * x_start_pred
+                            noise = torch.randn_like(x_t) if t > 0 else 0
+                            pred_x_t = posterior_mean + (0.5 * self.posterior_log_variance[t]).exp() * noise
+                            x_t_dict[name] = pred_x_t
 
                         # Categorical Update
                         for k, var in enumerate(self.cat_vars):
                             name = var['name']
                             K = var['num_classes']
                             logits = out[name]
-                            pred_x0_probs = F.softmax(logits, dim=-1)
-                            curr_x_t = x_t_dict[name]
-                            if curr_x_t.dim() == 1: curr_x_t = F.one_hot(curr_x_t.long(), K).float()
+                            curr_oh_p1 = p1_dict[name]
+                            pred_x0_probs = F.softmax(logits, dim=-1)  # \hat{x_0} probs
+                            curr_x_t = x_t_dict[name]  # One-hot (B x K)
 
-                            prob_reveal = (a_prev - a_t) / (1.0 - a_t + 1e-6)
-                            prob_reveal = torch.clamp(prob_reveal, 0.0, 1.0)
-                            if prob_reveal.dim() == 0:
-                                prob_reveal = prob_reveal.view(1, 1)
-                            elif prob_reveal.dim() == 1:
-                                prob_reveal = prob_reveal.unsqueeze(-1)
+                            a_t = self.alpha_bars[t]
+                            a_prev = self.alpha_bars[t - 1] if t > 0 else torch.tensor(1.0).to(self.device)
+                            b_prev = self.beta_bars[t - 1] if t > 0 else torch.tensor(0.0).to(self.device)
 
-                            posterior_probs = (1.0 - prob_reveal) * curr_x_t + prob_reveal * pred_x0_probs
-                            posterior_probs = posterior_probs / (posterior_probs.sum(dim=-1, keepdim=True) + 1e-8)
+                            alpha_t = (1 - a_t) / (1 - a_prev + 1e-6)
+                            # Clamp to ensure validity (0, 1) due to potential float errors
+                            alpha_t = torch.clamp(alpha_t, 0.0, 1.0)
+                            noise_dist_weighted = torch.einsum('bk,kn->bn', pred_x0_probs, self.Q_dict[name])
+                            proxy_mix_prev = (1 - b_prev) * curr_oh_p1 + b_prev * noise_dist_weighted
+                            q_xprev_given_x0 = a_prev * pred_x0_probs + (1 - a_prev) * proxy_mix_prev
+                            x_t_idx = torch.argmax(curr_x_t, dim=-1)
+                            prob_noise_to_xt = proxy_mix_prev.gather(1, x_t_idx.unsqueeze(1))  # (B, 1)
+                            lik_vec = (1 - alpha_t) * prob_noise_to_xt + alpha_t * curr_x_t
+                            numerator = lik_vec * q_xprev_given_x0
+                            posterior_probs = numerator / (numerator.sum(dim=-1, keepdim=True) + 1e-10)
+
                             x_next_indices = torch.multinomial(posterior_probs, 1).squeeze(-1)
                             x_t_dict[name] = F.one_hot(x_next_indices, K).float()
 

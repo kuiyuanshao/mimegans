@@ -7,7 +7,7 @@ import math
 
 def get_torch_trans(heads=8, layers=1, channels=64):
     encoder_layer = nn.TransformerEncoderLayer(
-        d_model=channels, nhead=heads, dim_feedforward=64, activation="gelu", batch_first=True
+        d_model=channels, nhead=heads, dim_feedforward=64, activation="gelu"
     )
     return nn.TransformerEncoder(encoder_layer, num_layers=layers)
 
@@ -19,15 +19,16 @@ def Conv1d_with_init(in_channels, out_channels, kernel_size):
 
 
 class DiffusionEmbedding(nn.Module):
-    def __init__(self, num_steps, embedding_dim=128, dropout_rate = 0):
+    def __init__(self, num_steps, embedding_dim=128, dropout_rate=0):
         super().__init__()
         self.register_buffer("embedding", self._build_embedding(num_steps, embedding_dim // 2), persistent=False)
         self.projection1 = nn.Linear(embedding_dim, embedding_dim)
         self.projection2 = nn.Linear(embedding_dim, embedding_dim)
         self.dropout = nn.Dropout(dropout_rate)
+
     def forward(self, diffusion_step):
         x = self.embedding[diffusion_step]
-        return self.projection2(self.dropout(F.silu(self.projection1(self.dropout(x)))))
+        return F.silu(self.projection2(self.dropout(F.silu(self.projection1(self.dropout(x))))))
 
     def _build_embedding(self, num_steps, dim=64):
         steps = torch.arange(num_steps).unsqueeze(1)
@@ -36,50 +37,112 @@ class DiffusionEmbedding(nn.Module):
         table = torch.cat([torch.sin(table), torch.cos(table)], dim=1)
         return table
 
-
-class ResidualBlock(nn.Module):
-    def __init__(self, side_dim, channels, diffusion_embedding_dim, nheads, dropout_rate = 0):
+class FeatureEmbedder(nn.Module):
+    def __init__(self, schema, channels, dropout_rate=0, is_target=False, expansion_factor=1):
         super().__init__()
-        self.diffusion_projection = nn.Linear(diffusion_embedding_dim, channels)
-        self.cond_projection = Conv1d_with_init(side_dim, 2 * channels, 1)
-        self.mid_projection = Conv1d_with_init(channels, 2 * channels, 1)
-        self.output_projection = Conv1d_with_init(channels, 2 * channels, 1)
-        self.feature_layer = get_torch_trans(heads=nheads, layers=1, channels=channels)
+        self.schema = schema
+        self.channels = channels
+        self.is_target = is_target
+        self.var_names = [v['name'] for v in schema]
+        # 1. Independent Projectors (One per variable)
+        #    This ensures Variable A's value only influences Token A initially.
+        self.projectors = nn.ModuleDict()
+        for var in schema:
+            name = var['name']
+            # Calculate Input Dimension for this specific variable
+            # Numeric = 1 dim, Categorical = K dims (One-Hot)
+            dim = var['num_classes'] if 'categorical' in var['type'] else 1
+            # If target, we concatenate x_t (Noisy) + p1 (Proxy) -> Dim * 2
+            input_dim = dim * 2 if is_target else dim
+            self.projectors[name] = nn.Sequential(
+                nn.Linear(input_dim, channels),
+                nn.SiLU(),
+                nn.Dropout(dropout_rate),
+                nn.Linear(channels, channels)
+            )
+        # 2. Learnable Feature Embeddings (The "Identity" of the column)
+        #    This allows the Transformer to know WHICH variable it is looking at.
+        self.feature_embeddings = nn.Parameter(torch.randn(len(schema), channels))
         self.dropout = nn.Dropout(dropout_rate)
 
-    def forward(self, x, side_info, diffusion_emb):
-        B, C, L = x.shape
+    def forward(self, primary_dict, secondary_dict=None):
+        embeddings = []
+        for i, name in enumerate(self.var_names):
+            val = primary_dict[name]
+            # If Target, concat x_t with p1 along feature dim
+            if self.is_target and secondary_dict is not None:
+                val = torch.cat([val, secondary_dict[name]], dim=-1)
+            # A. Independent Projection -> (Batch, Channels)
+            token = self.projectors[name](self.dropout(val))
+            # B. Add Feature Identity -> (Batch, Channels)
+            #    We broadcast the (Channels) param to (Batch, Channels)
+            token = token + self.feature_embeddings[i].unsqueeze(0)
+            embeddings.append(token)
+        # Stack to create Sequence: (Batch, Num_Vars, Channels)
+        # Shape: (B, K, C)
+        sequence = torch.stack(embeddings, dim=1)
+
+        # Permute to (Batch, Channels, Num_Vars) / (B, C, K)
+        # We do this to match the Conv1d expectation in the ResidualBlock
+        return sequence.permute(0, 2, 1)
+
+
+class ResidualBlock(nn.Module):
+    def __init__(self, channels, diffusion_embedding_dim, nheads, dropout_rate=0):
+        super().__init__()
+        self.diffusion_projection = nn.Linear(diffusion_embedding_dim, channels)
+        # 1. Self-Attention (Target-Target)
+        # Expects input (Sequence, Batch, Channels). Here Sequence = Num_Features.
+        self.self_attn = get_torch_trans(heads=nheads, layers=1, channels=channels)
+        # 2. Cross-Attention (Target-Aux)
+        # Query: Targets (K, B, C)
+        # Key/Value: Aux (M, B, C)
+        self.cross_attn = nn.MultiheadAttention(embed_dim=channels, num_heads=nheads, dropout=dropout_rate)
+        self.norm_cross = nn.LayerNorm(channels)
+        # 3. Feed Forward components
+        self.mid_projection = Conv1d_with_init(channels, 2 * channels, 1)
+        self.output_projection = Conv1d_with_init(channels, 2 * channels, 1)
+        self.dropout = nn.Dropout(dropout_rate)
+
+    def forward(self, x, aux, diffusion_emb):
+        # x shape: (Batch, Channels, K)
         x_in = x
+        # Diffusion Embedding projection
+        # time_emb: (Batch, Channels, 1) to broadcast over K
         time_emb = self.diffusion_projection(self.dropout(diffusion_emb)).unsqueeze(-1)
         y = x + time_emb
-        y = y + self.cond_projection(self.dropout(side_info))[:, :C, :]
-        y = self.feature_layer(self.dropout(y.permute(0, 2, 1))).permute(0, 2, 1)
+        # ==========================================
+        # 1. Feature Attention (Self-Attention)
+        # ==========================================
+        # Permute to (K, Batch, Channels) for Transformer
+        # K acts as Sequence Length
+        y_seq = y.permute(2, 0, 1)
+        # Output: (K, Batch, Channels)
+        y_seq = self.self_attn(self.dropout(y_seq))
+        # ==========================================
+        # 2. Auxiliary Cross-Attention
+        # ==========================================
+        if aux is not None:
+            # aux input is (Batch, Channels, M)
+            # Permute to (M, Batch, Channels) for Attention Key/Value
+            context = aux.permute(2, 0, 1)
+            # Query: y_seq (Targets) -> (K, B, C)
+            # Key/Value: context (Aux) -> (M, B, C)
+            # Output: (K, B, C) - Attention weights are (B, K, M) implicitly
+            attn_out, _ = self.cross_attn(query=y_seq, key=context, value=context)
+            # Residual + Norm (LayerNorm applies over the last dim C)
+            y_seq = self.norm_cross(y_seq + self.dropout(attn_out))
+        # ==========================================
+        # 3. Feed Forward (Conv1d)
+        # ==========================================
+        # Permute back to (Batch, Channels, K) for Conv1d
+        y = y_seq.permute(1, 2, 0)
         y = self.mid_projection(self.dropout(y))
         gate, filter = torch.chunk(y, 2, dim=1)
         y = torch.sigmoid(gate) * torch.tanh(filter)
         y = self.output_projection(self.dropout(y))
         residual, skip = torch.chunk(y, 2, dim=1)
         return (x_in + residual) / math.sqrt(2.0), skip
-
-
-class HybridFeatureEmbedder(nn.Module):
-    def __init__(self, schema, channels, dropout_rate = 0):
-        super().__init__()
-        self.schema = schema
-        self.projections = nn.ModuleDict()
-        self.dropout = nn.Dropout(dropout_rate)
-        for var in schema:
-            name = var['name']
-            input_dim = var['num_classes'] if 'categorical' in var['type'] else 1
-            self.projections[name] = nn.Linear(input_dim, channels)
-
-    def forward(self, feature_dict):
-        embeddings_list = []
-        for var in self.schema:
-            name = var['name']
-            emb = self.projections[name](self.dropout(feature_dict[name]))
-            embeddings_list.append(emb)
-        return torch.stack(embeddings_list, dim=1).permute(0, 2, 1)
 
 
 class RDDM_NET(nn.Module):
@@ -91,25 +154,33 @@ class RDDM_NET(nn.Module):
         self.nheads = config["model"]["nheads"]
         self.layers = config["model"]["layers"]
         self.dropout_rate = config["model"]["dropout"]
+        self.task = config["else"]["task"]
 
         self.target_schema = [v for v in variable_schema if 'aux' not in v['type']]
         self.aux_schema = [v for v in variable_schema if 'aux' in v['type']]
 
-        self.target_embedder = HybridFeatureEmbedder(self.target_schema, self.channels, dropout_rate = self.dropout_rate)
-        self.aux_embedder = HybridFeatureEmbedder(self.aux_schema, self.channels, dropout_rate = self.dropout_rate)
+        # 1. Target Embedder
+        self.target_embedder = FeatureEmbedder(
+            self.target_schema,
+            self.channels,
+            self.dropout_rate,
+            is_target=True,
+            expansion_factor = 2
+        )
 
-        # Learnable Mask Token for absorbing state
-        self.mask_token = nn.Parameter(torch.randn(1, self.channels, 1))
+        # 2. Aux Embedder
+        self.aux_embedder = FeatureEmbedder(
+            self.aux_schema,
+            self.channels,
+            self.dropout_rate,
+            is_target=False
+        )
 
-        # Input Mixer: Takes x_t (Masked) + P1 (Condition)
-        self.input_mixer = Conv1d_with_init(2 * self.channels, self.channels, 1)
         self.dropout = nn.Dropout(self.dropout_rate)
         self.diffusion_embedding = DiffusionEmbedding(self.num_steps, self.channels, self.dropout_rate)
-
         self.res_blocks = nn.ModuleList([
-            ResidualBlock(self.channels, self.channels, self.channels, self.nheads, self.dropout_rate) for _ in range(self.layers)
+            ResidualBlock(self.channels, self.channels, self.nheads, self.dropout_rate) for _ in range(self.layers)
         ])
-
         self.output_heads = nn.ModuleDict()
 
         for var in self.target_schema:
@@ -117,66 +188,59 @@ class RDDM_NET(nn.Module):
             if var['type'] == 'categorical':
                 self.output_heads[name] = nn.Linear(self.channels, var['num_classes'])
             else:
-                # Numeric: Decoupled heads for Residual and Noise
-                self.output_heads[name] = nn.ModuleDict({
-                    'res': nn.Sequential(
-                        nn.Linear(self.channels, self.channels),
-                        nn.SiLU(),
-                        nn.Dropout(self.dropout_rate),
-                        nn.Linear(self.channels, 1)
-                    ),
-                    'eps': nn.Sequential(
-                        nn.Linear(self.channels, self.channels),
-                        nn.SiLU(),
-                        nn.Dropout(self.dropout_rate),
-                        nn.Linear(self.channels, 1)
-                    )
-                })
+                if self.task == "Res-N":
+                    self.output_heads[name] = nn.ModuleDict({
+                        'res': nn.Sequential(
+                            nn.Linear(self.channels, self.channels),
+                            nn.SiLU(),
+                            nn.Dropout(self.dropout_rate),
+                            nn.Linear(self.channels, 1)
+                        ),
+                        'eps': nn.Sequential(
+                            nn.Linear(self.channels, self.channels),
+                            nn.SiLU(),
+                            nn.Dropout(self.dropout_rate),
+                            nn.Linear(self.channels, 1)
+                        )
+                    })
+                else:
+                    self.output_heads[name] = nn.Sequential(
+                            nn.Linear(self.channels, self.channels),
+                            nn.SiLU(),
+                            nn.Dropout(self.dropout_rate),
+                            nn.Linear(self.channels, 1))
 
-    def forward(self, x_t_dict, t, p1_dict, aux_dict, mask_dict):
+
+    def forward(self, x_t_dict, t, p1_dict, aux_dict):
         # 1. Embed Inputs
-        x_t_emb = self.target_embedder(x_t_dict)
-        p1_emb = self.target_embedder(p1_dict)
-        aux_emb = self.aux_embedder(aux_dict)
+        # x_t_emb: (Batch, Channels, Num_Targets)
+        x_t_emb = self.target_embedder(x_t_dict, p1_dict)
         dif_emb = self.diffusion_embedding(t)
-
-        # 2. Apply Input Masking
-        mask_list = []
-        for var in self.target_schema:
-            m = mask_dict[var['name']]
-            m_expanded = m.unsqueeze(1).expand(-1, self.channels, -1)
-            mask_list.append(m_expanded)
-
-        mask_seq = torch.cat(mask_list, dim=2)
-        x_t_masked = x_t_emb * mask_seq + self.mask_token * (1.0 - mask_seq)
-
-        # 3. Combine: Masked State + Proxy Condition
-        combined_input = torch.cat([x_t_masked, p1_emb], dim=1)
-        mixed_input = self.input_mixer(self.dropout(combined_input))
-
-        sequence = torch.cat([mixed_input, aux_emb], dim=2)
-
+        # 2. Embed Aux (if exists)
+        # aux_emb: (Batch, Channels, Num_Aux)
+        aux_emb = None
+        if len(self.aux_schema) > 0:
+            aux_emb = self.aux_embedder(aux_dict)
+        # 3. Residual Blocks
+        sequence = x_t_emb
         skip_accum = 0
         for block in self.res_blocks:
-            sequence, skip = block(sequence, sequence, dif_emb)
+            sequence, skip = block(sequence, aux_emb, dif_emb)
             skip_accum += skip
-
-        target_features = (skip_accum / math.sqrt(self.layers))[:, :, :len(self.target_schema)].permute(0, 2, 1)
-
+        # 4. Decode Outputs
+        target_features = (skip_accum / math.sqrt(self.layers)).permute(0, 2, 1)
         output_dict = {}
         for i, var in enumerate(self.target_schema):
             name = var['name']
             feature = target_features[:, i, :]
-
             if var['type'] == 'categorical':
                 output_dict[name] = self.output_heads[name](self.dropout(feature))
             else:
-                # [ARCH FIX] Run decoupled heads
-                res_pred = self.output_heads[name]['res'](self.dropout(feature))
-                eps_pred = self.output_heads[name]['eps'](self.dropout(feature))
-
-                # Stack results to (B, 2) to match expected shape in tpvmi_rddm.py
-                # Index 0: Residual, Index 1: Noise
-                output_dict[name] = torch.cat([res_pred, eps_pred], dim=1)
+                if self.task == "Res-N":
+                    res_pred = self.output_heads[name]['res'](self.dropout(feature))
+                    eps_pred = self.output_heads[name]['eps'](self.dropout(feature))
+                    output_dict[name] = torch.cat([res_pred, eps_pred], dim=1)
+                else:
+                    output_dict[name] = self.output_heads[name](self.dropout(feature))
 
         return output_dict
